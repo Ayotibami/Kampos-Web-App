@@ -25,6 +25,14 @@ interface GiphyApiResponse {
 
 const BASE_URL = "https://api.giphy.com/v1";
 
+// GIPHY's free tier is capped at 100 calls/hour — reopening the picker (or
+// retyping a search someone already ran this session) shouldn't cost a
+// fresh call for the exact same result. Module-level, so it survives the
+// picker unmounting/remounting, and lives for the whole page session — no
+// need to evict; a handful of trending/search entries is negligible memory.
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const cache = new Map<string, { data: GiphyItem[]; expiresAt: number }>();
+
 function mapResult(r: GiphyApiResult): GiphyItem | null {
   const preview = r.images.fixed_width_small?.url;
   const full = r.images.original?.url;
@@ -34,6 +42,11 @@ function mapResult(r: GiphyApiResult): GiphyItem | null {
 
 async function giphyFetch(path: string, params: Record<string, string>): Promise<GiphyItem[]> {
   if (!env.GIPHY_API_KEY) return [];
+
+  const cacheKey = `${path}?${new URLSearchParams(params).toString()}`;
+  const cached = cache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+
   const query = new URLSearchParams({
     api_key: env.GIPHY_API_KEY,
     limit: "30",
@@ -43,7 +56,10 @@ async function giphyFetch(path: string, params: Record<string, string>): Promise
   const res = await fetch(`${BASE_URL}${path}?${query.toString()}`);
   if (!res.ok) throw new Error(`GIPHY request failed (${res.status})`);
   const data: GiphyApiResponse = await res.json();
-  return data.data.map(mapResult).filter((x): x is GiphyItem => x !== null);
+  const items = data.data.map(mapResult).filter((x): x is GiphyItem => x !== null);
+
+  cache.set(cacheKey, { data: items, expiresAt: Date.now() + CACHE_TTL_MS });
+  return items;
 }
 
 /** Trending GIFs/stickers — shown before the user types a search. */
