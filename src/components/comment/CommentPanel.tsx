@@ -112,7 +112,7 @@ function CommentBubble({
   const fullName = c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : null;
   // Only student profiles have campus/major — a non-student commenter (or
   // one who hasn't set these) just shows whichever piece is actually there.
-  const schoolInfo = [c.major_name, c.campus_name].filter(Boolean).join(", ");
+  const schoolInfo = [c.major_tag, c.campus_tag].filter(Boolean).join(", ");
   return (
     <motion.li
       className="relative ml-3 rounded-2xl"

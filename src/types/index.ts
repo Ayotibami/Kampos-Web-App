@@ -90,11 +90,12 @@ export interface Comment {
   /** The viewer's own reaction on this comment, if any. */
   my_reaction?: ReactionType | null;
   /** Commenter's profile info — null when the avitag isn't a student
-   * profile (only students have campus/major) or has none set. */
+   * profile (only students have campus/major) or has none set. Raw tags
+   * (e.g. "unilag"), matching how gists show campus_tag/major_tag too. */
   first_name?: string | null;
   last_name?: string | null;
-  campus_name?: string | null;
-  major_name?: string | null;
+  campus_tag?: string | null;
+  major_tag?: string | null;
   [key: string]: unknown;
 }
 
