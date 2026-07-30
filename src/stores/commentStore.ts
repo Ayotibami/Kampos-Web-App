@@ -203,32 +203,45 @@ export const useCommentStore = create<CommentState>((set, get) => ({
   },
 
   reactComment: async (commentId, gistId, type) => {
-    const applyLocal = () =>
-      set((s) => ({
-        itemsByGist: {
-          ...s.itemsByGist,
-          [gistId]: (s.itemsByGist[gistId] ?? []).map((c) =>
-            c.comment_id === commentId
-              ? {
-                  ...c,
-                  // Total count only grows the first time you react — picking
-                  // a different type later would still just be one reaction.
-                  // (There's no "un-react" path here, matching gist reactions.)
-                  reactions_count: (c.reactions_count ?? 0) + (c.my_reaction ? 0 : 1),
-                  my_reaction: type,
-                }
-              : c,
-          ),
-        },
-      }));
+    const isDemo = commentId.startsWith("demo-comment-");
+    let previous: Comment | undefined;
+    set((s) => ({
+      itemsByGist: {
+        ...s.itemsByGist,
+        [gistId]: (s.itemsByGist[gistId] ?? []).map((c) => {
+          if (c.comment_id !== commentId) return c;
+          previous = c;
+          return {
+            ...c,
+            // Total count only grows the first time you react — picking
+            // a different type later would still just be one reaction.
+            // (There's no "un-react" path here, matching gist reactions.)
+            reactions_count: (c.reactions_count ?? 0) + (c.my_reaction ? 0 : 1),
+            my_reaction: type,
+          };
+        }),
+      },
+    }));
 
-    applyLocal();
     try {
       await api.post("/reactions", { entity_type: "COMMENT", entity_id: commentId, type });
-    } catch {
-      // Best-effort — demo comments (fake ids) will always fail this against
-      // a real backend; the optimistic UI stands either way, matching how
-      // gist reactions already behave.
+    } catch (err) {
+      // Demo comments (fake ids, no real backend row) are expected to
+      // always fail this — the optimistic UI stands for those on purpose.
+      // A REAL comment failing here previously failed the exact same way
+      // silently, which is why a reaction could look successful in the UI
+      // and then just vanish on the next reload with no explanation.
+      if (isDemo) return;
+      if (previous) {
+        set((s) => ({
+          itemsByGist: {
+            ...s.itemsByGist,
+            [gistId]: (s.itemsByGist[gistId] ?? []).map((c) => (c.comment_id === commentId ? previous! : c)),
+          },
+        }));
+      }
+      set({ error: apiErrorMessage(err, "Failed to react") });
+      throw err;
     }
   },
 }));

@@ -8,6 +8,8 @@ import { useCommentStore } from "@/stores/commentStore";
 import { timeAgo } from "@/lib/format";
 import { LIMITS } from "@/lib/brand";
 import { stripInvisibleChars, sanitizeForSubmit } from "@/lib/sanitize";
+import { apiErrorMessage } from "@/lib/api";
+import { ErrorModal } from "@/components/ui/FeedbackModal";
 import type { Comment, Gist } from "@/types";
 
 // Only surface a count once someone's actually closing in on the ceiling —
@@ -200,6 +202,8 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
   // draft instead of leaking whatever was being typed for the last one.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
+  const [reactError, setReactError] = useState<string>();
+  const [sendError, setSendError] = useState<string>();
   const text = (gist?.gist_id && drafts[gist.gist_id]) || "";
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -250,6 +254,17 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
     }
   }, [gist?.gist_id, listByGist]);
 
+  const handleCommentReact = async (commentId: string, gistId: string) => {
+    try {
+      await reactComment(commentId, gistId, "LOVE");
+    } catch (err) {
+      // Surfaced now instead of silently swallowed (demo comments still
+      // fail silently on purpose — see reactComment) — a failed react used
+      // to look successful in the UI and then just vanish on reload.
+      setReactError(apiErrorMessage(err, "Failed to react — try again"));
+    }
+  };
+
   const send = async () => {
     const gistId = gist?.gist_id;
     const clean = sanitizeForSubmit(text);
@@ -258,8 +273,11 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
     try {
       await create({ gist_id: gistId, text: clean });
       setDrafts((prev) => ({ ...prev, [gistId]: "" }));
-    } catch {
-      /* surfaced via store error */
+    } catch (err) {
+      // Previously silently ignored — a failed send left the draft intact
+      // (fine) but gave zero indication anything had gone wrong, so it just
+      // looked like nothing happened when you hit send.
+      setSendError(apiErrorMessage(err, "Failed to post comment — try again"));
     } finally {
       setSending(false);
     }
@@ -267,6 +285,8 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
 
   return (
     <div className="relative h-full w-full border-l border-line bg-brand/[0.04] dark:border-white/10 dark:bg-brand-ink">
+      <ErrorModal open={!!reactError} onClose={() => setReactError(undefined)} message={reactError} />
+      <ErrorModal open={!!sendError} onClose={() => setSendError(undefined)} message={sendError} />
       {/* Same tiled doodle as the feed body, so the panel doesn't feel like a
           bare, disconnected surface next to it — inverted to light strokes
           against the dark panel, normal ink against the light one. Pure
@@ -326,7 +346,7 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
                 comment={c}
                 index={i}
                 highlighted={!!recentlyLiveIds[c.comment_id]}
-                onReact={() => gist?.gist_id && reactComment(c.comment_id, gist.gist_id, "LOVE")}
+                onReact={() => gist?.gist_id && handleCommentReact(c.comment_id, gist.gist_id)}
               />
             ))}
             {gist?.gist_id && loadingMoreByGist[gist.gist_id] && (

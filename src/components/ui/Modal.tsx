@@ -19,6 +19,12 @@ interface ModalProps {
    * variant="center", which is already always centered.
    */
   desktopCenter?: boolean;
+  /** Replaces the default width/height sizing entirely (not appended —
+   * Tailwind's generated CSS order doesn't reliably respect class-string
+   * order, so mixing default + override size classes can silently pick
+   * either one). Use for a dialog that needs to be a different size than
+   * the standard center/sheet defaults, e.g. the report modal. */
+  className?: string;
 }
 
 /** Base animated overlay used by all dialogs/sheets. Locks body scroll while open. */
@@ -29,6 +35,7 @@ export function Modal({
   variant = "center",
   dismissable = true,
   desktopCenter = false,
+  className = "",
 }: ModalProps) {
   useEffect(() => {
     if (!open) return;
@@ -67,11 +74,13 @@ export function Modal({
           />
           <motion.div
             className={
-              isSheet
-                ? `relative z-10 mt-auto w-full max-w-[520px]${
-                    desktopCenter ? " md:m-auto md:w-[min(90vw,600px)] md:max-w-none" : ""
-                  }`
-                : "relative z-10 m-auto w-[min(92vw,420px)]"
+              className
+                ? `relative z-10 m-auto ${className}`
+                : isSheet
+                  ? `relative z-10 mt-auto w-full max-w-[520px]${
+                      desktopCenter ? " md:m-auto md:w-[min(90vw,600px)] md:max-w-none" : ""
+                    }`
+                  : "relative z-10 m-auto w-[min(92vw,420px)]"
             }
             initial={isSheet ? { y: "100%" } : { opacity: 0, scale: 0.94, y: 8 }}
             animate={isSheet ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}

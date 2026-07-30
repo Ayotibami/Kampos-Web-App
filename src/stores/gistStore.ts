@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { api, apiGet, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
-import type { Gist, GistCounts } from "@/types";
+import type { Gist, GistCounts, ReactionType } from "@/types";
 
 /**
  * The backend returns reactions_count/comments_count/views_count/
@@ -37,9 +37,13 @@ interface GistState {
   create: (payload: { gist_text: string; [key: string]: unknown }) => Promise<Gist | undefined>;
   update: (gistId: string, gistText: string) => Promise<Gist | undefined>;
   uploadMedia: (gistId: string, file: Blob, name?: string) => Promise<unknown>;
+  /** GIF/sticker attachment (Tenor) — the URL is already hosted on Tenor's
+   * CDN, so this just records it against the gist, no file upload. */
+  attachMediaUrl: (gistId: string, url: string) => Promise<unknown>;
   remove: (gistId: string) => Promise<void>;
   report: (gistId: string, reason?: string) => Promise<void>;
   view: (gistId: string) => Promise<void>;
+  react: (gistId: string, type: ReactionType) => Promise<void>;
 }
 
 export const useGistStore = create<GistState>((set) => ({
@@ -142,6 +146,18 @@ export const useGistStore = create<GistState>((set) => ({
     }
   },
 
+  attachMediaUrl: async (gistId, url) => {
+    try {
+      const res = await api.post<ApiEnvelope<unknown>>(`/gists/${encodeURIComponent(gistId)}/media/url`, {
+        media_url: url,
+      });
+      return res.data?.data;
+    } catch (err) {
+      set({ error: apiErrorMessage(err, "Failed to attach GIF") });
+      throw err;
+    }
+  },
+
   remove: async (gistId) => {
     try {
       await api.delete(`/gists/${encodeURIComponent(gistId)}`);
@@ -166,6 +182,44 @@ export const useGistStore = create<GistState>((set) => ({
       await api.post(`/gists/${encodeURIComponent(gistId)}/view`);
     } catch {
       /* view tracking is best-effort; never surface an error */
+    }
+  },
+
+  react: async (gistId, type) => {
+    // Optimistic — the total metric row reads gist.counts.reactions_count
+    // from this cached item, which a bare POST to /reactions never touched
+    // before, so it sat frozen until the next full refetch even though the
+    // backend total was already correct. Count only grows the first time
+    // you react (switching type later doesn't add a second reaction),
+    // matching how comment reactions already behave.
+    let previous: Gist | undefined;
+    set((s) => ({
+      items: s.items.map((g) => {
+        if (g.gist_id !== gistId) return g;
+        previous = g;
+        return {
+          ...g,
+          my_reaction: type,
+          counts: {
+            ...(g.counts ?? { reactions_count: 0, comments_count: 0, views_count: 0, reports_count: 0 }),
+            reactions_count: (g.counts?.reactions_count ?? 0) + (g.my_reaction ? 0 : 1),
+          },
+        };
+      }),
+    }));
+    try {
+      await api.post("/reactions", { entity_type: "GIST", entity_id: gistId, type });
+    } catch (err) {
+      // Roll back — without this, a failed request (most commonly: not
+      // actually authenticated, since this endpoint requires real auth
+      // unlike the list/get endpoints) left the UI showing a reaction that
+      // was never actually saved, and it'd silently vanish on next reload
+      // with no indication anything had gone wrong.
+      if (previous) {
+        set((s) => ({ items: s.items.map((g) => (g.gist_id === gistId ? previous! : g)) }));
+      }
+      set({ error: apiErrorMessage(err, "Failed to react") });
+      throw err;
     }
   },
 }));

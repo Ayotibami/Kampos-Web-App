@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/Button";
 import { Illustration } from "@/components/brand/illustrations";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
 import { WebcamCapture } from "./WebcamCapture";
-import { CameraIconFill, ImageIconFill, X, Video } from "@/components/ui/icons";
+import { TenorPicker } from "./TenorPicker";
+import { CameraIconFill, ImageIconFill, X, Video, Sticker } from "@/components/ui/icons";
 import { useGistStore } from "@/stores/gistStore";
 import { apiErrorMessage } from "@/lib/api";
 import { LIMITS } from "@/lib/brand";
@@ -17,7 +18,13 @@ import type { Gist } from "@/types";
 interface PickedMedia {
   id: string;
   url: string;
-  blob: Blob;
+  /** Absent for a GIF/sticker picked from Tenor — those are already hosted
+   * on Tenor's CDN, so `url` itself is what gets attached (no blob upload,
+   * see remoteUrl below). */
+  blob?: Blob;
+  /** Set (equal to `url`) for a Tenor pick — the signal handlePost uses to
+   * call attachMediaUrl instead of uploadMedia. */
+  remoteUrl?: string;
   kind: "image" | "video";
   name: string;
 }
@@ -108,7 +115,7 @@ export function CreateGistSheet({
    * more to a gist, which isn't the same operation as "edit"). */
   editGist?: Gist;
 }) {
-  const { create, update, uploadMedia } = useGistStore();
+  const { create, update, uploadMedia, attachMediaUrl } = useGistStore();
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isEditing = !!editGist;
@@ -144,6 +151,7 @@ export function CreateGistSheet({
 
   const [media, setMedia] = useState<PickedMedia[]>([]);
   const [showCamera, setShowCamera] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string>();
   const [showError, setShowError] = useState(false);
@@ -208,9 +216,23 @@ export function CreateGistSheet({
   const removeMedia = (id: string) => {
     setMedia((cur) => {
       const found = cur.find((m) => m.id === id);
+      // No-op for a remote (Tenor) URL — revokeObjectURL only does anything
+      // for an actual blob: URL, so this is safe to call either way.
       if (found) URL.revokeObjectURL(found.url);
       return cur.filter((m) => m.id !== id);
     });
+  };
+
+  const addGifs = (urls: string[]) => {
+    addMedia(
+      urls.map((url) => ({
+        id: crypto.randomUUID(),
+        url,
+        remoteUrl: url,
+        kind: "image",
+        name: "gif",
+      })),
+    );
   };
 
   const reset = () => {
@@ -230,7 +252,12 @@ export function CreateGistSheet({
         const gist = await create({ gist_text: clean });
         if (gist?.gist_id && media.length) {
           await Promise.all(
-            media.map((m) => uploadMedia(gist.gist_id, m.blob, m.name).catch(() => null)),
+            media.map((m) =>
+              (m.remoteUrl
+                ? attachMediaUrl(gist.gist_id, m.remoteUrl)
+                : uploadMedia(gist.gist_id, m.blob!, m.name)
+              ).catch(() => null),
+            ),
           );
         }
       }
@@ -364,6 +391,15 @@ export function CreateGistSheet({
                   >
                     <ImageIconFill className="h-5 w-5" weight="fill" />
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowGifPicker(true)}
+                    aria-label="Add a GIF or sticker"
+                    disabled={media.length >= LIMITS.maxMediaPerGist}
+                    className="flex h-11 w-11 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95 disabled:opacity-40 disabled:shadow-none disabled:active:scale-100"
+                  >
+                    <Sticker className="h-5 w-5" />
+                  </button>
                   <input
                     ref={fileRef}
                     type="file"
@@ -405,6 +441,15 @@ export function CreateGistSheet({
             ]);
             setShowCamera(false);
           }}
+        />
+      )}
+
+      {!isEditing && (
+        <TenorPicker
+          open={showGifPicker}
+          onClose={() => setShowGifPicker(false)}
+          onAttach={addGifs}
+          maxSelectable={LIMITS.maxMediaPerGist - media.length}
         />
       )}
 

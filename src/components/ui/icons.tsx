@@ -24,6 +24,7 @@ export {
   ChevronDown,
   Eye,
   LogOut,
+  Sticker,
 } from "lucide-react";
 
 // Phosphor, fill-weight — bolder/playfuller than lucide's thin stroke. This

@@ -9,9 +9,9 @@ import { GistMediaBackdrop, GistMediaBodyPanel } from "./GistMediaStage";
 import { GistMediaOverlay } from "./GistMediaOverlay";
 import { ReactionButton } from "./ReactionButton";
 import { CreateGistSheet } from "./CreateGistSheet";
+import { ReportModal } from "./ReportModal";
 import { ErrorModal, ConfirmModal } from "@/components/ui/FeedbackModal";
 import { apiErrorMessage } from "@/lib/api";
-import { useReactionStore } from "@/stores/reactionStore";
 import { useGistStore } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import {
@@ -30,8 +30,6 @@ import type { Gist, ReactionType } from "@/types";
 import { gistColorFor } from "@/lib/brand";
 import { timeAgo, friendlyDateTime, compactNumber } from "@/lib/format";
 import { DEMO_SELF_AVITAG } from "@/lib/sampleGists";
-
-const REPORT_REASONS = ["Spam", "Harassment", "Inappropriate", "False info", "Other"];
 
 const SHORT_TEXT = 200;
 
@@ -82,13 +80,14 @@ export function GistCard({
    * updated text lives in the parent's list, not here. */
   onEdited?: () => void;
 }) {
-  const reactUpsert = useReactionStore((s) => s.upsert);
+  const reactGist = useGistStore((s) => s.react);
   const report = useGistStore((s) => s.report);
   const removeGist = useGistStore((s) => s.remove);
   const avitag = useAuthStore((s) => s.avitag);
 
   const [showActions, setShowActions] = useState(false);
-  const [showReportMenu, setShowReportMenu] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const [reported, setReported] = useState(false);
   const [showQuote, setShowQuote] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -97,6 +96,7 @@ export function GistCard({
   const [shared, setShared] = useState(false);
   const [reportError, setReportError] = useState<string>();
   const [deleteError, setDeleteError] = useState<string>();
+  const [reactError, setReactError] = useState<string>();
   const actionsRef = useRef<HTMLDivElement>(null);
 
   // Double-tap-to-react (Instagram-style) — anywhere on a text-only card
@@ -145,9 +145,12 @@ export function GistCard({
 
   const handleReact = async (type: ReactionType) => {
     try {
-      await reactUpsert({ entity_type: "GIST", entity_id: gist.gist_id, type });
-    } catch {
-      /* best-effort */
+      await reactGist(gist.gist_id, type);
+    } catch (err) {
+      // Surfaced now instead of silently swallowed — a failed react (most
+      // commonly: not actually logged in) used to look successful in the
+      // UI and then just vanish on reload with no explanation.
+      setReactError(apiErrorMessage(err, "Failed to react — try again"));
     }
   };
 
@@ -168,12 +171,15 @@ export function GistCard({
   };
 
   const handleReport = async (reason: string) => {
-    setShowReportMenu(false);
+    setReporting(true);
     try {
       await report(gist.gist_id, reason);
       setReported(true);
+      setShowReportModal(false);
     } catch (err) {
       setReportError(apiErrorMessage(err, "Failed to report this gist"));
+    } finally {
+      setReporting(false);
     }
   };
 
@@ -190,14 +196,14 @@ export function GistCard({
     }
   };
 
-  // Tapping the dots again, or anywhere outside the whole action cluster
-  // (dots + popped-out buttons + report submenu), closes everything.
+  // Tapping the dots again, or anywhere outside the popped-out action
+  // buttons, closes them. The report dialog is a separate Modal now, with
+  // its own backdrop-click-to-dismiss — not part of this cluster.
   useEffect(() => {
     if (!showActions) return;
     const onClick = (e: MouseEvent) => {
       if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) {
         setShowActions(false);
-        setShowReportMenu(false);
       }
     };
     document.addEventListener("mousedown", onClick);
@@ -325,42 +331,22 @@ export function GistCard({
                       }}
                       icon={<QuoteIconFill size={17} weight="fill" />}
                     />
-                    <div className="relative">
-                      <PopActionButton
-                        label="Report"
-                        onClick={() => !reported && setShowReportMenu((v) => !v)}
-                        icon={
-                          reported ? (
-                            <Check className="h-4 w-4" />
-                          ) : (
-                            <FlagIconFill size={17} weight="fill" />
-                          )
-                        }
-                        disabled={reported}
-                      />
-                      <AnimatePresence>
-                        {showReportMenu && (
-                          <motion.div
-                            initial={{ opacity: 0, scale: 0.95, x: 4 }}
-                            animate={{ opacity: 1, scale: 1, x: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, x: 4 }}
-                            transition={{ duration: 0.15 }}
-                            className="absolute right-full top-0 z-20 mr-1.5 w-40 rounded-2xl bg-surface p-1.5 shadow-lg ring-1 ring-line"
-                          >
-                            {REPORT_REASONS.map((reason) => (
-                              <button
-                                key={reason}
-                                type="button"
-                                onClick={() => handleReport(reason)}
-                                className="w-full rounded-xl px-3 py-1.5 text-left font-poppins text-xs text-ink transition hover:bg-brand/10 hover:text-brand"
-                              >
-                                {reason}
-                              </button>
-                            ))}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
+                    <PopActionButton
+                      label="Report"
+                      onClick={() => {
+                        if (reported) return;
+                        setShowReportModal(true);
+                        setShowActions(false);
+                      }}
+                      icon={
+                        reported ? (
+                          <Check className="h-4 w-4" />
+                        ) : (
+                          <FlagIconFill size={17} weight="fill" />
+                        )
+                      }
+                      disabled={reported}
+                    />
                   </>
                 )}
               </motion.div>
@@ -485,8 +471,15 @@ export function GistCard({
         confirmLabel="Delete"
       />
 
+      <ReportModal
+        open={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        onSubmit={handleReport}
+        loading={reporting}
+      />
       <ErrorModal open={!!reportError} onClose={() => setReportError(undefined)} message={reportError} />
       <ErrorModal open={!!deleteError} onClose={() => setDeleteError(undefined)} message={deleteError} />
+      <ErrorModal open={!!reactError} onClose={() => setReactError(undefined)} message={reactError} />
 
       <AnimatePresence>
         {hasMedia && overlayIndex !== null && (
