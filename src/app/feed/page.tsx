@@ -76,6 +76,11 @@ export default function FeedPage() {
   const [promptFading, setPromptFading] = useState(false);
   const [avatarPing, setAvatarPing] = useState(0);
   const lastPromptIndex = useRef(-1);
+  // The full sentence the typing animation is currently working toward —
+  // kept separate from `promptText` (which is only ever the so-far-typed
+  // prefix) so a click mid-type can snapshot the complete prompt instead of
+  // whatever fragment happened to be on screen at that instant.
+  const currentFullPromptRef = useRef("");
   const [showComposeHint, setShowComposeHint] = useState(false);
 
   const dismissComposeHint = () => {
@@ -143,6 +148,7 @@ export default function FeedPage() {
     };
 
     const typeIn = (text: string, onDone: () => void) => {
+      currentFullPromptRef.current = text;
       clearTypingTimers();
       setPromptText("");
       let i = 0;
@@ -330,7 +336,9 @@ export default function FeedPage() {
               <button
                 type="button"
                 onClick={() => {
-                  setComposePlaceholder(promptText);
+                  // The full sentence, not whatever partial fragment had
+                  // typed out so far (see currentFullPromptRef).
+                  setComposePlaceholder(currentFullPromptRef.current || promptText);
                   setShowCreate(true);
                   dismissComposeHint();
                 }}
