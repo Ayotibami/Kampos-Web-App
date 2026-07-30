@@ -89,6 +89,12 @@ export interface Comment {
   reactions_count?: number;
   /** The viewer's own reaction on this comment, if any. */
   my_reaction?: ReactionType | null;
+  /** Commenter's profile info — null when the avitag isn't a student
+   * profile (only students have campus/major) or has none set. */
+  first_name?: string | null;
+  last_name?: string | null;
+  campus_name?: string | null;
+  major_name?: string | null;
   [key: string]: unknown;
 }
 

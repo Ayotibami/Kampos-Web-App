@@ -109,6 +109,10 @@ function CommentBubble({
   onReact: () => void;
 }) {
   const reacted = !!c.my_reaction;
+  const fullName = c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : null;
+  // Only student profiles have campus/major — a non-student commenter (or
+  // one who hasn't set these) just shows whichever piece is actually there.
+  const schoolInfo = [c.major_name, c.campus_name].filter(Boolean).join(", ");
   return (
     <motion.li
       className="relative ml-3 rounded-2xl"
@@ -140,16 +144,18 @@ function CommentBubble({
             </div>
             <div className="flex flex-col">
               <span className="font-poppins text-sm font-semibold">
-                {c.avitag ? c.avitag.replace(/_?\d+$/, "") : "Fola_shade"}
+                {fullName ?? (c.avitag ? c.avitag.replace(/_?\d+$/, "") : "Fola_shade")}
               </span>
               <span className="font-poppins text-xs text-muted dark:text-white/70">@{c.avitag ?? "someone"}</span>
             </div>
           </div>
 
-          {/* Right side: Time + Course info */}
+          {/* Right side: Time + Major, Campus */}
           <div className="flex flex-col items-end">
             <span className="font-poppins text-xs text-ink/80 dark:text-white/90">{timeAgo(c.commented_at)}</span>
-            <span className="mt-1 font-poppins text-xs text-muted dark:text-white/70">Csc 300 L</span>
+            {schoolInfo && (
+              <span className="mt-1 font-poppins text-xs text-muted dark:text-white/70">{schoolInfo}</span>
+            )}
           </div>
         </div>
 
