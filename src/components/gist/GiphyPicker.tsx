@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Illustration } from "@/components/brand/illustrations";
-import { X, Search, Check, Sticker } from "@/components/ui/icons";
+import { X, Search, Check } from "@/components/ui/icons";
 import { fetchTrending, searchGiphy, type GiphyItem } from "@/lib/giphy";
 import { env } from "@/lib/env";
 
@@ -98,9 +98,6 @@ export function GiphyPicker({
       <div className="flex h-full flex-col rounded-3xl bg-surface-2 p-8 shadow-2xl">
         {/* Header */}
         <div className="flex shrink-0 items-center gap-3 pr-12">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-            <Sticker className="h-5 w-5" />
-          </div>
           <h2 className="font-poppins text-xl font-bold text-ink">GIFs &amp; Stickers</h2>
           <button
             type="button"
