@@ -94,7 +94,7 @@ export function GiphyPicker({
   };
 
   return (
-    <Modal open={open} onClose={onClose} className="h-[75vh] w-[60vw] max-md:h-[90vh] max-md:w-[92vw]">
+    <Modal open={open} onClose={onClose} className="h-[88vh] w-[75vw] max-md:h-[92vh] max-md:w-[95vw]">
       <div className="flex h-full flex-col rounded-3xl bg-surface-2 p-8 shadow-2xl">
         {/* Header */}
         <div className="flex shrink-0 items-center gap-3 pr-12">
@@ -161,7 +161,7 @@ export function GiphyPicker({
                   </p>
                 </div>
               ) : loading ? (
-                <div className="columns-2 gap-2 sm:columns-3">
+                <div className="columns-2 gap-2 sm:columns-3 lg:columns-4">
                   {Array.from({ length: 12 }).map((_, i) => (
                     <div key={i} className="mb-2 h-28 w-full animate-pulse rounded-xl bg-line/60" />
                   ))}
@@ -174,7 +174,7 @@ export function GiphyPicker({
                   </p>
                 </div>
               ) : (
-                <div className="columns-2 gap-2 sm:columns-3">
+                <div className="columns-2 gap-2 sm:columns-3 lg:columns-4">
                   {items.map((item) => {
                     const isSelected = selected.some((s) => s.id === item.id);
                     return (
