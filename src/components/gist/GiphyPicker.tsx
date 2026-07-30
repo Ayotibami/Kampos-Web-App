@@ -162,7 +162,7 @@ export function GiphyPicker({
                 </div>
               ) : loading ? (
                 <div className="columns-2 gap-2 sm:columns-3 lg:columns-4">
-                  {Array.from({ length: 12 }).map((_, i) => (
+                  {Array.from({ length: 20 }).map((_, i) => (
                     <div key={i} className="mb-2 h-28 w-full animate-pulse rounded-xl bg-line/60" />
                   ))}
                 </div>

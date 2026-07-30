@@ -49,7 +49,7 @@ async function giphyFetch(path: string, params: Record<string, string>): Promise
 
   const query = new URLSearchParams({
     api_key: env.GIPHY_API_KEY,
-    limit: "30",
+    limit: "50", // GIPHY's actual max per request
     rating: "pg-13",
     ...params,
   });
