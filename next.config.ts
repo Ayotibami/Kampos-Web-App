@@ -21,10 +21,13 @@ const csp = [
   // Dev-only: picsum.photos + w3schools.com back the demo sample gists'
   // placeholder media (no real backend media exists yet to test against).
   // Never allowed in production — only Cloudinary, the real media host, is.
-  `img-src 'self' data: blob: https://res.cloudinary.com${isDev ? " https://picsum.photos https://fastly.picsum.photos" : ""}`,
-  `media-src 'self' blob: https://res.cloudinary.com${isDev ? " https://www.w3schools.com" : ""}`,
+  // *.giphy.com covers the GIF/sticker picker's media CDN (thumbnails +
+  // full-size images both come from Giphy-hosted subdomains, not ours).
+  `img-src 'self' data: blob: https://res.cloudinary.com https://*.giphy.com${isDev ? " https://picsum.photos https://fastly.picsum.photos" : ""}`,
+  `media-src 'self' blob: https://res.cloudinary.com https://*.giphy.com${isDev ? " https://www.w3schools.com" : ""}`,
   `font-src 'self'`,
-  `connect-src 'self' ${API_ORIGIN} ${WS_ORIGIN}`,
+  // api.giphy.com: the GIF/sticker picker's search/trending requests.
+  `connect-src 'self' ${API_ORIGIN} ${WS_ORIGIN} https://api.giphy.com`,
   `frame-ancestors 'none'`,
   `base-uri 'self'`,
   `form-action 'self'`,
