@@ -1,26 +1,92 @@
 @import "tailwindcss";
 
+/* Class-based dark mode: toggling `.dark` on <html> (see ThemeToggle) flips
+   every `dark:` variant, instead of only following OS preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+  Kampos brand tokens — ported from the mobile app (constants/Colors.ts, Fonts.ts + inline values).
+  Exposed to Tailwind v4 via @theme, so utilities like `bg-brand`, `text-brand-accent`,
+  `font-poppins`, `font-nunito` are available across the app.
+
+  Surface/text/line tokens are indirected through --kp-* custom properties (below)
+  so `:root` and `.dark` can each supply their own values — every component that
+  uses these tokens (bg-surface, text-ink, text-muted, border-line, ...) becomes
+  dark-mode-aware automatically, with no per-component `dark:` classes needed.
+*/
+@theme {
+  /* Core brand — same vivid blue in both themes, it's the constant. */
+  --color-brand: #165abf;
+  --color-brand-accent: #0bb0ff;
+  --color-brand-dark: #0e3e87;
+  --color-brand-light: #a9c9f8;
+  --color-brand-ink: #112036;
+
+  /* Theme-aware surfaces & text */
+  --color-surface: var(--kp-surface); /* page canvas */
+  --color-surface-2: var(--kp-surface-2); /* elevated: cards, panels */
+  --color-ink: var(--kp-ink); /* primary text */
+  --color-muted: var(--kp-muted); /* secondary text */
+  --color-faint: var(--kp-faint); /* placeholders / icons */
+  --color-line: var(--kp-line); /* hairline borders */
+  --color-brand-tint: var(--kp-brand-tint); /* create-gist sheet bg */
+
+  /* Feedback — vivid enough to read on both themes */
+  --color-success: #6eed94;
+  --color-warning: #ffc107;
+  --color-danger: #d41d0c;
+
+  /* Fonts (wired from next/font in layout.tsx) */
+  --font-poppins: var(--font-poppins);
+  --font-nunito: var(--font-nunito);
+  --font-sans: var(--font-poppins);
+
+  /* Motion */
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --kp-surface: #fcfcff;
+  --kp-surface-2: #ffffff;
+  --kp-ink: #171a1f;
+  --kp-muted: #6e6d72;
+  --kp-faint: #9e9ea1;
+  --kp-line: #dcdbde;
+  --kp-brand-tint: #e0ebfc;
+
+  --background: var(--color-surface);
+  --foreground: var(--color-ink);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+.dark {
+  --kp-surface: #0a0e17;
+  --kp-surface-2: #131a2b;
+  --kp-ink: #f4f6fb;
+  --kp-muted: #9aa3b8;
+  --kp-faint: #626b80;
+  --kp-line: #232b40;
+  --kp-brand-tint: #16233d;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  height: 100%;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-poppins), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Hide scrollbars where we drive scrolling ourselves (feed rails, media strips). */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
