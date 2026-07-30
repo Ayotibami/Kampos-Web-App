@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Illustration } from "@/components/brand/illustrations";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
 import { WebcamCapture } from "./WebcamCapture";
-import { TenorPicker } from "./TenorPicker";
+import { GiphyPicker } from "./GiphyPicker";
 import { CameraIconFill, ImageIconFill, X, Video, Sticker } from "@/components/ui/icons";
 import { useGistStore } from "@/stores/gistStore";
 import { apiErrorMessage } from "@/lib/api";
@@ -445,7 +445,7 @@ export function CreateGistSheet({
       )}
 
       {!isEditing && (
-        <TenorPicker
+        <GiphyPicker
           open={showGifPicker}
           onClose={() => setShowGifPicker(false)}
           onAttach={addGifs}

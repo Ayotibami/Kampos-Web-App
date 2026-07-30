@@ -5,7 +5,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Illustration } from "@/components/brand/illustrations";
 import { X, Search, Check, Sticker } from "@/components/ui/icons";
-import { fetchTrending, searchTenor, type TenorItem } from "@/lib/tenor";
+import { fetchTrending, searchGiphy, type GiphyItem } from "@/lib/giphy";
 import { env } from "@/lib/env";
 
 type Kind = "gifs" | "stickers";
@@ -13,13 +13,13 @@ type Kind = "gifs" | "stickers";
 const SEARCH_DEBOUNCE_MS = 400;
 
 /**
- * GIF/sticker picker, powered by Tenor — a real dialog (not a tiny
+ * GIF/sticker picker, powered by GIPHY — a real dialog (not a tiny
  * dropdown), matching the weight ReportModal already established for
  * anything with search + a grid of results. Multi-select up to
  * `maxSelectable` (the room left under the gist's media cap), Kampos brand
  * styling throughout (rounded pills, brand blue selection, Poppins).
  */
-export function TenorPicker({
+export function GiphyPicker({
   open,
   onClose,
   onAttach,
@@ -34,13 +34,13 @@ export function TenorPicker({
 }) {
   const [kind, setKind] = useState<Kind>("gifs");
   const [query, setQuery] = useState("");
-  const [items, setItems] = useState<TenorItem[]>([]);
-  const [selected, setSelected] = useState<TenorItem[]>([]);
+  const [items, setItems] = useState<GiphyItem[]>([]);
+  const [selected, setSelected] = useState<GiphyItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [errored, setErrored] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const configured = !!env.TENOR_API_KEY;
+  const configured = !!env.GIPHY_API_KEY;
 
   const load = async (nextKind: Kind, nextQuery: string) => {
     if (!configured) return;
@@ -48,7 +48,7 @@ export function TenorPicker({
     setErrored(false);
     try {
       const results = nextQuery.trim()
-        ? await searchTenor(nextKind, nextQuery.trim())
+        ? await searchGiphy(nextKind, nextQuery.trim())
         : await fetchTrending(nextKind);
       setItems(results);
     } catch {
@@ -78,7 +78,7 @@ export function TenorPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, query, open]);
 
-  const toggle = (item: TenorItem) => {
+  const toggle = (item: GiphyItem) => {
     setSelected((cur) => {
       const already = cur.some((s) => s.id === item.id);
       if (already) return cur.filter((s) => s.id !== item.id);
@@ -205,7 +205,7 @@ export function TenorPicker({
 
             {/* Footer */}
             <div className="mt-5 flex shrink-0 items-center justify-between gap-4">
-              <span className="font-poppins text-[11px] text-faint">Powered by Tenor</span>
+              <span className="font-poppins text-[11px] text-faint">Powered by GIPHY</span>
               <Button
                 onClick={handleAttach}
                 disabled={!selected.length}
