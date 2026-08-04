@@ -16,16 +16,31 @@ export function validateEmail(email: string): string | null {
   return EMAIL_RE.test(email) ? null : "This email address no correct, abeg check am.";
 }
 
+/**
+ * One entry per rule, each independently checkable against a live-typed
+ * password — this is the shared source of truth for both the plain
+ * validatePassword() below (submit-time gating) and the live checklist UI
+ * (each rule flips green the instant its own `test` passes, no debounce
+ * needed since — unlike email — a password rule's pass/fail never
+ * "flickers" while mid-typing the way an incomplete email address does).
+ *
+ * No space restriction on purpose — a passphrase like "correct horse
+ * battery" is stronger and easier to remember than forced-composition
+ * gibberish, and blocking spaces actively punishes that. Special-character
+ * check accepts anything non-alphanumeric rather than a narrow fixed set
+ * (the old @$!%*?#& allowlist rejected perfectly good characters like ^ ~
+ * ( ) + _ that a password manager or muscle memory might produce).
+ */
+export const PASSWORD_RULES: { id: string; label: string; test: (password: string) => boolean }[] = [
+  { id: "length", label: "At least 8 characters", test: (p) => p.length >= 8 },
+  { id: "lower", label: "One lowercase letter", test: (p) => /[a-z]/.test(p) },
+  { id: "upper", label: "One uppercase letter", test: (p) => /[A-Z]/.test(p) },
+  { id: "number", label: "One number", test: (p) => /[0-9]/.test(p) },
+  { id: "special", label: "One special character", test: (p) => /[^A-Za-z0-9]/.test(p) },
+];
+
 export function validatePassword(password: string): string[] {
-  const errors: string[] = [];
-  if (password.length < 8) errors.push("Password must be at least 8 characters long.");
-  if (/\s/.test(password)) errors.push("Password cannot contain spaces.");
-  if (!/[a-z]/.test(password)) errors.push("Include at least one lowercase letter.");
-  if (!/[A-Z]/.test(password)) errors.push("Include at least one uppercase letter.");
-  if (!/[0-9]/.test(password)) errors.push("Include at least one number.");
-  if (!/[@$!%*?#&]/.test(password))
-    errors.push("Include at least one special character (e.g. @, $, #, !).");
-  return errors;
+  return PASSWORD_RULES.filter((r) => !r.test(password)).map((r) => r.label);
 }
 
 export function passwordsMatch(a: string, b: string): boolean {
