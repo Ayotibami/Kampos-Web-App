@@ -45,7 +45,9 @@ async function tryRefresh(): Promise<boolean> {
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const config = error.config as (AxiosRequestConfig & { _retried?: boolean }) | undefined;
+    const config = error.config as
+      | (AxiosRequestConfig & { _retried?: boolean; skipUnauthorizedEvent?: boolean })
+      | undefined;
     const isAuthRoute = config?.url?.includes("/auth/login") || config?.url?.includes("/auth/register") || config?.url?.includes("/auth/refresh");
 
     if (error.response?.status === 401 && config && !config._retried && !isAuthRoute) {
@@ -54,7 +56,13 @@ api.interceptors.response.use(
       if (refreshed) {
         return api(config);
       }
-      if (typeof window !== "undefined") {
+      // Some callers (AuthGate's own "who am I" check) expect a 401 here as
+      // a completely normal outcome — a guest visiting a guest-only page —
+      // and already handle it themselves. Firing the global event for those
+      // would mean the mere act of checking "are you logged in?" gets
+      // mistaken for a real session dying mid-use and force-redirects you
+      // off the very page you were trying to reach.
+      if (typeof window !== "undefined" && !config.skipUnauthorizedEvent) {
         window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
       }
     }

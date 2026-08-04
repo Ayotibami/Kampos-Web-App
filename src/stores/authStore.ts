@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import type { AxiosRequestConfig } from "axios";
 import { api, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
 import type { Account, ProfileType } from "@/types";
 
@@ -11,13 +12,13 @@ import type { Account, ProfileType } from "@/types";
  */
 export type AuthGateState = "unknown" | "guest" | "needs-otp" | "needs-profile" | "active";
 
-interface ProfileSummary {
+export interface ProfileSummary {
   avitag: string;
   profile_type?: string;
   [key: string]: unknown;
 }
 
-interface AccountProfileResponse {
+export interface AccountProfileResponse {
   account: Account | null;
   profiles: ProfileSummary[];
 }
@@ -32,6 +33,15 @@ interface AuthState {
   error: string | null;
 
   setProfileMeta: (meta: { avitag?: string | null; profileType?: ProfileType | null }) => void;
+  /** Seeds the store from a gate check already done server-side (see
+   * lib/serverAuth.ts) — no network call, just adopting data the page
+   * already has from its own SSR fetch. Replaces what a client-side
+   * resolveAuthState() call used to do on every page mount. */
+  hydrateFromServer: (input: {
+    state: AuthGateState;
+    account: Account | null;
+    profiles: ProfileSummary[];
+  }) => void;
 
   register: (payload: { email: string; password: string }) => Promise<AuthGateState>;
   login: (creds: { email: string; password: string }) => Promise<AuthGateState>;
@@ -67,6 +77,9 @@ export const useAuthStore = create<AuthState>()(
           profileType: meta.profileType ?? null,
         }),
 
+      hydrateFromServer: ({ state, account, profiles }) =>
+        set({ user: account, profiles, authState: state, loading: false }),
+
       register: async (payload) => {
         set({ loading: true, error: null });
         try {
@@ -95,7 +108,15 @@ export const useAuthStore = create<AuthState>()(
       resolveAuthState: async () => {
         set({ loading: true, error: null });
         try {
-          const res = await api.get<ApiEnvelope<AccountProfileResponse>>("/account/profile");
+          // skipUnauthorizedEvent: a 401 here just means "not logged in" —
+          // the catch block below already turns that into the normal
+          // "guest" state. Without this flag, api.ts's interceptor reads
+          // the same 401 as a session dying mid-use and globally redirects
+          // to /login, which is exactly wrong on a guest-only page like
+          // /signup or /forgot-password (see SessionWatcher).
+          const res = await api.get<ApiEnvelope<AccountProfileResponse>>("/account/profile", {
+            skipUnauthorizedEvent: true,
+          } as AxiosRequestConfig);
           const account = res.data?.data?.account ?? null;
           const profiles = res.data?.data?.profiles ?? [];
           let authState: AuthGateState;
