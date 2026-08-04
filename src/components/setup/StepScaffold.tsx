@@ -3,68 +3,41 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { AnimatePresence, motion, useAnimationControls, type Variants } from "framer-motion";
 import { ArrowLeft } from "@/components/ui/icons";
-import { AppShell } from "@/components/layout/AppShell";
+import { Wordmark } from "@/components/brand/Wordmark";
 import { Button } from "@/components/ui/Button";
 import { ProgressDots } from "@/components/onboarding/ProgressDots";
 
 export const SETUP_STEPS = 5;
 
-// A real dramatic swing — full off-card x-travel, a hard rotation, and a
-// scale punch, spring-timed so it overshoots and snaps into place rather
-// than a flat linear move. This is the WHOLE card (bg + rounded corners +
-// shadow all live on the same element being animated — see the motion.div
-// below), not just the text inside a static frame, so the card itself
-// visibly flies off and the next one flies in. Direction-aware: 1 =
-// advancing (new card flies in from the right, old flies out left), -1 =
-// going back (reversed).
-const cardVariants: Variants = {
-  enter: (direction: number) => ({
-    x: direction >= 0 ? "115%" : "-115%",
-    rotate: direction >= 0 ? 18 : -18,
-    scale: 0.82,
-    opacity: 0,
-  }),
-  center: { x: 0, rotate: 0, scale: 1, opacity: 1 },
-  exit: (direction: number) => ({
-    x: direction >= 0 ? "-115%" : "115%",
-    rotate: direction >= 0 ? -18 : 18,
-    scale: 0.82,
-    opacity: 0,
-  }),
+// Fast slide/fade for the swapped step content — nothing flies across the
+// screen as a boxed card anymore (see the full-page rewrite below); the
+// heading swings with it since both live inside the same animated block.
+const contentVariants: Variants = {
+  enter: (direction: number) => ({ opacity: 0, x: direction >= 0 ? 40 : -40 }),
+  center: { opacity: 1, x: 0 },
+  exit: (direction: number) => ({ opacity: 0, x: direction >= 0 ? -40 : 40 }),
 };
-const cardTransition = { type: "spring", stiffness: 300, damping: 22, mass: 0.9 } as const;
-// Lighter/faster version for the desktop heading (outside the card, its own
-// small AnimatePresence) — swings the same direction but shouldn't compete
-// with the card for attention.
-const headingVariants: Variants = {
-  enter: (direction: number) => ({ x: direction >= 0 ? "60%" : "-60%", rotate: direction >= 0 ? 10 : -10, opacity: 0 }),
-  center: { x: 0, rotate: 0, opacity: 1 },
-  exit: (direction: number) => ({ x: direction >= 0 ? "-60%" : "60%", rotate: direction >= 0 ? -10 : 10, opacity: 0 }),
-};
-const headingTransition = { type: "spring", stiffness: 340, damping: 28 } as const;
+const contentTransition = { duration: 0.28, ease: "easeOut" } as const;
 
 /**
- * The Continue/CTA button, shared by the desktop footer and the mobile
- * in-card row — pops with a one-shot bounce the instant it flips from
- * disabled to enabled, so a user who's just finished typing (e.g. the
- * Avitag check landing on "available") actually notices it became
- * clickable, instead of a plain color change that's easy to miss. Only
- * fires on that specific transition, not on every render/re-enable-disable
- * flicker, and never loops — a continuous bounce reads as nagging.
+ * The Continue/CTA button — pops with a one-shot bounce the instant it
+ * flips from disabled to enabled, so a user who's just finished typing
+ * (e.g. the Avitag check landing on "available") actually notices it
+ * became clickable, instead of a plain color change that's easy to miss.
+ * Only fires on that specific transition, not on every render/re-enable-
+ * disable flicker, and never loops — a continuous bounce reads as nagging.
  */
 function ContinueButton({
   onContinue,
   continueDisabled,
   loading,
   continueLabel,
-  fullWidth,
   className,
 }: {
   onContinue: () => void;
   continueDisabled?: boolean;
   loading?: boolean;
   continueLabel: string;
-  fullWidth?: boolean;
   className?: string;
 }) {
   const controls = useAnimationControls();
@@ -77,14 +50,8 @@ function ContinueButton({
   }, [continueDisabled, loading, controls]);
 
   return (
-    <motion.div animate={controls} transition={{ duration: 0.4, ease: "easeOut" }}>
-      <Button
-        onClick={onContinue}
-        disabled={continueDisabled || loading}
-        loading={loading}
-        fullWidth={fullWidth}
-        className={className}
-      >
+    <motion.div animate={controls} transition={{ duration: 0.4, ease: "easeOut" }} className={className}>
+      <Button onClick={onContinue} disabled={continueDisabled || loading} loading={loading}>
         {continueLabel}
       </Button>
     </motion.div>
@@ -92,12 +59,23 @@ function ContinueButton({
 }
 
 /**
- * Single shared frame for the whole profile-setup wizard — rendered once by
- * the orchestrator page (app/setup-profile/page.tsx), not per-step, so
- * AppShell's backdrop/wordmark never remount between steps; only the
- * content keyed by `stepIndex` swings. `onBack`/`onContinue` are supplied
- * by the orchestrator (back = step index - 1; continue = whatever the
- * active step's own registered controller says).
+ * Shared frame for the whole profile-setup wizard — rendered once by the
+ * orchestrator page (app/setup-profile/page.tsx), not per-step, so the
+ * backdrop/wordmark/chrome never remount between steps; only the content
+ * (keyed by `stepIndex`) slides/fades.
+ *
+ * No card, and — unlike AuthShell — no page scrolling either: the heading
+ * is pinned to the top of the viewport, the progress dots + Continue button
+ * are pinned to the bottom, and the actual step content fills the entire
+ * flexible strip in between (`h-dvh` + `overflow-hidden` on the root, so
+ * this is guaranteed by construction, not by hoping content happens to
+ * fit). List-heavy steps (major/campus search) get the whole middle strip,
+ * full height, and scroll internally via their own search-bar-stays-put
+ * layout (SearchSelectList) rather than the page scrolling.
+ *
+ * Traded away from the earlier boxed-card version: the whole-card-flies-
+ * off-screen bounce — a real, deliberate loss, not an oversight — in
+ * exchange for guaranteed no-scroll, full-height steps.
  */
 export function StepScaffold({
   stepIndex,
@@ -113,7 +91,7 @@ export function StepScaffold({
 }: {
   stepIndex: number;
   /** 1 = moving forward (Continue), -1 = moving back — controls which way
-   * the swing goes. */
+   * the slide goes. */
   direction: number;
   heading: string;
   subheading?: string;
@@ -124,10 +102,6 @@ export function StepScaffold({
   continueLabel?: string;
   loading?: boolean;
 }) {
-  // Shared by both the desktop header and the mobile in-card row. Mobile
-  // also gets a swipe-right drag gesture as a second way back (see the
-  // card's drag props below) — the icon stays too since a gesture alone
-  // isn't discoverable.
   const backButton = stepIndex > 0 && onBack && (
     <button
       type="button"
@@ -139,113 +113,84 @@ export function StepScaffold({
     </button>
   );
 
-  // Desktop-only: heading lives above the (now short) card as page-level
-  // chrome rather than eating into the card's own limited height. Static
-  // back button + dots + CTA (outside the swing) so navigation controls
-  // never visually move out from under a click — only the actual step
-  // content (heading text included) swings.
-  const desktopHeader = (
-    <div className="flex items-center gap-3 px-1">
-      {backButton}
-      <div className="relative overflow-hidden">
-        <AnimatePresence mode="wait" custom={direction} initial={false}>
-          <motion.h1
-            key={stepIndex}
-            custom={direction}
-            variants={headingVariants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={headingTransition}
-            className="font-poppins text-lg font-semibold text-ink"
-          >
-            {heading}
-          </motion.h1>
-        </AnimatePresence>
-      </div>
-    </div>
-  );
-
-  const desktopFooter = (
-    <div className="flex items-center justify-between gap-6 px-1">
-      <ProgressDots count={SETUP_STEPS} index={stepIndex} inactiveColor="#ffffff" />
-      <ContinueButton
-        onContinue={onContinue}
-        continueDisabled={continueDisabled}
-        loading={loading}
-        continueLabel={continueLabel}
-        fullWidth={false}
-        className="w-64"
-      />
-    </div>
-  );
-
   return (
-    <AppShell variant="landscape" chromeless outerHeader={desktopHeader} outerFooter={desktopFooter}>
-      {/* The reserve slot: sizes/positions where the card lives, but carries
-          no chrome of its own — clipped on mobile (so a dramatic swing can't
-          visually collide with surrounding UI), open on desktop (so the card
-          can fly genuinely off its own footprint against the backdrop). */}
-      <div className="relative min-h-0 flex-1 overflow-hidden md:overflow-visible">
+    <div className="relative flex h-dvh w-full flex-col overflow-hidden bg-surface">
+      {/* Subtle desktop-only backdrop, same restrained treatment as
+          AuthShell — a bit of visual life without competing with the
+          form/list content. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 hidden bg-brand/[0.04] md:block dark:bg-brand/[0.06]"
+      >
+        <div
+          className="absolute inset-0 opacity-20 dark:opacity-15 dark:invert"
+          style={{
+            backgroundImage: "url('/brand/doodles.svg')",
+            backgroundRepeat: "repeat",
+            backgroundSize: "280px auto",
+          }}
+        />
+      </div>
+
+      <div className="absolute left-8 top-8 z-10 hidden md:block">
+        <Wordmark accentClassName="text-brand" className="text-lg" />
+      </div>
+
+      {/* Top bar — pinned, never moves. Back button + heading live here
+          (not inside the swapped content) on desktop, where there's room
+          for both a corner wordmark and a top bar without collision; on
+          mobile the heading moves down into the swapped content itself
+          (see below) since there isn't room for two separate header rows. */}
+      <div className="relative z-10 mx-auto hidden w-full max-w-3xl shrink-0 items-center gap-3 px-10 pt-8 md:flex">
+        {backButton}
+        <h1 className="font-poppins text-lg font-semibold text-ink">{heading}</h1>
+      </div>
+      <div className="relative z-10 flex shrink-0 items-center gap-3 px-6 pt-6 md:hidden">
+        {backButton}
+      </div>
+
+      {/* The flexible middle strip — this is the entire guarantee: fixed
+          top/bottom bars + min-h-0 flex-1 here means whatever's left is
+          exactly what the step content gets, full height, no viewport
+          scroll no matter how tall a list gets (it scrolls internally via
+          its own layout instead). */}
+      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-6 md:px-10">
         <AnimatePresence mode="wait" custom={direction} initial={false}>
-          {/* This IS the card — bg, rounded corners, and shadow all live
-              here, keyed by stepIndex, so the whole visible card actually
-              flies with the transition instead of just the text inside a
-              static frame. */}
           <motion.div
             key={stepIndex}
             custom={direction}
-            variants={cardVariants}
+            variants={contentVariants}
             initial="enter"
             animate="center"
             exit="exit"
-            transition={cardTransition}
-            drag="x"
-            dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={0.35}
-            onDragEnd={(_e, info) => {
-              if (info.offset.x > 90 && stepIndex > 0 && onBack) onBack();
-              else if (info.offset.x < -90 && !continueDisabled && !loading) onContinue();
-            }}
-            className="flex h-full min-h-0 flex-col bg-surface px-6 py-8 md:rounded-[32px] md:px-8 md:py-5 md:shadow-[0_30px_80px_-24px_rgba(9,30,66,0.6)] md:ring-1 md:ring-black/5 md:overflow-hidden"
+            transition={contentTransition}
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="flex items-center gap-3 md:hidden">{backButton}</div>
+            <header className="shrink-0 space-y-1.5 pt-4 md:pt-6">
+              <h1 className="font-poppins text-xl font-extrabold text-ink sm:text-2xl md:hidden">
+                {heading}
+              </h1>
+              {subheading && (
+                <p className="font-poppins text-sm text-muted md:text-base">{subheading}</p>
+              )}
+            </header>
 
-            {/* Heading text AND the step's own content share one width here —
-                on desktop that's the whole point: without this, the subheading
-                stretches the full (now very wide) card while the content below
-                it stays narrower, and the mismatch is what actually looked
-                wrong, not the content's width by itself.
-                min-h-0 at every flex-1 level here (not just the innermost
-                scrollable list) — without it each wrapper grows to fit its
-                content instead of shrinking to the card's fixed height, so a
-                long list gets silently clipped by the panel's overflow-hidden
-                instead of becoming scrollable. */}
-            <div className="flex min-h-0 flex-1 flex-col md:mx-auto md:w-full md:max-w-2xl">
-              <header className="mt-2 shrink-0 space-y-2 md:mt-0">
-                <h1 className="font-poppins text-xl font-extrabold text-ink sm:text-2xl md:hidden">
-                  {heading}
-                </h1>
-                {subheading && (
-                  <p className="font-poppins text-sm text-muted">{subheading}</p>
-                )}
-              </header>
-
-              <div className="flex min-h-0 flex-1 flex-col py-6 md:py-3">{children}</div>
-            </div>
-
-            <div className="mt-auto space-y-5 md:hidden">
-              <ProgressDots count={SETUP_STEPS} index={stepIndex} />
-              <ContinueButton
-                onContinue={onContinue}
-                continueDisabled={continueDisabled}
-                loading={loading}
-                continueLabel={continueLabel}
-              />
-            </div>
+            <div className="mt-5 flex min-h-0 flex-1 flex-col pb-4 md:mt-6">{children}</div>
           </motion.div>
         </AnimatePresence>
       </div>
-    </AppShell>
+
+      {/* Bottom bar — pinned, never moves. */}
+      <div className="relative z-10 mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-4 px-6 pb-6 pt-2 md:flex-row md:items-center md:justify-between md:px-10 md:pb-10">
+        <ProgressDots count={SETUP_STEPS} index={stepIndex} />
+        <ContinueButton
+          onContinue={onContinue}
+          continueDisabled={continueDisabled}
+          loading={loading}
+          continueLabel={continueLabel}
+          className="md:w-64"
+        />
+      </div>
+    </div>
   );
 }

@@ -18,11 +18,11 @@ import type { Gist } from "@/types";
 interface PickedMedia {
   id: string;
   url: string;
-  /** Absent for a GIF/sticker picked from Tenor — those are already hosted
-   * on Tenor's CDN, so `url` itself is what gets attached (no blob upload,
+  /** Absent for a GIF/sticker picked from GIPHY — those are already hosted
+   * on GIPHY's CDN, so `url` itself is what gets attached (no blob upload,
    * see remoteUrl below). */
   blob?: Blob;
-  /** Set (equal to `url`) for a Tenor pick — the signal handlePost uses to
+  /** Set (equal to `url`) for a GIPHY pick — the signal handlePost uses to
    * call attachMediaUrl instead of uploadMedia. */
   remoteUrl?: string;
   kind: "image" | "video";
@@ -216,7 +216,7 @@ export function CreateGistSheet({
   const removeMedia = (id: string) => {
     setMedia((cur) => {
       const found = cur.find((m) => m.id === id);
-      // No-op for a remote (Tenor) URL — revokeObjectURL only does anything
+      // No-op for a remote (GIPHY) URL — revokeObjectURL only does anything
       // for an actual blob: URL, so this is safe to call either way.
       if (found) URL.revokeObjectURL(found.url);
       return cur.filter((m) => m.id !== id);

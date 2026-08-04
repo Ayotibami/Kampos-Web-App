@@ -12,6 +12,10 @@ const REACTIONS: { type: ReactionType; animationData: object }[] = (
 
 interface ReactionButtonProps {
   onReact: (type: ReactionType) => void;
+  /** Fires when the already-active reaction is tapped again (deselect).
+   * Optional — omit to leave un-reacting purely local/UI-only (e.g. bars
+   * that don't own a real gist id). */
+  onUnreact?: () => void;
   /** Per-emoji counts, e.g. { FIRE: 1200, LOVE: 56000 }. Zero/missing shows no count. */
   counts?: Partial<Record<ReactionType, number>>;
   /** The viewer's existing reaction, straight from the gist payload
@@ -42,7 +46,7 @@ interface ReactionButtonProps {
  * looping constantly — keeps the resting row calm and makes the motion feel
  * like a response to your action, not background noise.
  */
-export function ReactionButton({ onReact, counts, initialActive, externalTrigger, onReacted }: ReactionButtonProps) {
+export function ReactionButton({ onReact, onUnreact, counts, initialActive, externalTrigger, onReacted }: ReactionButtonProps) {
   const [active, setActive] = useState<ReactionType | null>(initialActive ?? null);
   const lastExternalNonce = useRef<number | null>(null);
   const [localDelta, setLocalDelta] = useState<Partial<Record<ReactionType, number>>>({});
@@ -90,7 +94,8 @@ export function ReactionButton({ onReact, counts, initialActive, externalTrigger
     if (active === type) {
       bump(type, -1);
       setActive(null);
-      onReact(type);
+      if (onUnreact) onUnreact();
+      else onReact(type);
       return;
     }
     selectReaction(type);

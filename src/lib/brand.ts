@@ -52,12 +52,12 @@ export const ONBOARDING = [
   },
   {
     illustration: "Kappywithphone",
-    header: "I know say you like Amebo and vibesss",
+    header: "Gist and Updates",
     body: "Gists, rants, banters… school updates, academic circulars? Chill! Kampos drops you right in the middle of everything happening on your campus — anytime, anywhere.",
   },
   {
     illustration: "Kappyup",
-    header: "Kampos is your campus life in one app",
+    header: "More things dey o!",
     body: "No vex — I can only give you a tip of the iceberg 😏. Oya, don't tell anyone, but see Kampos is cooking up more for you — learning, job opportunities, and maybe even love.",
   },
 ] as const;

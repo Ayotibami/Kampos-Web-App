@@ -37,13 +37,14 @@ interface GistState {
   create: (payload: { gist_text: string; [key: string]: unknown }) => Promise<Gist | undefined>;
   update: (gistId: string, gistText: string) => Promise<Gist | undefined>;
   uploadMedia: (gistId: string, file: Blob, name?: string) => Promise<unknown>;
-  /** GIF/sticker attachment (Tenor) — the URL is already hosted on Tenor's
+  /** GIF/sticker attachment (GIPHY) — the URL is already hosted on GIPHY's
    * CDN, so this just records it against the gist, no file upload. */
   attachMediaUrl: (gistId: string, url: string) => Promise<unknown>;
   remove: (gistId: string) => Promise<void>;
   report: (gistId: string, reason?: string) => Promise<void>;
   view: (gistId: string) => Promise<void>;
   react: (gistId: string, type: ReactionType) => Promise<void>;
+  unreact: (gistId: string) => Promise<void>;
 }
 
 export const useGistStore = create<GistState>((set) => ({
@@ -219,6 +220,38 @@ export const useGistStore = create<GistState>((set) => ({
         set((s) => ({ items: s.items.map((g) => (g.gist_id === gistId ? previous! : g)) }));
       }
       set({ error: apiErrorMessage(err, "Failed to react") });
+      throw err;
+    }
+  },
+
+  unreact: async (gistId) => {
+    // Optimistic, mirroring react() above — clears the active pill and
+    // drops the count immediately instead of waiting on the round trip.
+    let previous: Gist | undefined;
+    set((s) => ({
+      items: s.items.map((g) => {
+        if (g.gist_id !== gistId) return g;
+        previous = g;
+        return {
+          ...g,
+          my_reaction: null,
+          counts: {
+            ...(g.counts ?? { reactions_count: 0, comments_count: 0, views_count: 0, reports_count: 0 }),
+            reactions_count: Math.max(0, (g.counts?.reactions_count ?? 0) - (g.my_reaction ? 1 : 0)),
+          },
+        };
+      }),
+    }));
+    try {
+      await api.delete(`/reactions/entity/GIST/${encodeURIComponent(gistId)}`);
+    } catch (err) {
+      // Roll back — same reasoning as react(): without this, a failed
+      // delete left the UI showing "unreacted" for a reaction the backend
+      // still has recorded, until the next refetch quietly brought it back.
+      if (previous) {
+        set((s) => ({ items: s.items.map((g) => (g.gist_id === gistId ? previous! : g)) }));
+      }
+      set({ error: apiErrorMessage(err, "Failed to remove reaction") });
       throw err;
     }
   },

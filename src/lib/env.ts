@@ -24,8 +24,7 @@ export const env = {
     return `${this.API_URL}/api/v1`;
   },
   /** GIPHY API key for the GIF/sticker picker — free from
-   * https://developers.giphy.com. (Was Tenor; that API was decommissioned
-   * June 30, 2026, so this swapped over.) Empty until set; GiphyPicker shows
+   * https://developers.giphy.com. Empty until set; GiphyPicker shows
    * a "not configured yet" state rather than failing requests with an
    * invalid key. Client-exposed on purpose (NEXT_PUBLIC_) — this is how
    * GIPHY expects browser-based integrations to call it. */

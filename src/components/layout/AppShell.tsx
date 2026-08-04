@@ -26,6 +26,7 @@ export function AppShell({
   outerHeader,
   outerFooter,
   chromeless = false,
+  landscapeSize = "md",
 }: {
   children: ReactNode;
   variant?: "column" | "wide" | "feed" | "landscape";
@@ -47,6 +48,11 @@ export function AppShell({
    * bg/rounded/shadow itself (StepScaffold), so that whole visible card —
    * not just text inside a static frame — is what actually swings. */
   chromeless?: boolean;
+  /** "landscape" only — "md" is the wizard's size (75vw, viewport-12rem
+   * tall). "lg" is a bigger, more immersive card (88vw, viewport-6rem tall)
+   * for standalone landscape screens with no outerHeader/outerFooter eating
+   * into the reserved height, e.g. the welcome screen. */
+  landscapeSize?: "md" | "lg";
 }) {
   // "feed" breaks out to full width on desktop (the card sizes itself to the
   // screen). "wide"/"column" stay comfortable centered columns (mirror mobile).
@@ -57,7 +63,9 @@ export function AppShell({
   const panelWidth = isFeed
     ? "md:max-w-none"
     : isLandscape
-      ? "md:w-[75vw]"
+      ? landscapeSize === "lg"
+        ? "md:w-[88vw]"
+        : "md:w-[75vw]"
       : variant === "wide"
         ? "md:max-w-[560px]"
         : "md:max-w-[440px]";
@@ -81,7 +89,9 @@ export function AppShell({
         // safe estimate of the outerHeader/outerFooter/gaps/lane-padding that
         // sit outside it, instead of a flat vh percentage that had no idea
         // those siblings existed and could overflow a shorter viewport.
-        ? "md:h-[calc(100dvh-12rem)] md:overflow-hidden md:rounded-[32px] md:shadow-[0_30px_80px_-24px_rgba(9,30,66,0.6)] md:ring-1 md:ring-black/5"
+        ? landscapeSize === "lg"
+          ? "md:h-[calc(100dvh-6rem)] md:overflow-hidden md:rounded-[32px] md:shadow-[0_30px_80px_-24px_rgba(9,30,66,0.6)] md:ring-1 md:ring-black/5"
+          : "md:h-[calc(100dvh-12rem)] md:overflow-hidden md:rounded-[32px] md:shadow-[0_30px_80px_-24px_rgba(9,30,66,0.6)] md:ring-1 md:ring-black/5"
         : "md:min-h-[600px] md:max-h-[calc(100dvh-3rem)] md:overflow-hidden md:rounded-[32px] md:shadow-[0_30px_80px_-24px_rgba(9,30,66,0.6)] md:ring-1 md:ring-black/5";
   const lanePad = isFeed ? "" : "md:items-center md:py-6";
 

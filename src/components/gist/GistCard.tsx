@@ -81,6 +81,7 @@ export function GistCard({
   onEdited?: () => void;
 }) {
   const reactGist = useGistStore((s) => s.react);
+  const unreactGist = useGistStore((s) => s.unreact);
   const report = useGistStore((s) => s.report);
   const removeGist = useGistStore((s) => s.remove);
   const avitag = useAuthStore((s) => s.avitag);
@@ -151,6 +152,16 @@ export function GistCard({
       // commonly: not actually logged in) used to look successful in the
       // UI and then just vanish on reload with no explanation.
       setReactError(apiErrorMessage(err, "Failed to react — try again"));
+    }
+  };
+
+  const handleUnreact = async () => {
+    try {
+      await unreactGist(gist.gist_id);
+    } catch (err) {
+      // Same reasoning as handleReact — without this a failed un-react
+      // looked successful until the reaction quietly reappeared on reload.
+      setReactError(apiErrorMessage(err, "Failed to remove reaction — try again"));
     }
   };
 
@@ -442,6 +453,7 @@ export function GistCard({
         </div>
         <ReactionButton
           onReact={handleReact}
+          onUnreact={handleUnreact}
           counts={gist.counts?.reactions_by_type}
           initialActive={gist.my_reaction}
           externalTrigger={reactTrigger}
