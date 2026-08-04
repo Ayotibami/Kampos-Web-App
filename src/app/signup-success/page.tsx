@@ -2,11 +2,20 @@
 
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
+import { AuthGate } from "@/components/auth/AuthGate";
 import { Button } from "@/components/ui/Button";
 import { Illustration } from "@/components/brand/illustrations";
 
 /** Post-verification celebration — ported from mobile SignUpSuccess. */
 export default function SignupSuccessPage() {
+  return (
+    <AuthGate allow={["needs-profile"]}>
+      <SignupSuccessContent />
+    </AuthGate>
+  );
+}
+
+function SignupSuccessContent() {
   const router = useRouter();
   return (
     <AppShell>

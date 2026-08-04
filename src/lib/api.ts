@@ -4,37 +4,56 @@ import axios, {
   type AxiosRequestConfig,
 } from "axios";
 import { env } from "./env";
-import { getToken, clearSession } from "./session";
 
 /**
  * Shared axios client for the Kampos backend.
- * - Injects the Bearer token synchronously from the session module.
- * - Normalizes error messages so callers get a friendly string.
- * - On 401, clears the session and notifies listeners (auth store subscribes).
+ *
+ * Auth now lives in httpOnly cookies set by the server (not a token this
+ * app can read or store itself) — `withCredentials: true` is what makes
+ * axios actually send/receive those cookies cross-origin. On a 401, we get
+ * one shot at a silent refresh (`/auth/refresh`, which rotates the cookie
+ * pair) before giving up and telling the rest of the app the session is
+ * dead — a plain 401 doesn't necessarily mean "logged out," it might just
+ * mean the short-lived access token expired mid-session.
  */
 export const api: AxiosInstance = axios.create({
   baseURL: env.API_BASE,
   headers: { "Content-Type": "application/json" },
   timeout: 30_000,
+  withCredentials: true,
 });
 
-api.interceptors.request.use((config) => {
-  const token = getToken();
-  if (token) {
-    config.headers = config.headers ?? {};
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-/** Fired when the API returns 401 so the UI can redirect to login. */
+/** Fired only once a 401 survives a refresh attempt — i.e. the session is
+ * genuinely gone, not just mid-refresh. The auth gate listens for this. */
 export const UNAUTHORIZED_EVENT = "kampos:unauthorized";
+
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function tryRefresh(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = api
+      .post("/auth/refresh")
+      .then(() => true)
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
 
 api.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      clearSession();
+  async (error: AxiosError) => {
+    const config = error.config as (AxiosRequestConfig & { _retried?: boolean }) | undefined;
+    const isAuthRoute = config?.url?.includes("/auth/login") || config?.url?.includes("/auth/register") || config?.url?.includes("/auth/refresh");
+
+    if (error.response?.status === 401 && config && !config._retried && !isAuthRoute) {
+      config._retried = true;
+      const refreshed = await tryRefresh();
+      if (refreshed) {
+        return api(config);
+      }
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
       }
@@ -47,7 +66,6 @@ api.interceptors.response.use(
 export interface ApiEnvelope<T> {
   message?: string;
   data?: T;
-  token?: string;
 }
 
 /** Pull a human-friendly message out of an axios error, with a fallback. */

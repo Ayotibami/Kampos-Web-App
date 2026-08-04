@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import { AuthGate } from "@/components/auth/AuthGate";
 import { StepScaffold } from "@/components/setup/StepScaffold";
 import { NameStep } from "@/components/setup/steps/NameStep";
 import { SchoolStep } from "@/components/setup/steps/SchoolStep";
@@ -59,6 +60,14 @@ const NOOP_CONTROLLER: StepController = {
  * instead of restarting from step 0.
  */
 export default function SetupProfilePage() {
+  return (
+    <AuthGate allow={["needs-profile"]}>
+      <SetupProfileWizard />
+    </AuthGate>
+  );
+}
+
+function SetupProfileWizard() {
   const currentStep = useSetupProfileStore((s) => s.currentStep);
   const setStep = useSetupProfileStore((s) => s.setStep);
   const hasHydrated = useSetupProfileStore((s) => s.hasHydrated);

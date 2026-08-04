@@ -2,20 +2,26 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AppShell } from "@/components/layout/AppShell";
+import { AuthShell } from "@/components/layout/AuthShell";
+import { AuthGate } from "@/components/auth/AuthGate";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 import { LinkText } from "@/components/ui/LinkText";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
 import { useAuthStore } from "@/stores/authStore";
-import {
-  sanitizeInput,
-  validateEmail,
-  validatePassword,
-} from "@/lib/validation";
+import { destinationFor } from "@/lib/authGate";
+import { sanitizeInput, validateEmail } from "@/lib/validation";
 import { apiErrorMessage } from "@/lib/api";
 
 export default function LoginPage() {
+  return (
+    <AuthGate allow={["guest"]}>
+      <LoginForm />
+    </AuthGate>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const login = useAuthStore((s) => s.login);
   const loading = useAuthStore((s) => s.loading);
@@ -38,26 +44,29 @@ export default function LoginPage() {
 
     const emailError = validateEmail(cleanEmail);
     if (emailError) return fail(emailError);
-    const pwIssues = validatePassword(cleanPassword);
-    if (pwIssues.length) return fail(undefined, pwIssues);
+    // Only presence is checked here — strength rules (8+ chars, mixed case,
+    // etc.) belong on signup/reset, not login. Re-applying them here could
+    // reject a real account's password that predates today's rules; the
+    // backend is the actual authority on whether credentials are valid.
+    if (!cleanPassword) return fail("Password is required");
 
     try {
-      await login({ email: cleanEmail, password: cleanPassword });
-      router.replace("/feed");
+      const state = await login({ email: cleanEmail, password: cleanPassword });
+      router.replace(destinationFor(state));
     } catch (err) {
       fail(apiErrorMessage(err, "Login failed"));
     }
   };
 
   return (
-    <AppShell>
+    <AuthShell>
       <ErrorModal
         open={showError}
         onClose={() => setShowError(false)}
         message={message}
         passwordErrors={pwErrors}
       />
-      <div className="flex flex-1 flex-col justify-center gap-7 px-6 py-10 md:px-8">
+      <div className="flex flex-col gap-7">
         <header className="space-y-2 text-center">
           <h1 className="font-poppins text-2xl font-extrabold text-ink">Log in</h1>
           <p className="font-poppins text-sm text-muted">
@@ -109,6 +118,6 @@ export default function LoginPage() {
           />
         </div>
       </div>
-    </AppShell>
+    </AuthShell>
   );
 }

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Poppins, Nunito } from "next/font/google";
 import Script from "next/script";
+import { SessionWatcher } from "@/components/auth/SessionWatcher";
 import "./globals.css";
 
 // Ported from the mobile app: Poppins for UI, Nunito for gist card text.
@@ -40,10 +41,14 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${poppins.variable} ${nunito.variable} h-full`}>
       <body className="min-h-full antialiased">
-        {/* Applies the saved/system theme before paint, so there's no light-mode flash. */}
+        {/* Applies the saved theme before paint, so there's no flash — but
+            defaults to light rather than following system preference, so a
+            first-time visitor on a dark-mode OS still sees the light theme
+            until they explicitly switch. */}
         <Script id="kampos-theme-init" strategy="beforeInteractive">
-          {`(function(){try{var s=localStorage.getItem('kampos-theme');var d=s?s==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',d);}catch(e){}})();`}
+          {`(function(){try{var s=localStorage.getItem('kampos-theme');document.documentElement.classList.toggle('dark',s==='dark');}catch(e){}})();`}
         </Script>
+        <SessionWatcher />
         {children}
       </body>
     </html>

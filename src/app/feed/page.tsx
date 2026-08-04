@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
+import { AuthGate } from "@/components/auth/AuthGate";
 import { GistStack } from "@/components/gist/GistStack";
 import { GistCardSkeleton } from "@/components/gist/GistCardSkeleton";
 import { CreateGistSheet } from "@/components/gist/CreateGistSheet";
@@ -46,6 +47,14 @@ const PROMPTS = [
 ];
 
 export default function FeedPage() {
+  return (
+    <AuthGate allow={["active"]}>
+      <FeedContent />
+    </AuthGate>
+  );
+}
+
+function FeedContent() {
   const listGists = useGistStore((s) => s.list);
   const prefetchComments = useCommentStore((s) => s.prefetchBatch);
   const avitag = useAuthStore((s) => s.avitag);

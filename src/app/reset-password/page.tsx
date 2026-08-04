@@ -2,7 +2,8 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AppShell } from "@/components/layout/AppShell";
+import { AuthShell } from "@/components/layout/AuthShell";
+import { AuthGate } from "@/components/auth/AuthGate";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 import { LinkText } from "@/components/ui/LinkText";
@@ -70,7 +71,7 @@ function ResetPasswordInner() {
   };
 
   return (
-    <AppShell>
+    <AuthShell>
       <ErrorModal
         open={showError}
         onClose={() => setShowError(false)}
@@ -79,7 +80,7 @@ function ResetPasswordInner() {
       />
       <SuccessModal open={showSuccess} onClose={() => setShowSuccess(false)} message={successText} />
 
-      <div className="flex flex-1 flex-col justify-between gap-8 px-6 py-10 md:px-8">
+      <div className="flex flex-col gap-8">
         <div className="space-y-5">
           <h1 className="font-poppins text-2xl font-extrabold text-ink">Reset Password</h1>
           <p className="font-poppins text-sm font-semibold text-brand">Create a New Password</p>
@@ -142,14 +143,16 @@ function ResetPasswordInner() {
           />
         </div>
       </div>
-    </AppShell>
+    </AuthShell>
   );
 }
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={null}>
-      <ResetPasswordInner />
-    </Suspense>
+    <AuthGate allow={["guest"]}>
+      <Suspense fallback={null}>
+        <ResetPasswordInner />
+      </Suspense>
+    </AuthGate>
   );
 }

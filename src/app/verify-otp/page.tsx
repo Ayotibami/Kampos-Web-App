@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AppShell } from "@/components/layout/AppShell";
+import { AuthShell } from "@/components/layout/AuthShell";
+import { AuthGate } from "@/components/auth/AuthGate";
 import { Button } from "@/components/ui/Button";
 import { OtpInputs } from "@/components/ui/OtpInputs";
 import { LinkText } from "@/components/ui/LinkText";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
 import { useAuthStore } from "@/stores/authStore";
-import { getPendingSignup, clearPendingSignup } from "@/lib/signupSession";
+import { destinationFor } from "@/lib/authGate";
 import { apiErrorMessage } from "@/lib/api";
 import { formatCountdown } from "@/lib/format";
 import { LIMITS } from "@/lib/brand";
@@ -16,15 +17,38 @@ import { LIMITS } from "@/lib/brand";
 const OTP_TTL = 5 * 60; // seconds
 
 export default function VerifyOtpPage() {
-  const router = useRouter();
-  const { verifyOtp, sendOtp, login, user, loading } = useAuthStore();
+  return (
+    <AuthGate allow={["needs-otp"]}>
+      <VerifyOtpForm />
+    </AuthGate>
+  );
+}
 
-  const email = user?.email ?? getPendingSignup()?.email ?? "";
+function VerifyOtpForm() {
+  const router = useRouter();
+  const { verifyOtp, sendOtp, logout, user, loading } = useAuthStore();
+
+  // AuthGate only renders this once resolveAuthState has confirmed
+  // "needs-otp" — which means an account (and its email) definitely exists.
+  const email = user?.email ?? "";
   const [digits, setDigits] = useState<string[]>(Array(LIMITS.otp).fill(""));
   const [secondsLeft, setSecondsLeft] = useState(OTP_TTL);
   const [wrong, setWrong] = useState(false);
   const [message, setMessage] = useState<string>();
   const [showError, setShowError] = useState(false);
+
+  // Whoever lands here needs a code on the way regardless of how they
+  // arrived — register/login sometimes already fired one as a side effect,
+  // but a stale unverified session opening the site directly wouldn't have
+  // one in flight, so this always makes sure one's actually been sent.
+  const sentOnMount = useRef(false);
+  useEffect(() => {
+    if (sentOnMount.current || !email) return;
+    sentOnMount.current = true;
+    void sendOtp(email).catch(() => {
+      /* best-effort — the resend button is still right there */
+    });
+  }, [email, sendOtp]);
 
   useEffect(() => {
     if (secondsLeft <= 0) return;
@@ -38,14 +62,8 @@ export default function VerifyOtpPage() {
 
   const handleVerify = async () => {
     try {
-      await verifyOtp({ email, code });
-      // Auto-login with the credentials held in memory from signup.
-      const pending = getPendingSignup();
-      if (pending) {
-        await login({ email: pending.email, password: pending.password });
-        clearPendingSignup();
-      }
-      router.replace("/signup-success");
+      const state = await verifyOtp({ email, code });
+      router.replace(destinationFor(state));
     } catch (err) {
       const msg = apiErrorMessage(err, "Invalid code");
       if (msg === "Invalid or expired code") {
@@ -77,9 +95,9 @@ export default function VerifyOtpPage() {
       : "We've sent an email with a code to complete your account. Please enter it below to continue.";
 
   return (
-    <AppShell>
+    <AuthShell>
       <ErrorModal open={showError} onClose={() => setShowError(false)} message={message} />
-      <div className="flex flex-1 flex-col justify-between gap-8 px-6 py-10 md:px-8">
+      <div className="flex flex-col gap-8">
         <div className="space-y-6">
           <h1 className="font-poppins text-2xl font-extrabold text-ink">Sign-Up</h1>
           <p className="font-poppins text-sm font-semibold text-brand">{heading}</p>
@@ -129,10 +147,17 @@ export default function VerifyOtpPage() {
           <LinkText
             normalText="Need to"
             linkText="change email?"
-            onClick={() => router.replace("/signup")}
+            onClick={async () => {
+              // This account/session is being abandoned in favor of a
+              // fresh one — /signup only allows guests, so the current
+              // (unverified) session has to actually end first, not just
+              // navigate away from.
+              await logout();
+              router.replace("/signup");
+            }}
           />
         </div>
       </div>
-    </AppShell>
+    </AuthShell>
   );
 }

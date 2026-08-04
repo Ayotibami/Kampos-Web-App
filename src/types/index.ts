@@ -6,6 +6,7 @@ export type ProfileType = "student" | "kreator" | "kompany" | "school" | "idiot"
 export interface Account {
   account_id?: string;
   email: string;
+  is_otp_verified?: boolean;
   [key: string]: unknown;
 }
 

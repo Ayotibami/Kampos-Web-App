@@ -2,22 +2,31 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AppShell } from "@/components/layout/AppShell";
+import { AuthShell } from "@/components/layout/AuthShell";
+import { AuthGate } from "@/components/auth/AuthGate";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 import { LinkText } from "@/components/ui/LinkText";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
 import { useAuthStore } from "@/stores/authStore";
+import { destinationFor } from "@/lib/authGate";
 import {
   sanitizeInput,
   validateEmail,
   validatePassword,
   passwordsMatch,
 } from "@/lib/validation";
-import { setPendingSignup } from "@/lib/signupSession";
 import { apiErrorMessage } from "@/lib/api";
 
 export default function SignupPage() {
+  return (
+    <AuthGate allow={["guest"]}>
+      <SignupForm />
+    </AuthGate>
+  );
+}
+
+function SignupForm() {
   const router = useRouter();
   const register = useAuthStore((s) => s.register);
   const loading = useAuthStore((s) => s.loading);
@@ -48,26 +57,25 @@ export default function SignupPage() {
     if (pwIssues.length) return fail(undefined, pwIssues);
 
     try {
-      const { token, user } = await register({ email: cleanEmail, password: cleanPassword });
-      if (token && user) {
-        // Held in memory only, for auto-login after OTP verification.
-        setPendingSignup({ email: cleanEmail, password: cleanPassword });
-        router.replace("/verify-otp");
-      }
+      // Registering already logs the account in (the server sets the auth
+      // cookies on this response) — just unverified, so this always lands
+      // on /verify-otp next, no separate re-login step needed.
+      const state = await register({ email: cleanEmail, password: cleanPassword });
+      router.replace(destinationFor(state));
     } catch (err) {
       fail(apiErrorMessage(err, "Registration failed"));
     }
   };
 
   return (
-    <AppShell>
+    <AuthShell>
       <ErrorModal
         open={showError}
         onClose={() => setShowError(false)}
         message={message}
         passwordErrors={pwErrors}
       />
-      <div className="flex flex-1 flex-col justify-center gap-6 px-6 py-10 md:px-8">
+      <div className="flex flex-col gap-6">
         <header className="space-y-2 text-center">
           <h1 className="font-poppins text-2xl font-extrabold text-ink">Sign-Up</h1>
           <p className="font-poppins text-sm text-muted">
@@ -134,6 +142,6 @@ export default function SignupPage() {
           />
         </div>
       </div>
-    </AppShell>
+    </AuthShell>
   );
 }

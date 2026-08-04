@@ -4,7 +4,6 @@ import { useAuthStore } from "./authStore";
 import type { Profile, ProfileType, StudentProfilePayload } from "@/types";
 
 interface SwitchResult {
-  token: string | null;
   avitag: string | null;
   profileType: ProfileType | null;
 }
@@ -34,18 +33,18 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   switchProfile: async (avitag) => {
     set({ loading: true, error: null });
     try {
+      // Switching profiles rotates the auth cookies server-side (new
+      // active-profile claims baked into a fresh token pair) — nothing to
+      // store client-side beyond the avitag/profileType meta below.
       const res = await api.post<ApiEnvelope<SwitchResult>>("/auth/switch-profile", { avitag });
       const data = res.data?.data;
-      const token = data?.token ?? null;
       const newAvitag = data?.avitag ?? null;
       const profileType = data?.profileType ?? null;
 
-      const auth = useAuthStore.getState();
-      auth.setSession(token);
-      auth.setProfileMeta({ avitag: newAvitag, profileType });
+      useAuthStore.getState().setProfileMeta({ avitag: newAvitag, profileType });
 
       set({ loading: false });
-      return { token, avitag: newAvitag, profileType };
+      return { avitag: newAvitag, profileType };
     } catch (err) {
       set({ error: apiErrorMessage(err, "Switch profile failed"), loading: false });
       throw err;

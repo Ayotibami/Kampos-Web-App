@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AppShell } from "@/components/layout/AppShell";
+import { AuthShell } from "@/components/layout/AuthShell";
+import { AuthGate } from "@/components/auth/AuthGate";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 import { LinkText } from "@/components/ui/LinkText";
@@ -12,6 +13,14 @@ import { sanitizeInput, validateEmail } from "@/lib/validation";
 import { apiErrorMessage } from "@/lib/api";
 
 export default function ForgotPasswordPage() {
+  return (
+    <AuthGate allow={["guest"]}>
+      <ForgotPasswordForm />
+    </AuthGate>
+  );
+}
+
+function ForgotPasswordForm() {
   const router = useRouter();
   const { forgotPassword, loading } = useAuthStore();
   const [email, setEmail] = useState("");
@@ -36,9 +45,9 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <AppShell>
+    <AuthShell>
       <ErrorModal open={showError} onClose={() => setShowError(false)} message={message} />
-      <div className="flex flex-1 flex-col justify-center gap-8 px-6 py-10 md:px-8">
+      <div className="flex flex-col gap-8">
         <header className="space-y-3 text-center">
           <h1 className="font-poppins text-2xl font-extrabold text-ink">Forgot Password</h1>
           <p className="font-poppins text-sm text-muted">
@@ -64,6 +73,6 @@ export default function ForgotPasswordPage() {
           <LinkText normalText="Want to" linkText="Log in?" onClick={() => router.back()} />
         </div>
       </div>
-    </AppShell>
+    </AuthShell>
   );
 }
