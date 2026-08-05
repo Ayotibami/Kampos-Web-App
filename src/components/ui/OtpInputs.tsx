@@ -1,20 +1,39 @@
 "use client";
 
-import { useRef, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, type ClipboardEvent, type KeyboardEvent } from "react";
+import { motion, useAnimation } from "framer-motion";
 
 interface OtpInputsProps {
   value: string[];
   onChange: (next: string[]) => void;
   length?: number;
   error?: boolean;
+  /** Bump this (e.g. Date.now(), or a counter) to replay the shake — a
+   * plain `error` boolean can't do this alone: it often stays `true` across
+   * two consecutive wrong attempts, and React bails out of re-rendering on
+   * an unchanged boolean state update, so nothing would replay for the
+   * second wrong code in a row without a value that's guaranteed to change
+   * on every attempt. */
+  shakeSignal?: number;
 }
 
 /**
  * Six-box OTP entry with auto-advance, backspace-to-previous, and paste support.
  * Ported from the mobile OtpInputs; digit-only.
  */
-export function OtpInputs({ value, onChange, length = 6, error = false }: OtpInputsProps) {
+export function OtpInputs({ value, onChange, length = 6, error = false, shakeSignal }: OtpInputsProps) {
   const refs = useRef<(HTMLInputElement | null)[]>([]);
+  const controls = useAnimation();
+  const lastShakeSignal = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (shakeSignal === undefined || shakeSignal === lastShakeSignal.current) return;
+    lastShakeSignal.current = shakeSignal;
+    void controls.start({
+      x: [0, -8, 8, -8, 8, -4, 4, 0],
+      transition: { duration: 0.4, ease: "easeInOut" },
+    });
+  }, [shakeSignal, controls]);
 
   const setDigit = (index: number, digit: string) => {
     const next = [...value];
@@ -45,7 +64,7 @@ export function OtpInputs({ value, onChange, length = 6, error = false }: OtpInp
   };
 
   return (
-    <div className="flex justify-center gap-2 sm:gap-3">
+    <motion.div animate={controls} className="flex justify-center gap-2 sm:gap-3">
       {Array.from({ length }).map((_, i) => (
         <input
           key={i}
@@ -63,6 +82,6 @@ export function OtpInputs({ value, onChange, length = 6, error = false }: OtpInp
           }`}
         />
       ))}
-    </div>
+    </motion.div>
   );
 }

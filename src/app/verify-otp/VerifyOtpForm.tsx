@@ -13,7 +13,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { formatCountdown } from "@/lib/format";
 import { LIMITS } from "@/lib/brand";
 
-const OTP_TTL = 5 * 60; // seconds
+const OTP_TTL = 10 * 60; // seconds — matches the backend's real OTP expiry
 
 export function VerifyOtpForm() {
   const router = useRouter();
@@ -27,6 +27,13 @@ export function VerifyOtpForm() {
   const [wrong, setWrong] = useState(false);
   const [message, setMessage] = useState<string>();
   const [showError, setShowError] = useState(false);
+  // Bumped whenever the boxes should shake — a submit-time wrong code, or
+  // the timer running out from under someone. Can't just derive this from
+  // `wrong`/`secondsLeft <= 0` as a boolean: two wrong attempts in a row
+  // both leave `wrong` sitting at `true` the whole time, so nothing about
+  // that value actually changes on the second attempt for an effect to
+  // catch — this needs to change on every occurrence, not every transition.
+  const [shakeSignal, setShakeSignal] = useState(0);
 
   // No auto-send on mount — register and login both already trigger a code
   // send server-side (register always; login whenever the account isn't
@@ -41,6 +48,14 @@ export function VerifyOtpForm() {
     return () => clearInterval(t);
   }, [secondsLeft]);
 
+  // Shakes the boxes the moment the timer actually runs out from under
+  // someone — not just when they try to submit a now-expired code. Fires
+  // exactly once: secondsLeft only ever transitions into 0 a single time,
+  // the interval above stops itself right after.
+  useEffect(() => {
+    if (secondsLeft === 0) setShakeSignal((n) => n + 1);
+  }, [secondsLeft]);
+
   const code = useMemo(() => digits.join(""), [digits]);
   const complete = code.length === LIMITS.otp;
   const canResend = secondsLeft <= OTP_TTL - 20; // after ~20s, like mobile
@@ -53,6 +68,7 @@ export function VerifyOtpForm() {
       const msg = apiErrorMessage(err, "Invalid code");
       if (msg === "Invalid or expired code") {
         setWrong(true);
+        setShakeSignal((n) => n + 1);
       } else {
         setMessage(msg);
         setShowError(true);
@@ -85,10 +101,22 @@ export function VerifyOtpForm() {
       <div className="flex flex-col gap-8">
         <div className="space-y-6">
           <h1 className="font-poppins text-2xl font-extrabold text-ink">Sign-Up</h1>
-          <p className="font-poppins text-sm font-semibold text-brand">{heading}</p>
+          <p
+            className={`font-poppins text-sm font-semibold ${
+              wrong || secondsLeft <= 0 ? "text-danger" : "text-brand"
+            }`}
+          >
+            {heading}
+          </p>
           <p className="font-poppins text-sm text-muted">{helper}</p>
 
-          <OtpInputs value={digits} onChange={setDigits} error={wrong} length={LIMITS.otp} />
+          <OtpInputs
+            value={digits}
+            onChange={setDigits}
+            error={wrong || secondsLeft <= 0}
+            shakeSignal={shakeSignal}
+            length={LIMITS.otp}
+          />
 
           <p className="text-center font-poppins text-sm text-muted">
             {secondsLeft <= 0 ? "Oops, time up! Abeg resend code " : "The code expires in "}

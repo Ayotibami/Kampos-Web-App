@@ -56,6 +56,10 @@ interface AuthState {
   sendOtp: (email: string) => Promise<void>;
   verifyOtp: (input: { email: string; code: string }) => Promise<AuthGateState>;
   forgotPassword: (email: string) => Promise<void>;
+  /** Checks a password-reset code alone, no new password required — lets
+   * the reset UI confirm the code before it swaps the code entry for the
+   * new-password fields, same as verify-otp already does for signup. */
+  verifyResetCode: (input: { email: string; code: string }) => Promise<void>;
   resetPassword: (input: { email: string; code: string; newPassword: string }) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -173,6 +177,17 @@ export const useAuthStore = create<AuthState>()(
           set({ loading: false });
         } catch (err) {
           set({ error: apiErrorMessage(err, "Failed to send OTP code"), loading: false });
+          throw err;
+        }
+      },
+
+      verifyResetCode: async ({ email, code }) => {
+        set({ loading: true, error: null });
+        try {
+          await api.post("/auth/verify-reset-code", { email, code });
+          set({ loading: false });
+        } catch (err) {
+          set({ error: apiErrorMessage(err, "Invalid code"), loading: false });
           throw err;
         }
       },

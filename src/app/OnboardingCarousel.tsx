@@ -14,6 +14,36 @@ import { ONBOARDING } from "@/lib/brand";
 import { hasSeenOnboarding, markOnboardingSeen } from "@/lib/onboarding";
 import KappyWaving from "@/assets/illustrations/KappyWaving.png";
 
+// KappyWaving/KappyPhone/KappyLookingUp are all the same 1024×922 source
+// canvas (checked directly) — so every "slide 0/1/2" box below shares this
+// exact aspect ratio instead of each guessing its own via independent
+// vh/height caps. That's the actual fix for why Kappy used to vanish or get
+// cropped to nothing on some screen sizes and not others: the box's *shape*
+// used to be whatever px-6/max-h-[45vh]/flex-basis happened to produce at a
+// given viewport, which had no relationship to the art's real proportions —
+// at some sizes that shape was so far off-ratio that object-cover cropped
+// straight through Kappy's whole body, and the child illustrations'
+// percentage-based positioning (which assumes this same ratio) drifted
+// along with it. Locking the box to the art's own ratio means it only ever
+// scales uniformly — same composition, same relative positions, at every
+// breakpoint — instead of reshaping.
+//
+// Three tiers, not two — the split-screen layout kicks in at `md` (768px),
+// but the illustration column's actual *shape* at that width is nothing
+// like it is at `lg`+: at md it's still a narrow, tall column (~250-380px
+// wide against the full viewport height), and at lg it's a genuinely wide
+// landscape-ish half. Sizing both the same way (e.g. "fill the full column
+// height") stretched a distorted, tiny Kappy into a mostly-empty tall
+// column at md — forcing height while also capping width doesn't reconcile
+// through the aspect-ratio the way you'd want without also recomputing the
+// *other* dimension, which plain width/height + aspect-ratio doesn't do on
+// its own. Staying width-bound through md (same rule as mobile, just a
+// larger cap) sidesteps that entirely; only lg+, where the column is
+// genuinely wide enough for a tall box to make sense, switches to
+// height-bound for the "large and immersive" look the split layout wants.
+const KAPPY_BOX =
+  "aspect-[1024/922] w-full max-w-[420px] md:max-w-[70%] lg:h-[90%] lg:w-auto lg:max-w-[92%] lg:max-h-none";
+
 /**
  * Onboarding carousel — Kappy the mascot introduces Kampos across 3 slides,
  * then hands off to the welcome screen. Ported from the mobile index screen.
@@ -103,20 +133,20 @@ export function OnboardingCarousel() {
               // + a relatively-sized parent means it scales with the
               // viewport at any breakpoint, it's just cropping instead of
               // scaling-to-fit.
-              <div className="relative h-full max-h-[45vh] w-full md:h-[95%] md:max-h-none md:w-[95%]">
+              <div className={`relative ${KAPPY_BOX}`}>
                 <Image
                   src={KappyWaving}
                   alt="Kappy waving"
                   fill
                   priority
                   sizes="(min-width: 768px) 45vw, 95vw"
-                  className="object-cover object-top"
+                  className="object-contain object-top"
                 />
               </div>
             ) : index === 1 ? (
-              <PhoneKappyOrbit className="h-full max-h-[45vh] w-full md:h-[95%] md:max-h-none md:w-[95%]" />
+              <PhoneKappyOrbit className={KAPPY_BOX} />
             ) : index === 2 ? (
-              <KappyOpportunitiesOrbit className="h-full max-h-[45vh] w-full md:h-[95%] md:max-h-none md:w-[95%]" />
+              <KappyOpportunitiesOrbit className={KAPPY_BOX} />
             ) : (
               <Illustration
                 name={slide.illustration as IllustrationName}
