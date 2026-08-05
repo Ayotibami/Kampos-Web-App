@@ -23,6 +23,7 @@ export {
   ChevronUp,
   ChevronDown,
   Eye,
+  EyeOff,
   LogOut,
   Sticker,
 } from "lucide-react";

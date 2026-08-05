@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, useState, type InputHTMLAttributes } from "react";
+import { Eye, EyeOff } from "@/components/ui/icons";
 
 interface TextInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "onChange"> {
   value: string;
@@ -19,7 +20,7 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
   { value, onChange, label, isPassword = false, error = false, className = "", type, ...props },
   ref,
 ) {
-  const [show, setShow] = useState(false);
+  const [show, setShow] = useState(true);
   const resolvedType = isPassword ? (show ? "text" : "password") : type ?? "text";
 
   return (
@@ -44,10 +45,10 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
           <button
             type="button"
             onClick={() => setShow((s) => !s)}
-            className="ml-2 shrink-0 font-poppins text-xs font-semibold text-brand"
+            className="ml-2 flex shrink-0 items-center justify-center text-muted transition hover:text-brand"
             aria-label={show ? "Hide password" : "Show password"}
           >
-            {show ? "Hide" : "Show"}
+            {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         )}
       </div>
