@@ -119,9 +119,15 @@ export function VerifyOtpForm() {
               disabled={loading}
             />
           ) : (
-            <p className="text-center font-poppins text-sm text-muted">
-              Hang on! You can resend in{" "}
-              <span className="font-semibold text-brand">{secondsLeft - (OTP_TTL - 20)}s</span>
+            // Deliberately small/muted/uncolored, unlike the big countdown
+            // above — that one and this one are both ticking numbers on
+            // screen at once for these first 20s, and without a clear
+            // visual difference they read as two competing timers instead
+            // of "code expiry" vs. "resend cooldown." Explicit wording for
+            // the same reason: a bare "20s" next to "4:52" is ambiguous
+            // about which clock it even belongs to.
+            <p className="text-center font-poppins text-xs text-faint">
+              Resend available in {secondsLeft - (OTP_TTL - 20)}s
             </p>
           )}
 
