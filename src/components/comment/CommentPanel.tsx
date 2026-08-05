@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Heart, SendIconFill } from "@/components/ui/icons";
 import { Illustration } from "@/components/brand/illustrations";
+import { Avatar } from "@/components/ui/Avatar";
 import { useCommentStore } from "@/stores/commentStore";
 import { timeAgo } from "@/lib/format";
 import { LIMITS } from "@/lib/brand";
@@ -109,10 +110,10 @@ function CommentBubble({
   onReact: () => void;
 }) {
   const reacted = !!c.my_reaction;
-  const fullName = c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : null;
-  // Only student profiles have campus/major — a non-student commenter (or
-  // one who hasn't set these) just shows whichever piece is actually there.
-  const schoolInfo = [c.major_tag, c.campus_tag].filter(Boolean).join(" ");
+  const displayName = c.first_name ?? null;
+  // Only student profiles have campus/major/level — a non-student commenter
+  // (or one who hasn't set these) just shows whichever pieces are actually there.
+  const schoolInfo = [c.major_tag, c.level ? `${c.level}L` : null, c.campus_tag].filter(Boolean).join(" ");
   return (
     <motion.li
       className="relative ml-3 rounded-2xl"
@@ -140,11 +141,11 @@ function CommentBubble({
           {/* Left side: Avatar + Names */}
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-light">
-              <Illustration name="Kamill" className="h-full w-full object-cover" />
+              <Avatar src={c.image_url} />
             </div>
             <div className="flex flex-col">
               <span className="font-poppins text-sm font-semibold">
-                {fullName ?? (c.avitag ? c.avitag.replace(/_?\d+$/, "") : "Fola_shade")}
+                {displayName ?? (c.avitag ? c.avitag.replace(/_?\d+$/, "") : "Fola_shade")}
               </span>
               <span className="font-poppins text-xs text-muted dark:text-white/70">@{c.avitag ?? "someone"}</span>
             </div>
@@ -266,9 +267,6 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
     try {
       await reactComment(commentId, gistId, "LOVE");
     } catch (err) {
-      // Surfaced now instead of silently swallowed (demo comments still
-      // fail silently on purpose — see reactComment) — a failed react used
-      // to look successful in the UI and then just vanish on reload.
       setReactError(apiErrorMessage(err, "Failed to react — try again"));
     }
   };

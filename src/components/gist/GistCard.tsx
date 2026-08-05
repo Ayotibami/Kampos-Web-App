@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Lottie from "lottie-react";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
-import { Illustration } from "@/components/brand/illustrations";
+import { Avatar } from "@/components/ui/Avatar";
 import { GistMediaBackdrop, GistMediaBodyPanel } from "./GistMediaStage";
 import { GistMediaOverlay } from "./GistMediaOverlay";
 import { ReactionButton } from "./ReactionButton";
@@ -29,7 +29,6 @@ import {
 import type { Gist, ReactionType } from "@/types";
 import { gistColorFor } from "@/lib/brand";
 import { timeAgo, friendlyDateTime, compactNumber } from "@/lib/format";
-import { DEMO_SELF_AVITAG } from "@/lib/sampleGists";
 
 const SHORT_TEXT = 200;
 
@@ -139,10 +138,7 @@ export function GistCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overlayIndex]);
 
-  // Falls back to the demo-self marker when nobody's actually logged in
-  // (avitag is null) so Edit/Delete is reachable while testing against
-  // SAMPLE_GISTS — a couple of those are pre-tagged as DEMO_SELF_AVITAG.
-  const isOwn = avitag ? gist.avitag === avitag : gist.avitag === DEMO_SELF_AVITAG;
+  const isOwn = gist.avitag === avitag;
 
   const handleReact = async (type: ReactionType) => {
     try {
@@ -232,12 +228,12 @@ export function GistCard({
           resolves against siblings inside the header, not against body. */}
       <div className="relative z-20 flex items-start gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line">
-          <Illustration name="Kamill" className="h-full w-full" />
+          <Avatar src={gist.image_url} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="min-w-0 shrink truncate font-poppins text-[13px] font-bold text-ink md:text-sm">
-              {gist.name || gist.avitag}
+              {gist.first_name || gist.name || gist.avitag}
             </span>
             {isOwn && (
               <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-poppins text-[10px] font-bold leading-none text-brand md:text-[11px]">

@@ -9,6 +9,7 @@ import { GistCardSkeleton } from "@/components/gist/GistCardSkeleton";
 import { CreateGistSheet } from "@/components/gist/CreateGistSheet";
 import { CommentPanel } from "@/components/comment/CommentPanel";
 import { Illustration } from "@/components/brand/illustrations";
+import { Avatar } from "@/components/ui/Avatar";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { SettingsIconFill, Plus } from "@/components/ui/icons";
@@ -16,7 +17,6 @@ import { AnimatePresence } from "framer-motion";
 import { useGistStore } from "@/stores/gistStore";
 import { useCommentStore } from "@/stores/commentStore";
 import { useAuthStore } from "@/stores/authStore";
-import { SAMPLE_GISTS } from "@/lib/sampleGists";
 import type { Gist } from "@/types";
 
 type Tab = "Gist" | "Amebo";
@@ -49,13 +49,15 @@ export function FeedContent() {
   const listGists = useGistStore((s) => s.list);
   const prefetchComments = useCommentStore((s) => s.prefetchBatch);
   const avitag = useAuthStore((s) => s.avitag);
+  const myImageUrl = useAuthStore(
+    (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null
+  );
 
   const [gists, setGists] = useState<Gist[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   // Sample/demo data has no real backend cursor to page through — pagination
   // only makes sense once the live API actually returned something.
-  const [usingSampleData, setUsingSampleData] = useState(false);
   // Once the backend's cursor pagination genuinely runs out (an empty page
   // back), stop asking — otherwise sitting near the end of the feed would
   // keep re-firing the same exhausted request indefinitely (loadMore's own
@@ -201,28 +203,19 @@ export function FeedContent() {
     setLoading(true);
     try {
       const data = await listGists();
-      const gotReal = data.length > 0;
-      setGists(gotReal ? data : SAMPLE_GISTS);
-      setUsingSampleData(!gotReal);
+      setGists(data);
       setExhausted(false);
-      // Only prefetch for real gists against a reachable backend — doing
-      // this for the SAMPLE_GISTS fallback here would hit the real (working)
-      // API with fake "demo-*" ids, cache back a genuine empty result, and
-      // permanently block the nicer demo-comment fallback CommentPanel's own
-      // per-gist fetch would otherwise fall back to.
-      if (gotReal) void prefetchComments(data.map((g) => g.gist_id));
+      void prefetchComments(data.map((g) => g.gist_id));
     } catch {
-      // Backend unreachable → show demo gists so the feed is still testable.
-      setGists(SAMPLE_GISTS);
-      setUsingSampleData(true);
-      void prefetchComments(SAMPLE_GISTS.map((g) => g.gist_id));
+      // Backend unreachable — leave gists as-is (empty state or whatever
+      // was last successfully loaded) rather than showing fake data.
     } finally {
       setLoading(false);
     }
   }, [listGists, prefetchComments]);
 
   const loadMore = useCallback(async () => {
-    if (loadingMore || usingSampleData || exhausted || gists.length === 0) return;
+    if (loadingMore || exhausted || gists.length === 0) return;
     const cursor = gists[gists.length - 1]?.gist_id;
     if (!cursor) return;
     setLoadingMore(true);
@@ -244,7 +237,7 @@ export function FeedContent() {
     } finally {
       setLoadingMore(false);
     }
-  }, [exhausted, gists, listGists, loadingMore, prefetchComments, usingSampleData]);
+  }, [exhausted, gists, listGists, loadingMore, prefetchComments]);
 
   useEffect(() => {
     void load();
@@ -300,7 +293,7 @@ export function FeedContent() {
                   aria-label="Your profile"
                   className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-line transition hover:ring-brand"
                 >
-                  <Illustration name="Kamill" className="h-full w-full object-cover" />
+                  <Avatar src={myImageUrl} />
                 </Link>
               </div>
             </div>
@@ -353,7 +346,7 @@ export function FeedContent() {
                 >
                   <div className="relative h-10 w-10 shrink-0">
                     <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-brand/5 ring-1 ring-line/50">
-                      <Illustration name="Kamill" className="h-full w-full object-cover" />
+                      <Avatar src={myImageUrl} />
                     </div>
                     {avatarPing > 0 && (
                       <motion.span

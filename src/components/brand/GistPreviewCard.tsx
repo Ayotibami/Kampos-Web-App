@@ -1,5 +1,5 @@
-import { Illustration } from "@/components/brand/illustrations";
 import { ReactionButton } from "@/components/gist/ReactionButton";
+import { Avatar } from "@/components/ui/Avatar";
 import {
   CommentIconFill,
   ReactionIconFill,
@@ -33,6 +33,7 @@ const SHORT_TEXT = 200;
 export function GistPreviewCard({
   name,
   avitag,
+  imageUrl,
   time,
   campusTag,
   majorTag,
@@ -46,6 +47,7 @@ export function GistPreviewCard({
 }: {
   name: string;
   avitag: string;
+  imageUrl?: string | null;
   time: string;
   campusTag: string;
   majorTag: string;
@@ -65,8 +67,8 @@ export function GistPreviewCard({
       className={`w-full overflow-hidden rounded-2xl bg-surface-2 p-5 shadow-[0_20px_45px_-12px_rgba(9,30,66,0.45)] ring-1 ring-black/5 ${className}`}
     >
       <div className="flex items-start gap-2">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line">
-          <Illustration name="Kamill" className="h-full w-full" />
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-line/60 ring-1 ring-line">
+          <Avatar src={imageUrl} />
         </div>
         <div className="min-w-0 flex-1">
           {/* nowrap, not wrap — a long name/avitag combo used to push onto

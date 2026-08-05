@@ -10,6 +10,7 @@ import type { Gist, ReactionType } from "@/types";
 interface PreviewPost {
   name: string;
   avitag: string;
+  imageUrl?: string | null;
   time: string;
   campusTag: string;
   majorTag: string;
@@ -24,8 +25,9 @@ interface PreviewPost {
 /** Maps a real API gist onto the same shape the sample posts use. */
 function toPreviewPost(gist: Gist): PreviewPost {
   return {
-    name: gist.name || gist.avitag,
+    name: gist.first_name || gist.name || gist.avitag,
     avitag: gist.avitag,
+    imageUrl: gist.image_url,
     time: timeAgo(gist.created_at),
     campusTag: gist.campus_tag ?? "",
     majorTag: gist.major_tag ?? "",

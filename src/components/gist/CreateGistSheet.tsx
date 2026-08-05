@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { Illustration } from "@/components/brand/illustrations";
+import { Avatar } from "@/components/ui/Avatar";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
 import { WebcamCapture } from "./WebcamCapture";
 import { GiphyPicker } from "./GiphyPicker";
 import { CameraIconFill, ImageIconFill, X, Video, Sticker } from "@/components/ui/icons";
 import { useGistStore } from "@/stores/gistStore";
+import { useAuthStore } from "@/stores/authStore";
 import { apiErrorMessage } from "@/lib/api";
 import { LIMITS } from "@/lib/brand";
 import { stripInvisibleChars, sanitizeForSubmit, sanitizeFileName } from "@/lib/sanitize";
@@ -116,6 +117,9 @@ export function CreateGistSheet({
   editGist?: Gist;
 }) {
   const { create, update, uploadMedia, attachMediaUrl } = useGistStore();
+  const myImageUrl = useAuthStore(
+    (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null
+  );
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isEditing = !!editGist;
@@ -300,7 +304,7 @@ export function CreateGistSheet({
                   own compose dialogs use, so it doesn't read as posting into
                   a void. */}
               <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-light ring-1 ring-black/5">
-                <Illustration name="Kamill" className="h-full w-full object-cover" />
+                <Avatar src={myImageUrl} />
               </div>
               <div className="relative min-w-0 flex-1">
                 <textarea

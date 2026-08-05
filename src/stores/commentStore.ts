@@ -3,21 +3,7 @@ import { api, apiGet, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
 import { wsClient } from "@/lib/ws";
 import type { Comment, ReactionType } from "@/types";
 
-const DEMO_COMMENT_COUNT = 20;
 const COMMENTS_PAGE_SIZE = 20; // matches the backend's own default page size
-
-function sampleCommentsFor(gistId: string): Comment[] {
-  return Array.from({ length: DEMO_COMMENT_COUNT }).map((_, i) => ({
-    comment_id: `demo-comment-${gistId}-${i}`,
-    gist_id: gistId,
-    avitag: `kampos_user_${i + 1}`,
-    text:
-      i % 3 === 0
-        ? `This is sample comment number ${i + 1}, and this one is deliberately long so we can test the "...more" truncation on the comment panel — it should collapse after roughly 280 characters and show a toggle to expand it back out. Padding this out a bit further with a bit more rambling text just to make sure it comfortably clears that threshold and wraps across several lines inside the bubble before it gets cut off.`
-        : `This is sample comment number ${i + 1}. We are adding some extra text to see how it wraps and to make sure the scrollable comment panel works perfectly with a lot of comments!`,
-    commented_at: new Date(Date.now() - i * 60000 * 15).toISOString(),
-  }));
-}
 
 interface CommentState {
   /** Keyed by gist_id — comments are never thrown away on switching gists,
@@ -82,15 +68,14 @@ export const useCommentStore = create<CommentState>((set, get) => ({
       }));
       return data;
     } catch (err) {
-      // Backend unreachable → fallback to sample comments so the UI is testable.
-      // Synthetic data has no real "next page" to paginate through.
-      const sampleComments = sampleCommentsFor(gistId);
+      // Leave itemsByGist untouched on failure (not "cached" as empty) so
+      // the panel keeps showing its loading skeleton instead of a false
+      // "no comments" state, and a later retry can still succeed.
       set((s) => ({
-        itemsByGist: { ...s.itemsByGist, [gistId]: sampleComments },
         loadingByGist: { ...s.loadingByGist, [gistId]: false },
-        hasMoreByGist: { ...s.hasMoreByGist, [gistId]: false },
+        error: apiErrorMessage(err, "Failed to load comments"),
       }));
-      return sampleComments;
+      return [];
     }
   },
 
@@ -114,9 +99,8 @@ export const useCommentStore = create<CommentState>((set, get) => ({
         });
       }
     } catch {
-      // Best-effort — if the batch endpoint is unreachable, individual
-      // per-gist fetches (with their own demo-data fallback) still cover it
-      // whenever each gist actually gets visited.
+      // Best-effort — if the batch endpoint is unreachable, each gist's own
+      // listByGist call still covers it whenever that gist actually gets visited.
     }
   },
 
@@ -162,26 +146,6 @@ export const useCommentStore = create<CommentState>((set, get) => ({
       }
       return created;
     } catch (err) {
-      // Sample gists (fed in when the real feed comes back empty — see
-      // SAMPLE_GISTS in feed/page.tsx) don't exist on the backend, so a real
-      // POST always 404s here. Rather than hard-fail the whole composer for
-      // demo data, add the comment locally so the UI still works end to end.
-      if (payload.gist_id.startsWith("demo-")) {
-        const optimistic: Comment = {
-          comment_id: `local-${Date.now()}`,
-          gist_id: payload.gist_id,
-          avitag: "you",
-          text: payload.text,
-          commented_at: new Date().toISOString(),
-        };
-        set((s) => ({
-          itemsByGist: {
-            ...s.itemsByGist,
-            [payload.gist_id]: [optimistic, ...(s.itemsByGist[payload.gist_id] ?? [])],
-          },
-        }));
-        return optimistic;
-      }
       set({ error: apiErrorMessage(err, "Failed to create comment") });
       throw err;
     }
@@ -203,7 +167,6 @@ export const useCommentStore = create<CommentState>((set, get) => ({
   },
 
   reactComment: async (commentId, gistId, type) => {
-    const isDemo = commentId.startsWith("demo-comment-");
     let previous: Comment | undefined;
     set((s) => ({
       itemsByGist: {
@@ -226,12 +189,6 @@ export const useCommentStore = create<CommentState>((set, get) => ({
     try {
       await api.post("/reactions", { entity_type: "COMMENT", entity_id: commentId, type });
     } catch (err) {
-      // Demo comments (fake ids, no real backend row) are expected to
-      // always fail this — the optimistic UI stands for those on purpose.
-      // A REAL comment failing here previously failed the exact same way
-      // silently, which is why a reaction could look successful in the UI
-      // and then just vanish on the next reload with no explanation.
-      if (isDemo) return;
       if (previous) {
         set((s) => ({
           itemsByGist: {

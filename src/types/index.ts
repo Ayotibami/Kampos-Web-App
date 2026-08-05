@@ -62,6 +62,11 @@ export interface GistCounts {
 export interface Gist {
   gist_id: string;
   name?: string; // Display name
+  /** Poster's first name, joined from their profile — null when the
+   * avitag isn't a student profile or has no name set. */
+  first_name?: string | null;
+  /** Poster's avatar image, joined from their profile. */
+  image_url?: string | null;
   avitag: string;
   gist_text: string;
   created_at: string;
@@ -97,6 +102,9 @@ export interface Comment {
   last_name?: string | null;
   campus_tag?: string | null;
   major_tag?: string | null;
+  level?: number | null;
+  /** Commenter's avatar image, joined from their profile. */
+  image_url?: string | null;
   [key: string]: unknown;
 }
 
