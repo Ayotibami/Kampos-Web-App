@@ -1,11 +1,14 @@
+import { gateServer } from "@/lib/serverAuth";
+import { HydrateAuth } from "@/components/auth/HydrateAuth";
 import { AppShell } from "@/components/layout/AppShell";
-import { AuthGate } from "@/components/auth/AuthGate";
 import { Illustration } from "@/components/brand/illustrations";
 
 /** Placeholder — settings screen lands in a later build pass. */
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const { state, account, profiles } = await gateServer(["active"]);
   return (
-    <AuthGate allow={["active"]}>
+    <>
+      <HydrateAuth state={state} account={account} profiles={profiles} />
       <AppShell>
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-16 text-center">
           <Illustration name="Kappywithwire" className="h-48 w-auto" />
@@ -15,6 +18,6 @@ export default function SettingsPage() {
           </p>
         </div>
       </AppShell>
-    </AuthGate>
+    </>
   );
 }

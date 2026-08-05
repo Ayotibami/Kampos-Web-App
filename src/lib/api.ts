@@ -3,21 +3,22 @@ import axios, {
   type AxiosInstance,
   type AxiosRequestConfig,
 } from "axios";
-import { env } from "./env";
 
 /**
- * Shared axios client for the Kampos backend.
+ * Shared axios client — talks to this app's own `/api/v1/...` proxy
+ * (src/app/api/v1/[...path]/route.ts), not the backend directly.
  *
- * Auth now lives in httpOnly cookies set by the server (not a token this
- * app can read or store itself) — `withCredentials: true` is what makes
- * axios actually send/receive those cookies cross-origin. On a 401, we get
- * one shot at a silent refresh (`/auth/refresh`, which rotates the cookie
- * pair) before giving up and telling the rest of the app the session is
- * dead — a plain 401 doesn't necessarily mean "logged out," it might just
- * mean the short-lived access token expired mid-session.
+ * Auth lives in an httpOnly cookie set on the response to these calls.
+ * Routing through this app's own domain (instead of hitting the backend's
+ * origin straight from the browser) is what makes that cookie first-party
+ * to this app — which is what lets the Server Components doing the auth
+ * gate (see lib/serverAuth.ts) actually see it via `next/headers`. Calling
+ * the backend directly here would still "work" for the browser, but the
+ * cookie would belong to the backend's domain and never reach this app's
+ * own server at all.
  */
 export const api: AxiosInstance = axios.create({
-  baseURL: env.API_BASE,
+  baseURL: "/api/v1",
   headers: { "Content-Type": "application/json" },
   timeout: 30_000,
   withCredentials: true,
