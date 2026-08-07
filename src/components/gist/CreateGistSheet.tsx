@@ -127,7 +127,7 @@ export function CreateGistSheet({
    * the text and media, and swaps the submit action to update-in-place. */
   editGist?: Gist;
 }) {
-  const { create, update, uploadMedia, attachMediaUrl, removeMedia: removeMediaApi, get: getGist } = useGistStore();
+  const { create, update, uploadMedia, attachMediaUrl, removeMedia: removeMediaApi, remove: removeGistApi, get: getGist } = useGistStore();
   const myImageUrl = useAuthStore(
     (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null
   );
@@ -239,7 +239,7 @@ export function CreateGistSheet({
       setError("Only real JPEG, PNG, WEBP, GIF images or MP4, WEBM, MOV videos are allowed.");
       setShowError(true);
     } else if (rejectedSize) {
-      setError("No vex — that file too big. Max be 15MB for photos, 50MB for videos.");
+      setError("No vex — that file too big. Max be 10MB for photos, 50MB for videos.");
       setShowError(true);
     }
 
@@ -287,50 +287,83 @@ export function CreateGistSheet({
     setRemovedMediaIds([]);
   };
 
+  /** Best-effort extraction of a freshly-uploaded media item's id, for
+   * rollback purposes only — the store's upload/attach calls are typed
+   * `Promise<unknown>` since they just pass through whatever the backend
+   * returns, so this narrows defensively rather than assuming the shape. */
+  const extractMediaId = (value: unknown): string | null => {
+    if (value && typeof value === "object" && "media_id" in value) {
+      const id = (value as { media_id: unknown }).media_id;
+      return typeof id === "string" ? id : null;
+    }
+    return null;
+  };
+
   const handlePost = async () => {
     const clean = sanitizeForSubmit(text);
     if (!clean || remaining < 0) return;
     setPosting(true);
+    // All-or-none: a media item failing must never leave the gist posted
+    // with just its text (or, when editing, half-applied). Every branch
+    // below uploads media FIRST and only commits the text/removals once
+    // every upload has actually succeeded — on any failure, whatever DID
+    // just upload in this attempt gets rolled back immediately, nothing
+    // in the compose sheet is cleared, and the user can just hit Post
+    // again with the exact same text and picks still sitting there.
     try {
-      let gistId: string;
       if (isEditing) {
-        gistId = editGist!.gist_id;
+        const gistId = editGist!.gist_id;
+        const newMedia = media.filter((m) => !m.existingId);
+        const uploadedIds: string[] = [];
+        if (newMedia.length) {
+          const results = await Promise.allSettled(
+            newMedia.map((m) => (m.remoteUrl ? attachMediaUrl(gistId, m.remoteUrl) : uploadMedia(gistId, m.blob!, m.name))),
+          );
+          for (const r of results) {
+            if (r.status === "fulfilled") {
+              const id = extractMediaId(r.value);
+              if (id) uploadedIds.push(id);
+            }
+          }
+          if (results.some((r) => r.status === "rejected")) {
+            await Promise.all(uploadedIds.map((id) => removeMediaApi(id).catch(() => null)));
+            setError("Couldn't save your changes — some media failed to upload. Nothing was changed; check your connection and try again.");
+            setShowError(true);
+            return;
+          }
+        }
+        // Every new media item is confirmed attached — now safe to apply
+        // the text edit and any removals.
         await update(gistId, clean);
         if (removedMediaIds.length) {
           await Promise.all(removedMediaIds.map((id) => removeMediaApi(id).catch(() => null)));
         }
-        const newMedia = media.filter((m) => !m.existingId);
-        if (newMedia.length) {
-          await Promise.all(
-            newMedia.map((m) =>
-              (m.remoteUrl
-                ? attachMediaUrl(gistId, m.remoteUrl)
-                : uploadMedia(gistId, m.blob!, m.name)
-              ).catch(() => null),
-            ),
-          );
-        }
+        const fresh = await getGist(gistId).catch(() => undefined);
+        reset();
+        if (fresh) onPosted?.(fresh, "edited");
+        onClose();
       } else {
+        // Text creates the gist row first (unavoidable with the current
+        // two-step API), but if any media fails, that gist is deleted
+        // again immediately rather than left behind text-only.
         const gist = await create({ gist_text: clean });
-        gistId = gist!.gist_id;
+        const gistId = gist!.gist_id;
         if (media.length) {
-          await Promise.all(
-            media.map((m) =>
-              (m.remoteUrl
-                ? attachMediaUrl(gistId, m.remoteUrl)
-                : uploadMedia(gistId, m.blob!, m.name)
-              ).catch(() => null),
-            ),
+          const results = await Promise.allSettled(
+            media.map((m) => (m.remoteUrl ? attachMediaUrl(gistId, m.remoteUrl) : uploadMedia(gistId, m.blob!, m.name))),
           );
+          if (results.some((r) => r.status === "rejected")) {
+            await removeGistApi(gistId).catch(() => null);
+            setError("Couldn't post — some media failed to upload. Nothing was posted; check your connection and try again.");
+            setShowError(true);
+            return;
+          }
         }
+        const fresh = await getGist(gistId).catch(() => undefined);
+        reset();
+        if (fresh) onPosted?.(fresh, "created");
+        onClose();
       }
-      // Re-fetched fresh (not just the bare create/update response) so any
-      // media attached in the step just above is actually reflected — the
-      // create/update calls above return before those uploads even start.
-      const fresh = await getGist(gistId).catch(() => undefined);
-      reset();
-      if (fresh) onPosted?.(fresh, isEditing ? "edited" : "created");
-      onClose();
     } catch (err) {
       setError(apiErrorMessage(err, isEditing ? "Failed to save changes" : "Failed to create gist"));
       setShowError(true);

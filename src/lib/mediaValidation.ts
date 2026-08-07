@@ -14,7 +14,14 @@ export type AllowedMediaType = (typeof ALLOWED_MEDIA_TYPES)[number];
 // mobile data for no real benefit. 50MB of video comfortably covers well
 // over a minute at typical mobile bitrates (a 1-min clip at 4-6Mbps runs
 // ~30-45MB), with room to spare.
-export const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+//
+// MUST match the backend's own hard limits (KamposBackend gist.controller.ts
+// create/media upload handlers: images 10MB, videos 100MB) — these were
+// previously out of sync (this used to allow 15MB images), which meant a
+// 10-15MB photo passed this check, got selected, then silently 413'd on
+// actual upload with the failure swallowed client-side: the gist posted
+// with its text but that photo just vanished, no error shown anywhere.
+export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 
 export function maxBytesFor(type: AllowedMediaType): number {
