@@ -10,12 +10,13 @@ import { GistMediaOverlay } from "./GistMediaOverlay";
 import { ReactionButton } from "./ReactionButton";
 import { CreateGistSheet } from "./CreateGistSheet";
 import { ReportModal } from "./ReportModal";
+import { ShareModal } from "./ShareModal";
 import { ErrorModal, ConfirmModal } from "@/components/ui/FeedbackModal";
 import { apiErrorMessage } from "@/lib/api";
 import { useGistStore } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
+import { requireAuth } from "@/lib/requireAuth";
 import {
-  Check,
   ShareIconFill,
   QuoteIconFill,
   FlagIconFill,
@@ -75,9 +76,10 @@ export function GistCard({
   /** Fires after a successful delete — the stack owns the gist list, not
    * this card, so it has to be told to actually remove it. */
   onDeleted?: (gistId: string) => void;
-  /** Fires after a successful edit — same reasoning as onDeleted, the
-   * updated text lives in the parent's list, not here. */
-  onEdited?: () => void;
+  /** Fires after a successful edit with the fresh gist — same reasoning as
+   * onDeleted, the parent's list is what actually needs updating, not this
+   * card's own local props. */
+  onEdited?: (gist: Gist) => void;
 }) {
   const reactGist = useGistStore((s) => s.react);
   const unreactGist = useGistStore((s) => s.unreact);
@@ -88,12 +90,15 @@ export function GistCard({
   const [showActions, setShowActions] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [reporting, setReporting] = useState(false);
-  const [reported, setReported] = useState(false);
+  // Seeded from the server (persists across reloads), not just this
+  // session's own clicks — a genuine "did I already report this," not a
+  // local-only UI nicety that reset the moment the page refreshed.
+  const [reported, setReported] = useState(!!gist.my_report);
   const [showQuote, setShowQuote] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [shared, setShared] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [reportError, setReportError] = useState<string>();
   const [deleteError, setDeleteError] = useState<string>();
   const [reactError, setReactError] = useState<string>();
@@ -116,6 +121,11 @@ export function GistCard({
     const now = Date.now();
     if (now - lastTapRef.current < 300) {
       lastTapRef.current = 0;
+      // Gated here too, not just inside ReactionButton's own externalTrigger
+      // effect — that guard stops the row/count from actually updating, but
+      // the big center-burst celebration below is fired independently and
+      // would otherwise still play for a guest whose reaction never happened.
+      if (!requireAuth("react to gists")) return;
       setReactTrigger({ type: "LOVE", nonce: now });
       setCenterBurst({ id: now, type: "LOVE" });
     } else {
@@ -161,17 +171,27 @@ export function GistCard({
     }
   };
 
+  // The gist's own real shareable URL — NOT window.location.href, which on
+  // the main feed is just "/feed" regardless of which gist you're looking
+  // at. This is what makes a shared link actually deep-link back to this
+  // specific gist (see the /gist/[gistId] route) instead of dumping
+  // whoever clicks it on the generic feed with no idea what was shared.
+  const shareUrl =
+    typeof window !== "undefined" ? `${window.location.origin}/gist/${gist.gist_id}` : `/gist/${gist.gist_id}`;
+
   const handleShare = async () => {
     const shareText = gist.gist_text;
-    const shareUrl = typeof window !== "undefined" ? window.location.href : undefined;
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
+        // Mobile's real OS share sheet — already lists whatever's actually
+        // installed (WhatsApp, Instagram, X, ...), no per-platform buttons
+        // needed here.
         await navigator.share({ text: shareText, url: shareUrl });
         return;
       }
-      await navigator.clipboard.writeText(shareText);
-      setShared(true);
-      setTimeout(() => setShared(false), 1500);
+      // Desktop mostly doesn't implement navigator.share at all — explicit
+      // platform buttons + copy-link instead (see ShareModal).
+      setShowShareModal(true);
     } catch {
       /* user cancelled the share sheet — not an error */
     }
@@ -220,6 +240,26 @@ export function GistCard({
   const short =
     (gist.gist_text?.length ?? 0) < SHORT_TEXT && !gist.media?.length;
 
+  // Only ever reachable via the shared-link view — that's the one place a
+  // REJECTED gist can be the `target` at all (see the backend's getContext:
+  // deliberate exception for the specific gist someone shared, never for
+  // its APPROVED-only siblings). Renders in place of the real content, same
+  // card footprint, so the surrounding stack's swipe navigation still works
+  // normally past it — this isn't a dead end, just an empty one.
+  if (gist.gist_status === "REJECTED") {
+    return (
+      <div className="relative flex h-full flex-col items-center justify-center gap-3 overflow-hidden rounded-[32px] bg-surface-2 p-8 text-center shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] dark:shadow-[0_1px_0_0_rgba(255,255,255,0.06)_inset]">
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-danger/10 text-danger">
+          <FlagIconFill size={24} weight="fill" />
+        </div>
+        <p className="font-poppins text-sm font-semibold text-ink">This gist has been removed</p>
+        <p className="max-w-xs font-poppins text-xs text-muted">
+          It went against Kampos&apos; community guidelines.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="relative flex h-full flex-col overflow-hidden rounded-[32px] bg-surface-2 p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] sm:p-6 dark:shadow-[0_1px_0_0_rgba(255,255,255,0.06)_inset]">
       {/* Header — z-20 (above the body's z-10): both are separate stacking
@@ -241,7 +281,7 @@ export function GistCard({
               </span>
             )}
             <span className="min-w-0 shrink truncate font-poppins text-[11px] text-faint md:text-xs">
-              @{gist.avitag}
+              {gist.avitag}
             </span>
             <span className="shrink-0 font-poppins text-[11px] text-faint md:text-xs">
               · {timeAgo(gist.created_at)}
@@ -281,31 +321,11 @@ export function GistCard({
                 transition={{ duration: 0.1, staggerChildren: 0.035 }}
                 className="absolute top-full right-0 z-30 mt-2 flex flex-col items-end gap-1.5"
               >
-                <div className="relative">
-                  <PopActionButton
-                    label="Share"
-                    onClick={handleShare}
-                    icon={
-                      shared ? (
-                        <Check className="h-4 w-4" />
-                      ) : (
-                        <ShareIconFill size={17} weight="fill" />
-                      )
-                    }
-                  />
-                  <AnimatePresence>
-                    {shared && (
-                      <motion.span
-                        initial={{ opacity: 0, x: 4 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: 4 }}
-                        className="absolute right-full top-1/2 mr-1.5 -translate-y-1/2 whitespace-nowrap rounded-full bg-brand-ink px-2 py-0.5 font-poppins text-[10px] text-white shadow"
-                      >
-                        Copied!
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </div>
+                <PopActionButton
+                  label="Share"
+                  onClick={handleShare}
+                  icon={<ShareIconFill size={17} weight="fill" />}
+                />
 
                 {isOwn ? (
                   <>
@@ -326,6 +346,7 @@ export function GistCard({
                         setShowActions(false);
                       }}
                       icon={<DeleteIconFill size={17} weight="fill" />}
+                      variant="danger"
                     />
                   </>
                 ) : (
@@ -333,6 +354,7 @@ export function GistCard({
                     <PopActionButton
                       label="Quote"
                       onClick={() => {
+                        if (!requireAuth("quote gists")) return;
                         setShowQuote(true);
                         setShowActions(false);
                       }}
@@ -342,16 +364,11 @@ export function GistCard({
                       label="Report"
                       onClick={() => {
                         if (reported) return;
+                        if (!requireAuth("report gists")) return;
                         setShowReportModal(true);
                         setShowActions(false);
                       }}
-                      icon={
-                        reported ? (
-                          <Check className="h-4 w-4" />
-                        ) : (
-                          <FlagIconFill size={17} weight="fill" />
-                        )
-                      }
+                      icon={<FlagIconFill size={17} weight="fill" />}
                       disabled={reported}
                     />
                   </>
@@ -390,7 +407,7 @@ export function GistCard({
             {short ? (
               <ShortGist text={gist.gist_text} colorKey={gist.gist_id} />
             ) : (
-              <p className="w-full whitespace-pre-wrap font-poppins text-[15px] leading-relaxed text-ink text-justify">
+              <p className="w-full whitespace-pre-wrap break-words font-poppins text-[15px] leading-relaxed text-ink text-justify">
                 {gist.gist_text}
               </p>
             )}
@@ -454,6 +471,7 @@ export function GistCard({
           initialActive={gist.my_reaction}
           externalTrigger={reactTrigger}
           onReacted={(type) => setCenterBurst({ id: Date.now(), type })}
+          guardClick={() => requireAuth("react to gists")}
         />
       </div>
 
@@ -466,7 +484,7 @@ export function GistCard({
         open={showEdit}
         onClose={() => setShowEdit(false)}
         editGist={gist}
-        onPosted={onEdited}
+        onPosted={(fresh) => onEdited?.(fresh)}
       />
 
       <ConfirmModal
@@ -484,6 +502,12 @@ export function GistCard({
         onClose={() => setShowReportModal(false)}
         onSubmit={handleReport}
         loading={reporting}
+      />
+      <ShareModal
+        open={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        url={shareUrl}
+        text={gist.gist_text}
       />
       <ErrorModal open={!!reportError} onClose={() => setReportError(undefined)} message={reportError} />
       <ErrorModal open={!!deleteError} onClose={() => setDeleteError(undefined)} message={deleteError} />
@@ -512,11 +536,19 @@ function PopActionButton({
   label,
   onClick,
   disabled,
+  variant = "brand",
 }: {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  /** "danger" is for irreversible/destructive actions only (Delete) — a
+   * deliberate visual pause before something that can't be undone, the
+   * same convention iOS/Android/Gmail/Twitter all use. Everything else
+   * (Edit, Quote, Report) stays brand-colored; Report isn't destructive to
+   * the viewer's own content the way Delete is, so it doesn't get the same
+   * treatment even though it's also somewhat consequential. */
+  variant?: "brand" | "danger";
 }) {
   const [pulse, setPulse] = useState(0);
 
@@ -534,7 +566,9 @@ function PopActionButton({
       whileTap={disabled ? undefined : { scale: 0.8 }}
       animate={{ scale: 1 }}
       transition={{ type: "spring", stiffness: 500, damping: 10 }}
-      className="relative flex h-8 w-8 items-center justify-center rounded-full bg-brand text-white disabled:cursor-default"
+      className={`relative flex h-8 w-8 items-center justify-center rounded-full text-white transition disabled:cursor-default disabled:opacity-40 ${
+        variant === "danger" ? "bg-danger" : "bg-brand"
+      }`}
     >
       <AnimatePresence>
         {pulse > 0 && (
@@ -616,7 +650,7 @@ function ShortGist({ text, colorKey }: { text: string; colorKey: string }) {
       className="flex h-full min-h-[160px] w-full items-center justify-center overflow-hidden rounded-3xl p-4 text-left sm:p-5"
       style={{ backgroundColor: gistColorFor(colorKey) }}
     >
-      <p className={`font-nunito font-bold leading-snug text-white ${heroTextSizeClass(text.length)}`}>
+      <p className={`min-w-0 break-words font-nunito font-bold leading-snug text-white ${heroTextSizeClass(text.length)}`}>
         {text}
       </p>
     </div>

@@ -45,6 +45,26 @@ export function AvitagStep({
   // the format is already valid. `checkId` guards against a slower earlier
   // request resolving after a faster later one and clobbering its result: a
   // fast typist can easily fire several checks before the first responds.
+  // Set once creation actually succeeds — the unmount cleanup below only
+  // clears the persisted wizard data if this is true, so navigating away
+  // mid-setup (never finished) still leaves everything intact to resume
+  // later, same as always.
+  const completedRef = useRef(false);
+
+  // Clears the wizard's localStorage data (name/campus/bio/avitag/picture)
+  // once this step is actually torn down — not the moment creation
+  // succeeds. Doing it eagerly used to flip currentStep back to 0 while
+  // the success modal was still up, which re-rendered step 1 behind it for
+  // a visible instant before /feed's navigation could swap the page out.
+  // Unmount only happens once that navigation genuinely takes over, so
+  // there's nothing left on screen for the reset to flash.
+  useEffect(() => {
+    return () => {
+      if (completedRef.current) reset();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const checkId = useRef(0);
   useEffect(() => {
     if (formatError || !avitag) {
@@ -95,7 +115,10 @@ export function AvitagStep({
 
     try {
       await createStudentProfile({ ...data, avitag: normalized }, imageUrl);
-      reset();
+      // Flags the unmount cleanup above to actually clear the persisted
+      // wizard data — deliberately not calling reset() directly here, see
+      // that effect's comment for why.
+      completedRef.current = true;
       setShowSuccess(true);
     } catch (err) {
       let msg = apiErrorMessage(err, "Create student profile failed");

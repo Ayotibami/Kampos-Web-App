@@ -33,6 +33,16 @@ interface GistState {
   trending: () => Promise<Gist[]>;
   byUser: (avitag: string) => Promise<Gist[]>;
   get: (gistId: string) => Promise<Gist | undefined>;
+  /** The shared-link view: one target gist (any status — including a
+   * removed/rejected one, which the caller renders its own "removed"
+   * state for) plus chronological neighbors on each side. Doesn't touch
+   * `items`/`loading` — this feeds a standalone page's own local state,
+   * not the main feed list. */
+  getContext: (
+    gistId: string,
+    before?: number,
+    after?: number,
+  ) => Promise<{ target: Gist; before: Gist[]; after: Gist[] } | undefined>;
   counts: (gistId: string) => Promise<GistCounts | undefined>;
   create: (payload: { gist_text: string; [key: string]: unknown }) => Promise<Gist | undefined>;
   update: (gistId: string, gistText: string) => Promise<Gist | undefined>;
@@ -40,6 +50,9 @@ interface GistState {
   /** GIF/sticker attachment (GIPHY) — the URL is already hosted on GIPHY's
    * CDN, so this just records it against the gist, no file upload. */
   attachMediaUrl: (gistId: string, url: string) => Promise<unknown>;
+  /** Removes one piece of media from a gist — used when editing an
+   * existing post, not just at create time. */
+  removeMedia: (mediaId: string) => Promise<void>;
   remove: (gistId: string) => Promise<void>;
   report: (gistId: string, reason?: string) => Promise<void>;
   view: (gistId: string) => Promise<void>;
@@ -98,6 +111,24 @@ export const useGistStore = create<GistState>((set) => ({
     }
   },
 
+  getContext: async (gistId, before = 15, after = 15) => {
+    try {
+      const data = await apiGet<{ target: Gist; before: Gist[]; after: Gist[] }>(
+        `/gists/${encodeURIComponent(gistId)}/context`,
+        { params: { before, after } },
+      );
+      if (!data) return data;
+      return {
+        target: normalizeGist(data.target),
+        before: normalizeGists(data.before),
+        after: normalizeGists(data.after),
+      };
+    } catch (err) {
+      set({ error: apiErrorMessage(err, "Failed to load gist") });
+      throw err;
+    }
+  },
+
   counts: async (gistId) => {
     try {
       return await apiGet<GistCounts>(`/gists/${encodeURIComponent(gistId)}/counts`);
@@ -121,7 +152,12 @@ export const useGistStore = create<GistState>((set) => ({
 
   update: async (gistId, gistText) => {
     try {
-      const res = await api.put<ApiEnvelope<Gist>>(`/gists/${encodeURIComponent(gistId)}`, {
+      // PATCH, not PUT — the backend only registers this route as PATCH
+      // (a partial update, which is what this actually is: gist_text
+      // alone, not the whole resource). PUT silently 404s since Express
+      // never matches it to the PATCH-only route, and the generic 404
+      // handler's plain "Not Found" doesn't even hint at why.
+      const res = await api.patch<ApiEnvelope<Gist>>(`/gists/${encodeURIComponent(gistId)}`, {
         gist_text: gistText,
       });
       return res.data?.data;
@@ -155,6 +191,15 @@ export const useGistStore = create<GistState>((set) => ({
       return res.data?.data;
     } catch (err) {
       set({ error: apiErrorMessage(err, "Failed to attach GIF") });
+      throw err;
+    }
+  },
+
+  removeMedia: async (mediaId) => {
+    try {
+      await api.delete(`/gists/media/${encodeURIComponent(mediaId)}`);
+    } catch (err) {
+      set({ error: apiErrorMessage(err, "Failed to remove media") });
       throw err;
     }
   },

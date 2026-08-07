@@ -21,6 +21,13 @@ interface CommentState {
    * a brief "this just showed up" highlight distinct from the normal
    * entrance animation every new item gets regardless of source. */
   recentlyLiveIds: Record<string, boolean>;
+  /** True for a gist whose most recent comment fetch actually failed
+   * (network/backend error) — distinct from simply not-yet-cached (still
+   * loading) or genuinely cached-as-empty (no comments exist). The panel
+   * needs to tell these apart: showing "nobody don talk yet" for a gist
+   * that just failed to load misrepresents a real error as an empty
+   * thread. Cleared the moment a fetch for that gist succeeds. */
+  errorByGist: Record<string, boolean>;
   error: string | null;
   /** `force` bypasses the cache — used for an explicit refresh, not the
    * normal "switch to this gist" path, which should prefer cached data. */
@@ -43,6 +50,8 @@ interface CommentState {
    * reaction, it never un-reacts. Optimistic (updates local state before the
    * request resolves) since this is meant to feel instant on tap. */
   reactComment: (commentId: string, gistId: string, type: ReactionType) => Promise<void>;
+  /** Toggle-off — clears the viewer's own reaction on a comment. */
+  unreactComment: (commentId: string, gistId: string) => Promise<void>;
 }
 
 export const useCommentStore = create<CommentState>((set, get) => ({
@@ -51,13 +60,18 @@ export const useCommentStore = create<CommentState>((set, get) => ({
   loadingMoreByGist: {},
   hasMoreByGist: {},
   recentlyLiveIds: {},
+  errorByGist: {},
   error: null,
 
   listByGist: async (gistId, params = {}, opts = {}) => {
     const cached = get().itemsByGist[gistId];
     if (cached && !opts.force) return cached;
 
-    set((s) => ({ loadingByGist: { ...s.loadingByGist, [gistId]: true }, error: null }));
+    set((s) => ({
+      loadingByGist: { ...s.loadingByGist, [gistId]: true },
+      errorByGist: { ...s.errorByGist, [gistId]: false },
+      error: null,
+    }));
     try {
       const data =
         (await apiGet<Comment[]>(`/comments/gist/${encodeURIComponent(gistId)}`, { params })) ?? [];
@@ -68,11 +82,13 @@ export const useCommentStore = create<CommentState>((set, get) => ({
       }));
       return data;
     } catch (err) {
-      // Leave itemsByGist untouched on failure (not "cached" as empty) so
-      // the panel keeps showing its loading skeleton instead of a false
-      // "no comments" state, and a later retry can still succeed.
+      // Leave itemsByGist untouched on failure (not "cached" as empty) —
+      // errorByGist is what actually tells the panel this was a real
+      // failure, not a still-loading or genuinely-empty thread, so it can
+      // show a distinct "failed to load, retry" state instead of either.
       set((s) => ({
         loadingByGist: { ...s.loadingByGist, [gistId]: false },
+        errorByGist: { ...s.errorByGist, [gistId]: true },
         error: apiErrorMessage(err, "Failed to load comments"),
       }));
       return [];
@@ -177,8 +193,9 @@ export const useCommentStore = create<CommentState>((set, get) => ({
           return {
             ...c,
             // Total count only grows the first time you react — picking
-            // a different type later would still just be one reaction.
-            // (There's no "un-react" path here, matching gist reactions.)
+            // a different type later (there's only ever LOVE right now,
+            // but this stays correct if that changes) would still just be
+            // one reaction. unreactComment below is the actual toggle-off.
             reactions_count: (c.reactions_count ?? 0) + (c.my_reaction ? 0 : 1),
             my_reaction: type,
           };
@@ -198,6 +215,39 @@ export const useCommentStore = create<CommentState>((set, get) => ({
         }));
       }
       set({ error: apiErrorMessage(err, "Failed to react") });
+      throw err;
+    }
+  },
+
+  unreactComment: async (commentId, gistId) => {
+    let previous: Comment | undefined;
+    set((s) => ({
+      itemsByGist: {
+        ...s.itemsByGist,
+        [gistId]: (s.itemsByGist[gistId] ?? []).map((c) => {
+          if (c.comment_id !== commentId) return c;
+          previous = c;
+          return {
+            ...c,
+            reactions_count: Math.max(0, (c.reactions_count ?? 0) - (c.my_reaction ? 1 : 0)),
+            my_reaction: null,
+          };
+        }),
+      },
+    }));
+
+    try {
+      await api.delete(`/reactions/entity/COMMENT/${encodeURIComponent(commentId)}`);
+    } catch (err) {
+      if (previous) {
+        set((s) => ({
+          itemsByGist: {
+            ...s.itemsByGist,
+            [gistId]: (s.itemsByGist[gistId] ?? []).map((c) => (c.comment_id === commentId ? previous! : c)),
+          },
+        }));
+      }
+      set({ error: apiErrorMessage(err, "Failed to remove reaction") });
       throw err;
     }
   },

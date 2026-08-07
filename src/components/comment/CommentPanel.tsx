@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Heart, SendIconFill } from "@/components/ui/icons";
+import { Heart, SendIconFill, RefreshCw } from "@/components/ui/icons";
 import { Illustration } from "@/components/brand/illustrations";
 import { Avatar } from "@/components/ui/Avatar";
 import { useCommentStore } from "@/stores/commentStore";
+import { useAuthStore } from "@/stores/authStore";
+import { requireAuth } from "@/lib/requireAuth";
 import { timeAgo } from "@/lib/format";
 import { LIMITS } from "@/lib/brand";
 import { stripInvisibleChars, sanitizeForSubmit } from "@/lib/sanitize";
@@ -68,7 +70,7 @@ function CommentBody({ text }: { text: string }) {
   const shown = expanded || !isLong ? text : text.slice(0, COMMENT_TRUNCATE_LENGTH).trimEnd();
 
   return (
-    <p className="font-poppins text-sm leading-relaxed text-ink/90 dark:text-white/90">
+    <p className="break-words font-poppins text-sm leading-relaxed text-ink/90 dark:text-white/90">
       {shown}
       {isLong && !expanded && "… "}
       {isLong && (
@@ -110,10 +112,12 @@ function CommentBubble({
   onReact: () => void;
 }) {
   const reacted = !!c.my_reaction;
+  const avitag = useAuthStore((s) => s.avitag);
+  const isOwn = c.avitag === avitag;
   const displayName = c.first_name ?? null;
-  // Only student profiles have campus/major/level — a non-student commenter
-  // (or one who hasn't set these) just shows whichever pieces are actually there.
-  const schoolInfo = [c.major_tag, c.level ? `${c.level}L` : null, c.campus_tag].filter(Boolean).join(" ");
+  // Only student profiles have campus/major — a non-student commenter (or
+  // one who hasn't set these) just shows whichever piece is actually there.
+  const schoolInfo = [c.major_tag, c.campus_tag].filter(Boolean).join(" ");
   return (
     <motion.li
       className="relative ml-3 rounded-2xl"
@@ -144,10 +148,15 @@ function CommentBubble({
               <Avatar src={c.image_url} />
             </div>
             <div className="flex flex-col">
-              <span className="font-poppins text-sm font-semibold">
+              <span className="flex items-center gap-1.5 font-poppins text-sm font-semibold">
                 {displayName ?? (c.avitag ? c.avitag.replace(/_?\d+$/, "") : "Fola_shade")}
+                {isOwn && (
+                  <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-poppins text-[10px] font-bold leading-none text-brand">
+                    You
+                  </span>
+                )}
               </span>
-              <span className="font-poppins text-xs text-muted dark:text-white/70">@{c.avitag ?? "someone"}</span>
+              <span className="font-poppins text-xs text-muted dark:text-white/70">{c.avitag ?? "someone"}</span>
             </div>
           </div>
 
@@ -168,12 +177,12 @@ function CommentBubble({
         </div>
 
         {/* React — a lighter single tap-to-like than the gist's full 5-emoji
-            row; picking it sets it, tapping again while already reacted is a
-            no-op (no un-react), matching how gist reactions behave. */}
+            row; tapping toggles it on/off (see handleCommentReact), same as
+            gist reactions already do. */}
         <button
           type="button"
           onClick={onReact}
-          aria-label={reacted ? "Reacted" : "React"}
+          aria-label={reacted ? "Remove reaction" : "React"}
           className="mt-2 flex items-center gap-1 rounded-full py-0.5 pr-1 transition active:scale-90"
         >
           <motion.span
@@ -182,15 +191,16 @@ function CommentBubble({
             transition={{ duration: 0.3 }}
           >
             <Heart
+              fill={reacted ? "currentColor" : "none"}
               className={`h-3.5 w-3.5 transition ${
-                reacted ? "fill-danger text-danger" : "text-muted dark:text-white/60"
+                reacted ? "text-brand" : "text-muted dark:text-white/60"
               }`}
             />
           </motion.span>
           {!!c.reactions_count && (
             <span
               className={`font-poppins text-[11px] ${
-                reacted ? "text-danger" : "text-muted dark:text-white/60"
+                reacted ? "text-brand" : "text-muted dark:text-white/60"
               }`}
             >
               {c.reactions_count}
@@ -204,8 +214,17 @@ function CommentBubble({
 
 /** Side-panel comment thread for a gist. Loads on mount, posts inline. */
 export function CommentPanel({ gist }: { gist: Gist | undefined }) {
-  const { itemsByGist, loadingMoreByGist, recentlyLiveIds, listByGist, loadMoreByGist, create, reactComment } =
-    useCommentStore();
+  const {
+    itemsByGist,
+    errorByGist,
+    loadingMoreByGist,
+    recentlyLiveIds,
+    listByGist,
+    loadMoreByGist,
+    create,
+    reactComment,
+    unreactComment,
+  } = useCommentStore();
   // Keyed by gist_id so an in-progress draft belongs to the gist it was
   // written for — switching gists shows that gist's own (possibly empty)
   // draft instead of leaking whatever was being typed for the last one.
@@ -218,13 +237,20 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
 
   const items: Comment[] = (gist?.gist_id && itemsByGist[gist.gist_id]) || [];
   const cached = !!(gist?.gist_id && itemsByGist[gist.gist_id]);
+  // A real fetch failure, not just "hasn't loaded yet" — only meaningful
+  // while genuinely uncached; a later successful retry replaces `cached`
+  // with real data, at which point this gist's stale error flag no longer
+  // applies even if it hasn't been explicitly cleared yet.
+  const hasError = !cached && !!(gist?.gist_id && errorByGist[gist.gist_id]);
   // Deliberately NOT keyed off loadingByGist: that flag only flips to true
   // inside the effect below, one render after a gist switch — checking it
   // here would leave a one-frame gap (not cached yet, not "loading" yet)
   // where this reads as "confirmed zero comments" and flashes the empty
   // state before the skeleton catches up. `!cached` alone has no such gap —
   // it's already correct on the very first render after switching gists.
-  const showSkeleton = !gist?.gist_id || !cached;
+  // Excludes `hasError` so a failed fetch stops the skeleton instead of
+  // spinning forever — it gets its own distinct retry state instead.
+  const showSkeleton = (!gist?.gist_id || !cached) && !hasError;
 
   // Grows with the content (up to a sensible ceiling, then scrolls inside
   // itself) instead of staying a fixed 2 rows or freely expanding forever.
@@ -263,9 +289,11 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
     }
   }, [gist?.gist_id, listByGist]);
 
-  const handleCommentReact = async (commentId: string, gistId: string) => {
+  const handleCommentReact = async (commentId: string, gistId: string, alreadyReacted: boolean) => {
+    if (!requireAuth("react to comments")) return;
     try {
-      await reactComment(commentId, gistId, "LOVE");
+      if (alreadyReacted) await unreactComment(commentId, gistId);
+      else await reactComment(commentId, gistId, "LOVE");
     } catch (err) {
       setReactError(apiErrorMessage(err, "Failed to react — try again"));
     }
@@ -275,6 +303,7 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
     const gistId = gist?.gist_id;
     const clean = sanitizeForSubmit(text);
     if (!clean || !gistId) return;
+    if (!requireAuth("leave a comment")) return;
     setSending(true);
     try {
       await create({ gist_id: gistId, text: clean });
@@ -337,6 +366,20 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
               <CommentSkeletonItem key={i} short={i % 2 === 1} />
             ))}
           </ul>
+        ) : hasError ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+            <RefreshCw className="h-8 w-8 text-muted" />
+            <p className="font-poppins text-sm font-semibold text-muted dark:text-white/80">
+              Abeg we no fit load comments — check your connection.
+            </p>
+            <button
+              type="button"
+              onClick={() => gist?.gist_id && listByGist(gist.gist_id, {}, { force: true })}
+              className="rounded-full bg-brand px-4 py-1.5 font-poppins text-sm font-semibold text-white transition hover:bg-brand-dark"
+            >
+              Try again
+            </button>
+          </div>
         ) : items.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <Illustration name="Commentmodal" className="h-28 w-auto opacity-80" />
@@ -352,7 +395,9 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
                 comment={c}
                 index={i}
                 highlighted={!!recentlyLiveIds[c.comment_id]}
-                onReact={() => gist?.gist_id && handleCommentReact(c.comment_id, gist.gist_id)}
+                onReact={() =>
+                  gist?.gist_id && handleCommentReact(c.comment_id, gist.gist_id, !!c.my_reaction)
+                }
               />
             ))}
             {gist?.gist_id && loadingMoreByGist[gist.gist_id] && (

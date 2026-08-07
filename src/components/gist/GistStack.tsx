@@ -43,26 +43,31 @@ const NEAR_END_THRESHOLD = 5;
 
 export function GistStack({
   gists,
+  initialIndex = 0,
   onCurrentChange,
   onGistDeleted,
   onGistEdited,
   onNearEnd,
 }: {
   gists: Gist[];
+  /** Opens the stack on a specific gist instead of always the front (index
+   * 0) — the shared-link view uses this to land directly on the gist that
+   * was actually shared, with its chronological neighbors either side. */
+  initialIndex?: number;
   onCurrentChange?: (gist: Gist | undefined) => void;
   /** Bubbled up from GistCard's own delete action — the stack doesn't own
    * the gist list (the feed page does), so it just passes this straight
    * through. */
   onGistDeleted?: (gistId: string) => void;
-  /** Same reasoning, for a successful edit. */
-  onGistEdited?: () => void;
+  /** Same reasoning, for a successful edit — carries the fresh gist. */
+  onGistEdited?: (gist: Gist) => void;
   /** Fires (repeatedly, whenever still within range) once the front card is
    * within NEAR_END_THRESHOLD of the end of `gists` — the parent owns
    * pagination and its own re-entrancy guard, so this can fire more than
    * once without needing to track "have we already asked" here. */
   onNearEnd?: () => void;
 }) {
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(gists.length - 1, 0)));
 
   // The gist list is owned by the parent (feed page) and can shrink out from
   // under the stack (a delete) — clamped during render (not an effect,

@@ -7,7 +7,7 @@ import { compactNumber } from "@/lib/format";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
 
 const REACTIONS: { type: ReactionType; animationData: object }[] = (
-  ["LIKE", "LOVE", "FIRE", "SAD", "WOW"] as ReactionType[]
+  ["LIKE", "LOVE", "FIRE", "SAD", "LAUGH"] as ReactionType[]
 ).map((type) => ({ type, animationData: REACTION_ANIMATIONS[type] }));
 
 interface ReactionButtonProps {
@@ -37,6 +37,13 @@ interface ReactionButtonProps {
    * placement as the double-tap-to-react burst, for whichever emoji was
    * actually picked. This component no longer renders its own burst. */
   onReacted?: (type: ReactionType) => void;
+  /** Runs before any click/external-trigger is actually acted on — return
+   * false to block it entirely (e.g. "you need an account to react"). Has
+   * to gate *before* any local state changes, not just before the
+   * `onReact` callback — this component updates its own active-pill/count
+   * state optimistically, so gating any later than this would still flash
+   * a reaction that never actually happened for whoever got blocked. */
+  guardClick?: () => boolean;
 }
 
 /**
@@ -46,7 +53,15 @@ interface ReactionButtonProps {
  * looping constantly — keeps the resting row calm and makes the motion feel
  * like a response to your action, not background noise.
  */
-export function ReactionButton({ onReact, onUnreact, counts, initialActive, externalTrigger, onReacted }: ReactionButtonProps) {
+export function ReactionButton({
+  onReact,
+  onUnreact,
+  counts,
+  initialActive,
+  externalTrigger,
+  onReacted,
+  guardClick,
+}: ReactionButtonProps) {
   const [active, setActive] = useState<ReactionType | null>(initialActive ?? null);
   const lastExternalNonce = useRef<number | null>(null);
   const [localDelta, setLocalDelta] = useState<Partial<Record<ReactionType, number>>>({});
@@ -59,13 +74,13 @@ export function ReactionButton({ onReact, onUnreact, counts, initialActive, exte
   const loveRef = useRef<LottieRefCurrentProps>(null);
   const fireRef = useRef<LottieRefCurrentProps>(null);
   const sadRef = useRef<LottieRefCurrentProps>(null);
-  const wowRef = useRef<LottieRefCurrentProps>(null);
+  const laughRef = useRef<LottieRefCurrentProps>(null);
   const lottieRefs: Record<ReactionType, RefObject<LottieRefCurrentProps | null>> = {
     LIKE: likeRef,
     LOVE: loveRef,
     FIRE: fireRef,
     SAD: sadRef,
-    WOW: wowRef,
+    LAUGH: laughRef,
   };
 
   const countFor = (type: ReactionType): number =>
@@ -91,6 +106,7 @@ export function ReactionButton({ onReact, onUnreact, counts, initialActive, exte
   };
 
   const handleClick = (type: ReactionType) => {
+    if (guardClick && !guardClick()) return;
     if (active === type) {
       bump(type, -1);
       setActive(null);
@@ -105,6 +121,7 @@ export function ReactionButton({ onReact, onUnreact, counts, initialActive, exte
     if (!externalTrigger) return;
     if (externalTrigger.nonce === lastExternalNonce.current) return;
     lastExternalNonce.current = externalTrigger.nonce;
+    if (guardClick && !guardClick()) return;
     if (active === externalTrigger.type) return; // already reacted this way — no-op, double-tap never un-reacts
     // Genuinely belongs in an effect, not render: selectReaction calls
     // onReact, a real network request — running that during render (the

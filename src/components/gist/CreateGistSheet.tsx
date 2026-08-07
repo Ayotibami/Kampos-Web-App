@@ -28,6 +28,12 @@ interface PickedMedia {
   remoteUrl?: string;
   kind: "image" | "video";
   name: string;
+  /** Set when this entry is media the gist already had (editing an existing
+   * post) — its real media_id, needed to call removeMedia if the user
+   * deletes it here. Absent for anything newly picked in this session,
+   * which is exactly what distinguishes "needs uploading on save" from
+   * "already on the server, only deletion is a real action." */
+  existingId?: string;
 }
 
 // Thresholds scale with LIMITS.gist (20%/10% of the limit remaining), so
@@ -104,19 +110,24 @@ export function CreateGistSheet({
 }: {
   open: boolean;
   onClose: () => void;
-  onPosted?: () => void;
+  /** Fires with the fresh, fully-joined gist (real media/counts/reactions,
+   * not just the bare row create/update return on their own) once posting
+   * or saving actually finishes — lets the caller splice it into whatever
+   * list it's already showing instead of blindly refetching the entire
+   * feed, which used to throw away scroll position and any pages loaded
+   * past the first. `mode` distinguishes a brand-new post (append
+   * somewhere) from an edit (replace the existing entry in place). */
+  onPosted?: (gist: Gist, mode: "created" | "edited") => void;
   initialText?: string;
   /** Whatever the compose trigger's rotating prompt was showing at the
    * moment it got clicked — falls back to a static default when opened some
    * other way (e.g. quoting a gist) where there's no trigger prompt to match. */
   placeholder?: string;
-  /** Editing an existing gist instead of composing a new one — pre-fills the
-   * text, swaps the submit action to update-in-place, and hides the media
-   * pickers (there's no endpoint to remove/replace existing media, only add
-   * more to a gist, which isn't the same operation as "edit"). */
+  /** Editing an existing gist instead of composing a new one — pre-fills
+   * the text and media, and swaps the submit action to update-in-place. */
   editGist?: Gist;
 }) {
-  const { create, update, uploadMedia, attachMediaUrl } = useGistStore();
+  const { create, update, uploadMedia, attachMediaUrl, removeMedia: removeMediaApi, get: getGist } = useGistStore();
   const myImageUrl = useAuthStore(
     (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null
   );
@@ -154,11 +165,36 @@ export function CreateGistSheet({
   }, [text, updateScrollThumb]);
 
   const [media, setMedia] = useState<PickedMedia[]>([]);
+  // Existing media the user removed during this edit session — the actual
+  // DELETE calls only fire on Save (matches how new picks only actually
+  // upload on Save too), so closing without saving leaves the gist
+  // untouched.
+  const [removedMediaIds, setRemovedMediaIds] = useState<string[]>([]);
   const [showCamera, setShowCamera] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string>();
   const [showError, setShowError] = useState(false);
+
+  // Seeds the existing gist's own media as removable/reorderable thumbnails
+  // when opening in edit mode — re-seeded each time the sheet opens (not
+  // just on mount) for the same reason the text effect above is, and reset
+  // to empty for a fresh compose/quote so leftover state from a previous
+  // edit session never leaks in.
+  useEffect(() => {
+    if (!open) return;
+    setRemovedMediaIds([]);
+    setMedia(
+      (editGist?.media ?? []).map((m) => ({
+        id: m.media_id,
+        existingId: m.media_id,
+        url: m.media_url,
+        kind: m.media_type?.toLowerCase().includes("video") ? "video" : "image",
+        name: "",
+      })),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editGist?.gist_id]);
 
   const remaining = LIMITS.gist - text.length;
 
@@ -220,9 +256,14 @@ export function CreateGistSheet({
   const removeMedia = (id: string) => {
     setMedia((cur) => {
       const found = cur.find((m) => m.id === id);
-      // No-op for a remote (GIPHY) URL — revokeObjectURL only does anything
-      // for an actual blob: URL, so this is safe to call either way.
+      // No-op for a remote (GIPHY) URL or an existing server-side item —
+      // revokeObjectURL only does anything for an actual blob: URL, so
+      // this is safe to call either way.
       if (found) URL.revokeObjectURL(found.url);
+      // Existing (already-uploaded) media only gets actually deleted on
+      // Save — see removedMediaIds and handlePost — removing it here just
+      // queues that up, same as a new pick only actually uploads on Save.
+      if (found?.existingId) setRemovedMediaIds((ids) => [...ids, found.existingId!]);
       return cur.filter((m) => m.id !== id);
     });
   };
@@ -243,6 +284,7 @@ export function CreateGistSheet({
     media.forEach((m) => URL.revokeObjectURL(m.url));
     setText("");
     setMedia([]);
+    setRemovedMediaIds([]);
   };
 
   const handlePost = async () => {
@@ -250,23 +292,44 @@ export function CreateGistSheet({
     if (!clean || remaining < 0) return;
     setPosting(true);
     try {
+      let gistId: string;
       if (isEditing) {
-        await update(editGist!.gist_id, clean);
+        gistId = editGist!.gist_id;
+        await update(gistId, clean);
+        if (removedMediaIds.length) {
+          await Promise.all(removedMediaIds.map((id) => removeMediaApi(id).catch(() => null)));
+        }
+        const newMedia = media.filter((m) => !m.existingId);
+        if (newMedia.length) {
+          await Promise.all(
+            newMedia.map((m) =>
+              (m.remoteUrl
+                ? attachMediaUrl(gistId, m.remoteUrl)
+                : uploadMedia(gistId, m.blob!, m.name)
+              ).catch(() => null),
+            ),
+          );
+        }
       } else {
         const gist = await create({ gist_text: clean });
-        if (gist?.gist_id && media.length) {
+        gistId = gist!.gist_id;
+        if (media.length) {
           await Promise.all(
             media.map((m) =>
               (m.remoteUrl
-                ? attachMediaUrl(gist.gist_id, m.remoteUrl)
-                : uploadMedia(gist.gist_id, m.blob!, m.name)
+                ? attachMediaUrl(gistId, m.remoteUrl)
+                : uploadMedia(gistId, m.blob!, m.name)
               ).catch(() => null),
             ),
           );
         }
       }
+      // Re-fetched fresh (not just the bare create/update response) so any
+      // media attached in the step just above is actually reflected — the
+      // create/update calls above return before those uploads even start.
+      const fresh = await getGist(gistId).catch(() => undefined);
       reset();
-      onPosted?.();
+      if (fresh) onPosted?.(fresh, isEditing ? "edited" : "created");
       onClose();
     } catch (err) {
       setError(apiErrorMessage(err, isEditing ? "Failed to save changes" : "Failed to create gist"));
@@ -336,13 +399,13 @@ export function CreateGistSheet({
                 this is the one place the 2-media cap gets mentioned at all —
                 otherwise nothing tells you the limit exists until you've
                 already hit it. */}
-            {!isEditing && media.length === 0 && (
+            {media.length === 0 && (
               <p className="mt-3 font-poppins text-xs text-faint">
                 You can attach up to {LIMITS.maxMediaPerGist} photos or videos.
               </p>
             )}
 
-            {!isEditing && media.length > 0 && (
+            {media.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2 pb-2">
                 {media.map((m) => (
                   <div
@@ -375,48 +438,44 @@ export function CreateGistSheet({
           {/* Actions */}
           <div className="shrink-0 space-y-5 border-t border-white/40 px-5 py-4">
             <div className="flex items-center gap-3">
-              {!isEditing && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setShowCamera(true)}
-                    aria-label="Open camera"
-                    disabled={media.length >= LIMITS.maxMediaPerGist}
-                    className="flex h-11 w-11 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95 disabled:opacity-40 disabled:shadow-none disabled:active:scale-100"
-                  >
-                    <CameraIconFill className="h-5 w-5" weight="fill" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fileRef.current?.click()}
-                    aria-label="Add photos or videos"
-                    disabled={media.length >= LIMITS.maxMediaPerGist}
-                    className="flex h-11 w-11 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95 disabled:opacity-40 disabled:shadow-none disabled:active:scale-100"
-                  >
-                    <ImageIconFill className="h-5 w-5" weight="fill" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowGifPicker(true)}
-                    aria-label="Add a GIF or sticker"
-                    disabled={media.length >= LIMITS.maxMediaPerGist}
-                    className="flex h-11 w-11 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95 disabled:opacity-40 disabled:shadow-none disabled:active:scale-100"
-                  >
-                    <Sticker className="h-5 w-5" />
-                  </button>
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept={ALLOWED_MEDIA_TYPES.join(",")}
-                    multiple
-                    hidden
-                    onChange={(e) => {
-                      void onFiles(e.target.files);
-                      e.target.value = "";
-                    }}
-                  />
-                </>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowCamera(true)}
+                aria-label="Open camera"
+                disabled={media.length >= LIMITS.maxMediaPerGist}
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95 disabled:opacity-40 disabled:shadow-none disabled:active:scale-100"
+              >
+                <CameraIconFill className="h-5 w-5" weight="fill" />
+              </button>
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                aria-label="Add photos or videos"
+                disabled={media.length >= LIMITS.maxMediaPerGist}
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95 disabled:opacity-40 disabled:shadow-none disabled:active:scale-100"
+              >
+                <ImageIconFill className="h-5 w-5" weight="fill" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowGifPicker(true)}
+                aria-label="Add a GIF or sticker"
+                disabled={media.length >= LIMITS.maxMediaPerGist}
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95 disabled:opacity-40 disabled:shadow-none disabled:active:scale-100"
+              >
+                <Sticker className="h-5 w-5" />
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept={ALLOWED_MEDIA_TYPES.join(",")}
+                multiple
+                hidden
+                onChange={(e) => {
+                  void onFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
               <div className="ml-auto">
                 <CharCountRing length={text.length} max={LIMITS.gist} />
               </div>
@@ -436,7 +495,7 @@ export function CreateGistSheet({
         </div>
       </Modal>
 
-      {!isEditing && showCamera && (
+      {showCamera && (
         <WebcamCapture
           onClose={() => setShowCamera(false)}
           onCapture={(blob, url) => {
@@ -448,14 +507,12 @@ export function CreateGistSheet({
         />
       )}
 
-      {!isEditing && (
-        <GiphyPicker
-          open={showGifPicker}
-          onClose={() => setShowGifPicker(false)}
-          onAttach={addGifs}
-          maxSelectable={LIMITS.maxMediaPerGist - media.length}
-        />
-      )}
+      <GiphyPicker
+        open={showGifPicker}
+        onClose={() => setShowGifPicker(false)}
+        onAttach={addGifs}
+        maxSelectable={LIMITS.maxMediaPerGist - media.length}
+      />
 
       <ErrorModal open={showError} onClose={() => setShowError(false)} message={error} />
     </>

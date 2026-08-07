@@ -12,7 +12,7 @@ import { Illustration } from "@/components/brand/illustrations";
 import { Avatar } from "@/components/ui/Avatar";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { SettingsIconFill, Plus } from "@/components/ui/icons";
+import { SettingsIconFill, Plus, RefreshCw } from "@/components/ui/icons";
 import { AnimatePresence } from "framer-motion";
 import { useGistStore } from "@/stores/gistStore";
 import { useCommentStore } from "@/stores/commentStore";
@@ -55,6 +55,13 @@ export function FeedContent() {
 
   const [gists, setGists] = useState<Gist[]>([]);
   const [loading, setLoading] = useState(true);
+  // Distinct from a genuinely empty feed — an empty list because the fetch
+  // itself failed (backend down, network hiccup) needs its own "something
+  // went wrong, retry" UI, not the same "be the first to gist" copy a truly
+  // empty feed shows. Conflating the two used to show "no gist dey here
+  // yet" even when the database plainly had gists, purely because the one
+  // fetch that happened to run failed.
+  const [loadError, setLoadError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   // Sample/demo data has no real backend cursor to page through — pagination
   // only makes sense once the live API actually returned something.
@@ -144,9 +151,7 @@ export function FeedContent() {
         }
       }
       lastPromptIndex.current = idx;
-      const raw = PROMPTS[idx];
-      const clean = raw.endsWith("?") ? raw.slice(0, -1) : raw;
-      return avitag ? `${clean}, @${avitag}?` : raw;
+      return PROMPTS[idx];
     };
 
     const typeIn = (text: string, onDone: () => void) => {
@@ -205,10 +210,14 @@ export function FeedContent() {
       const data = await listGists();
       setGists(data);
       setExhausted(false);
+      setLoadError(false);
       void prefetchComments(data.map((g) => g.gist_id));
     } catch {
-      // Backend unreachable — leave gists as-is (empty state or whatever
-      // was last successfully loaded) rather than showing fake data.
+      // Backend unreachable/request failed — leave whatever gists were
+      // already loaded in place (don't wipe a working feed over a single
+      // failed refresh) but flag it so an empty list renders as "failed to
+      // load, retry" instead of silently passing for "no gists exist".
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -418,9 +427,25 @@ export function FeedContent() {
                   onGistDeleted={(gistId) =>
                     setGists((prev) => prev.filter((g) => g.gist_id !== gistId))
                   }
-                  onGistEdited={load}
+                  onGistEdited={(fresh) =>
+                    setGists((prev) => prev.map((g) => (g.gist_id === fresh.gist_id ? fresh : g)))
+                  }
                   onNearEnd={loadMore}
                 />
+              </div>
+            ) : loadError ? (
+              <div className="relative z-10 flex flex-1 w-full flex-col items-center justify-center gap-3 text-center px-6">
+                <RefreshCw className="h-10 w-10 text-muted" />
+                <p className="font-poppins text-sm text-muted">
+                  Abeg we no fit load the gists — check your connection.
+                </p>
+                <button
+                  type="button"
+                  onClick={load}
+                  className="rounded-full bg-brand px-4 py-2 font-poppins text-sm font-semibold text-white transition hover:bg-brand-dark"
+                >
+                  Try again
+                </button>
               </div>
             ) : (
               <div className="relative z-10 flex flex-1 w-full flex-col items-center justify-center gap-3 text-center">
@@ -446,7 +471,7 @@ export function FeedContent() {
       <CreateGistSheet
         open={showCreate}
         onClose={() => setShowCreate(false)}
-        onPosted={load}
+        onPosted={(fresh) => setGists((prev) => [...prev, fresh])}
         placeholder={composePlaceholder}
       />
     </AppShell>

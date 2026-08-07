@@ -9,12 +9,12 @@ import likeAnim from "@/assets/lottie/like.json";
 import loveAnim from "@/assets/lottie/love.json";
 import fireAnim from "@/assets/lottie/fire.json";
 import sadAnim from "@/assets/lottie/sad.json";
-import wowAnim from "@/assets/lottie/wow.json";
+import laughAnim from "@/assets/lottie/laugh.json";
 
 export const REACTION_ANIMATIONS: Record<ReactionType, object> = {
   LIKE: likeAnim,
   LOVE: loveAnim,
   FIRE: fireAnim,
   SAD: sadAnim,
-  WOW: wowAnim,
+  LAUGH: laughAnim,
 };

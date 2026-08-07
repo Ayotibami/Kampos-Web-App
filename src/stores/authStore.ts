@@ -21,6 +21,11 @@ export interface ProfileSummary {
 export interface AccountProfileResponse {
   account: Account | null;
   profiles: ProfileSummary[];
+  /** The session's currently-active profile, baked into the JWT via
+   * /auth/switch-profile — null whenever the account has profiles but none
+   * of them has actually been switched to yet. */
+  avitag: string | null;
+  profileType: ProfileType | null;
 }
 
 interface AuthState {
@@ -123,12 +128,37 @@ export const useAuthStore = create<AuthState>()(
           } as AxiosRequestConfig);
           const account = res.data?.data?.account ?? null;
           const profiles = res.data?.data?.profiles ?? [];
+          let avitag = res.data?.data?.avitag ?? null;
+          let profileType = res.data?.data?.profileType ?? null;
           let authState: AuthGateState;
           if (!account) authState = "guest";
           else if (!account.is_otp_verified) authState = "needs-otp";
           else if (profiles.length === 0) authState = "needs-profile";
           else authState = "active";
-          set({ user: account, profiles, authState, loading: false });
+
+          // Self-heal a session that owns a profile but never actually
+          // switched to one — e.g. the switch-profile call at the end of
+          // setup failed once and got silently swallowed, leaving every
+          // authenticated write (react/comment/post) permanently rejecting
+          // with "active profile required" despite the profile existing.
+          // No UI anywhere lets someone manually switch, so this has to be
+          // automatic, and it has to happen on every resolve (not just
+          // once) so a transient failure here heals itself on next load
+          // instead of getting stuck the same way again.
+          if (authState === "active" && !avitag && profiles[0]?.avitag) {
+            try {
+              const switchRes = await api.post<ApiEnvelope<{ avitag: string; profileType: ProfileType }>>(
+                "/auth/switch-profile",
+                { avitag: profiles[0].avitag },
+              );
+              avitag = switchRes.data?.data?.avitag ?? null;
+              profileType = switchRes.data?.data?.profileType ?? null;
+            } catch {
+              // Leave avitag null — this resolve will just retry next time.
+            }
+          }
+
+          set({ user: account, profiles, authState, avitag, profileType, loading: false });
           return authState;
         } catch {
           // No valid session (401), or the backend's unreachable — either

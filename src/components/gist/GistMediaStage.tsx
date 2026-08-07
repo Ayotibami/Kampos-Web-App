@@ -11,6 +11,7 @@ import {
   ExpandIconFill,
 } from "@/components/ui/icons";
 import type { GistMedia as GistMediaType } from "@/types";
+import { cloudinarySmartCrop } from "@/lib/cloudinary";
 
 // Chars are tuned per breakpoint so the slice actually fits within that
 // breakpoint's line-clamp (3/4/6 lines below) — not just visually similar,
@@ -89,7 +90,13 @@ function MediaFrame({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const isVideo = item.media_type?.toLowerCase().includes("video");
-  const className = `h-full w-full object-cover ${blurred ? "scale-110 blur-2xl" : ""}`;
+  // object-top, not the default centered crop — a center crop sliced a
+  // portrait photo's head off just as often as its feet, which reads as
+  // broken; biasing the crop to the top instead means whatever's cut is
+  // consistently the bottom, and the subject (a face, a header, the top of
+  // whatever's in frame) survives almost every photo. Matches how Twitter's
+  // own feed-card crop behaves.
+  const className = `h-full w-full object-cover object-top ${blurred ? "scale-110 blur-2xl" : ""}`;
 
   // Whether THIS tile's controls should even show — any video tile, once
   // its card is the front one, not blurred into text mode, and the bigger
@@ -118,7 +125,7 @@ function MediaFrame({
 
   if (!isVideo) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={item.media_url} alt="" className={className} />;
+    return <img src={cloudinarySmartCrop(item.media_url)} alt="" className={className} />;
   }
 
   return (
@@ -329,9 +336,12 @@ export function GistMediaBackdrop({
   return (
     <div className="absolute inset-0 z-0">
       {isDuo ? (
+        // Each tile gets its own full white frame — reads as two distinct
+        // photos placed side by side, rather than one image accidentally
+        // split in half by a thin gap.
         <div className="flex h-full w-full gap-1">
           {items.map((item, idx) =>
-            tile(item, idx, "relative h-full flex-1 overflow-hidden rounded-2xl"),
+            tile(item, idx, "relative h-full flex-1 overflow-hidden rounded-2xl border border-black/25 dark:border-white/25"),
           )}
         </div>
       ) : (
@@ -393,13 +403,13 @@ export function GistMediaBodyPanel({
               <button
                 type="button"
                 onClick={() => onModeChange("text")}
-                className="pointer-events-auto absolute inset-x-0 bottom-0 line-clamp-6 bg-black/55 px-4 pb-2.5 pt-3 text-left font-poppins text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3"
+                className="pointer-events-auto absolute inset-x-0 bottom-0 line-clamp-6 break-words bg-black/55 px-4 pb-2.5 pt-3 text-left font-poppins text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3"
               >
                 {preview}
                 <span className="font-bold text-white"> …more</span>
               </button>
             ) : (
-              <p className="pointer-events-none absolute inset-x-0 bottom-0 line-clamp-6 bg-black/55 px-4 pb-2.5 pt-3 text-left font-poppins text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3">
+              <p className="pointer-events-none absolute inset-x-0 bottom-0 line-clamp-6 break-words bg-black/55 px-4 pb-2.5 pt-3 text-left font-poppins text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3">
                 {preview}
               </p>
             )}
@@ -414,7 +424,7 @@ export function GistMediaBodyPanel({
             transition={{ type: "spring", stiffness: 320, damping: 30 }}
           >
             <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pr-3 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/30">
-              <p className="w-full whitespace-pre-wrap font-poppins text-[15px] leading-relaxed text-white text-justify">
+              <p className="w-full whitespace-pre-wrap break-words font-poppins text-[15px] leading-relaxed text-white text-justify">
                 {text}
               </p>
             </div>

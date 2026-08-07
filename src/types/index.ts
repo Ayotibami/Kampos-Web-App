@@ -38,7 +38,7 @@ export interface Major {
 }
 
 export type ReactionEntity = "GIST" | "COMMENT";
-export type ReactionType = "LIKE" | "LOVE" | "FIRE" | "SAD" | "WOW";
+export type ReactionType = "LIKE" | "LOVE" | "FIRE" | "SAD" | "LAUGH";
 
 export interface GistMedia {
   media_id: string;
@@ -81,6 +81,9 @@ export interface Gist {
    * reacted yet, so the UI can show it as already-selected without a
    * separate per-gist fetch. */
   my_reaction?: ReactionType | null;
+  /** Whether the viewer already reported this gist — persisted server-side,
+   * survives reloads (unlike the old session-only "reported" UI state). */
+  my_report?: boolean;
   [key: string]: unknown;
 }
 
