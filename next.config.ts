@@ -4,7 +4,7 @@ const isDev = process.env.NODE_ENV !== "production";
 
 // Backend origin used for connect-src (REST + websockets). Kept in sync with NEXT_PUBLIC_API_URL.
 const API_ORIGIN = (
-  process.env.NEXT_PUBLIC_API_URL || "https://kamposbackend-tj1s.onrender.com"
+  process.env.NEXT_PUBLIC_API_URL || "https://kamposbackend-001.onrender.com"
 ).replace(/\/$/, "");
 const WS_ORIGIN = API_ORIGIN.replace(/^http/, "ws");
 

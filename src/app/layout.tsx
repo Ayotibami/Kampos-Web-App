@@ -22,12 +22,32 @@ const nunito = Nunito({
   display: "swap",
 });
 
+const DESCRIPTION =
+  "Gists, rants, banters, school updates — Kampos drops you right in the middle of everything happening on your campus.";
+
 export const metadata: Metadata = {
   metadataBase: new URL(env.SITE_URL),
-  title: "Kampos — your campus life in one app",
-  description:
-    "Gists, rants, banters, school updates — Kampos drops you right in the middle of everything happening on your campus.",
+  title: {
+    default: "Kampos — your campus life in one app",
+    // Pages that set their own <title> (e.g. /gist/[gistId]) get
+    // "{their title} | Kampos" instead of losing the brand name entirely.
+    template: "%s | Kampos",
+  },
+  description: DESCRIPTION,
   applicationName: "Kampos",
+  keywords: ["Kampos", "campus", "gists", "student app", "university social app", "Nigerian students"],
+  robots: { index: true, follow: true },
+  openGraph: {
+    type: "website",
+    siteName: "Kampos",
+    title: "Kampos — your campus life in one app",
+    description: DESCRIPTION,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Kampos — your campus life in one app",
+    description: DESCRIPTION,
+  },
 };
 
 export const viewport: Viewport = {

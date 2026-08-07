@@ -1,9 +1,5 @@
 import { create } from "zustand";
 import { apiGet } from "@/lib/api";
-// Backend's up now — fetch for real instead of seeding these. Commented
-// out (not deleted) in case we want the instant-default-data UX back later.
-// import { DEFAULT_CAMPUSES } from "@/lib/defaultCampuses";
-// import { DEFAULT_MAJORS } from "@/lib/defaultMajors";
 import type { CampusOption, Major } from "@/types";
 
 interface RawCampus {

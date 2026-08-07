@@ -7,12 +7,11 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { Button } from "@/components/ui/Button";
 import { ProgressDots } from "@/components/onboarding/ProgressDots";
-import { Illustration, type IllustrationName } from "@/components/brand/illustrations";
 import { PhoneKappyOrbit } from "@/components/brand/PhoneKappyOrbit";
 import { KappyOpportunitiesOrbit } from "@/components/brand/KappyOpportunitiesOrbit";
 import { ONBOARDING } from "@/lib/brand";
 import { hasSeenOnboarding, markOnboardingSeen } from "@/lib/onboarding";
-import KappyWaving from "@/assets/illustrations/KappyWaving.png";
+import KappyWaving from "@/assets/illustrations/KappyWaving.webp";
 
 // KappyWaving/KappyPhone/KappyLookingUp are all the same 1024×922 source
 // canvas (checked directly) — so every "slide 0/1/2" box below shares this
@@ -145,13 +144,8 @@ export function OnboardingCarousel() {
               </div>
             ) : index === 1 ? (
               <PhoneKappyOrbit className={KAPPY_BOX} />
-            ) : index === 2 ? (
-              <KappyOpportunitiesOrbit className={KAPPY_BOX} />
             ) : (
-              <Illustration
-                name={slide.illustration as IllustrationName}
-                className="h-full max-h-[40vh] w-auto max-w-full md:h-[95%] md:max-h-none md:w-[95%] md:max-w-none"
-              />
+              <KappyOpportunitiesOrbit className={KAPPY_BOX} />
             )}
           </motion.div>
         </AnimatePresence>

@@ -44,19 +44,19 @@ export const LIMITS = {
 } as const;
 
 // Onboarding carousel content — Kappy the mascot, verbatim voice from mobile.
+// Each entry's "look" is a dedicated component (KappyWaving photo / phone
+// orbit / opportunities orbit — see OnboardingCarousel), not a swappable
+// illustration name, so there's nothing to key here beyond the copy itself.
 export const ONBOARDING = [
   {
-    illustration: "Kappyswag",
     header: "You don show at last!",
     body: "Hey! I'm Kappy, Kampos' mascot. I lowkey want to give you all the spoilers, but I was told to keep it simple. Kampos is all about you, and we're super glad you finally showed up! 😎",
   },
   {
-    illustration: "Kappywithphone",
     header: "Gist and Updates",
     body: "Gists, rants, banters… school updates, academic circulars? Chill! Kampos drops you right in the middle of everything happening on your campus — anytime, anywhere.",
   },
   {
-    illustration: "Kappyup",
     header: "More things dey o!",
     body: "No vex — I can only give you a tip of the iceberg 😏. Oya, don't tell anyone, but see Kampos is cooking up more for you — learning, job opportunities, and maybe even love.",
   },

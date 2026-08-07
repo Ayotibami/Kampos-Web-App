@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { motion } from "framer-motion";
-import KappyLookingUp from "@/assets/illustrations/KappyLookingUp.png";
+import KappyLookingUp from "@/assets/illustrations/KappyLookingUp.webp";
 import KappyElementHeart from "@/assets/illustrations/KappyElement-heart.png";
 import KappyElementCash from "@/assets/illustrations/KappyElement-cash.png";
 import KappyElementNotebook from "@/assets/illustrations/KappyElement-notebook.png";

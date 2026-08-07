@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { motion } from "framer-motion";
-import KappyPhone from "@/assets/illustrations/KappyPhone.png";
+import KappyPhone from "@/assets/illustrations/KappyPhone.webp";
 import { MiniGistCard } from "./MiniGistCard";
 import { MiniCommentCard } from "./MiniCommentCard";
 
