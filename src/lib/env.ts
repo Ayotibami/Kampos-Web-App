@@ -5,7 +5,7 @@
  */
 function readApiUrl(): string {
   const raw = process.env.NEXT_PUBLIC_API_URL?.trim();
-  const value = raw && raw.length > 0 ? raw : "https://kamposbackend-tj1s.onrender.com";
+  const value = raw && raw.length > 0 ? raw : "https://kamposbackend-001.onrender.com";
   try {
     // Throws on malformed URLs.
     // eslint-disable-next-line no-new
@@ -29,7 +29,7 @@ function readSiteUrl(): string {
 }
 
 export const env = {
-  /** Backend origin, e.g. https://kamposbackend-tj1s.onrender.com */
+  /** Backend origin, e.g. https://kamposbackend-001.onrender.com */
   API_URL: readApiUrl(),
   /** Full REST base, e.g. https://.../api/v1 */
   get API_BASE() {

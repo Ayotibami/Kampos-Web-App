@@ -36,7 +36,6 @@ export {
 export {
   PaperPlaneTilt as ShareIconFill,
   PaperPlaneRight as SendIconFill,
-  Repeat as QuoteIconFill,
   Flag as FlagIconFill,
   DotsThreeOutlineVertical as DotsIconFill,
   ChatCircle as CommentIconFill,

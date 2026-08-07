@@ -19,11 +19,15 @@ export function ShareModal({
   onClose,
   url,
   text,
+  onShared,
 }: {
   open: boolean;
   onClose: () => void;
   url: string;
   text: string;
+  /** Fired once a share actually goes out — a platform link opened, or a
+   * successful copy-link — with a short platform label for analytics. */
+  onShared?: (platform: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -31,6 +35,7 @@ export function ShareModal({
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
+      onShared?.("copy_link");
       setTimeout(() => setCopied(false), 1500);
     } catch {
       /* clipboard unavailable — nothing more to do here */
@@ -40,18 +45,21 @@ export function ShareModal({
   const targets = [
     {
       label: "WhatsApp",
+      platform: "whatsapp",
       icon: <WhatsappLogoFill size={22} weight="fill" />,
       href: `https://wa.me/?text=${encodeURIComponent(`${text}\n${url}`)}`,
       className: "bg-[#25D366]",
     },
     {
       label: "X",
+      platform: "x",
       icon: <XLogoFill size={20} weight="fill" />,
       href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
       className: "bg-black",
     },
     {
       label: "Facebook",
+      platform: "facebook",
       icon: <FacebookLogoFill size={22} weight="fill" />,
       href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
       className: "bg-[#1877F2]",
@@ -69,6 +77,7 @@ export function ShareModal({
               href={t.href}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => onShared?.(t.platform)}
               className="flex flex-col items-center gap-1.5"
             >
               <span

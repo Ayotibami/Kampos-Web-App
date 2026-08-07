@@ -17,9 +17,7 @@ const HEIGHT = 900;
 // The standard Vercel-documented technique for loading a real Google Font
 // into Satori (what ImageResponse renders through) — next/font's own
 // downloads happen at build time as CSS, not as bytes this API can use, so
-// this fetches the actual font file at request time instead. Scoped to
-// `text` (only the characters actually needed) keeps it fast and small
-// rather than pulling the whole font's character set.
+// this fetches the actual font file at request time instead.
 async function loadGoogleFont(family: string, weight: number, text: string): Promise<ArrayBuffer> {
   const cssUrl = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@${weight}&text=${encodeURIComponent(text)}`;
   const css = await fetch(cssUrl).then((r) => r.text());
@@ -27,6 +25,40 @@ async function loadGoogleFont(family: string, weight: number, text: string): Pro
   if (!match) throw new Error(`Could not find font URL for ${family}`);
   const fontRes = await fetch(match[1]);
   return fontRes.arrayBuffer();
+}
+
+// Covers everything the card actually renders — plain ASCII plus the
+// accented Latin letters that show up in real names, plus the punctuation
+// used elsewhere in this file (em dash, ellipsis, curly quotes). Loaded
+// ONCE per server process and cached in module scope, rather than
+// re-subsetting to each individual gist's exact characters on every single
+// request — that per-request Google Fonts round trip (CSS fetch + font
+// file fetch, x2 for both weights) was the biggest chunk of this route's
+// latency, and it was pure waste: a fixed, slightly-larger-but-still-tiny
+// font file loaded once outperforms a "perfectly" subset one refetched on
+// every request. A gist with some genuinely exotic character outside this
+// set just falls back to a mismatched glyph for that one character, same
+// as before, but that's now the rare case instead of the guaranteed one.
+const FONT_CHARSET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÀÁÂÃÄÅÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜÑÇàáâãäåèéêëìíîïòóôõöùúûüñç0123456789 .,!?'\"-–—:;()&%/@#*+…·";
+
+let fontsPromise: Promise<{ bold: ArrayBuffer; extraBold: ArrayBuffer }> | null = null;
+
+function loadFonts(): Promise<{ bold: ArrayBuffer; extraBold: ArrayBuffer }> {
+  if (!fontsPromise) {
+    fontsPromise = Promise.all([
+      loadGoogleFont("Poppins", 700, FONT_CHARSET),
+      loadGoogleFont("Poppins", 800, FONT_CHARSET),
+    ])
+      .then(([bold, extraBold]) => ({ bold, extraBold }))
+      .catch((err) => {
+        // Don't poison the cache on a transient network failure — the next
+        // request gets to try loading fresh instead of failing forever.
+        fontsPromise = null;
+        throw err;
+      });
+  }
+  return fontsPromise;
 }
 
 const TAG_STYLE = {
@@ -64,7 +96,10 @@ function stripEmoji(value: string): string {
 
 export async function GET(request: Request, { params }: { params: Promise<{ gistId: string }> }) {
   const { gistId } = await params;
-  const context = await fetchGistContext(gistId, 0, 0);
+  // Independent of each other now that the font charset is fixed rather
+  // than derived from this gist's own text — no more waiting on the gist
+  // fetch before even starting the font load.
+  const [context, fonts] = await Promise.all([fetchGistContext(gistId, 0, 0), loadFonts()]);
 
   if (!context) {
     return new Response("Gist not found", { status: 404 });
@@ -72,13 +107,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ gist
 
   const { target } = context;
   const text = stripEmoji(target.gist_text ?? "");
-  // Video has no single frame to composite in cleanly server-side without
-  // extra tooling (ffmpeg etc.) — images only, same as a plain text gist
-  // once nothing qualifies. A gist with 2+ images gets both side by side
-  // in the same 460px slot a single image would otherwise fill; beyond 2,
-  // only the first two show (matches the compact-preview intent of an OG
-  // card, not the full gist).
-  const images = (target.media ?? []).filter((m) => m.media_type !== "VIDEO").slice(0, 2);
+  // Every media type shows here — images, GIFs/stickers (both just plain
+  // image URLs from GIPHY, media_type IMAGE), and video too: a video has no
+  // single frame to composite server-side directly, but Cloudinary already
+  // generates a JPG poster frame for every uploaded video (thumbnail_url),
+  // so that's what renders instead of skipping video gists outright. Only
+  // a video with no thumbnail for some reason is actually dropped. A gist
+  // with 2+ media items gets both side by side in the same slot a single
+  // one would otherwise fill; beyond 2, only the first two show (matches
+  // the compact-preview intent of an OG card, not the full gist).
+  const images = (target.media ?? [])
+    .map((m) => ({ key: m.media_id, url: m.media_type === "VIDEO" ? m.thumbnail_url : m.media_url }))
+    .filter((m): m is { key: string; url: string } => !!m.url)
+    .slice(0, 2);
   const hasMedia = images.length > 0;
   const cardColor = gistColorFor(target.gist_id);
 
@@ -95,13 +136,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ gist
   const maxChars = hasMedia ? 260 : 420;
   const displayText = text.length > maxChars ? `${text.slice(0, maxChars).trimEnd()}…` : text;
 
-  const fontText = `${displayText}${displayName}${target.avitag}${postedAgo}${tags.join("")}KamposCheckoutongistat`;
-  const [poppinsBold, poppinsExtraBold] = await Promise.all([
-    loadGoogleFont("Poppins", 700, fontText),
-    loadGoogleFont("Poppins", 800, fontText),
-  ]);
-
-  return new ImageResponse(
+  const image = new ImageResponse(
     (
       <div
         style={{
@@ -212,7 +247,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ gist
               <div style={{ display: "flex", flex: 1, gap: 8 }}>
                 {images.map((m) => (
                   <div
-                    key={m.media_url}
+                    key={m.key}
                     style={{
                       display: "flex",
                       flex: 1,
@@ -223,7 +258,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ gist
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={m.media_url}
+                      src={m.url}
                       width={images.length > 1 ? 502 : 1008}
                       height={220}
                       style={{ objectFit: "cover", width: "100%", height: "100%" }}
@@ -267,9 +302,17 @@ export async function GET(request: Request, { params }: { params: Promise<{ gist
       width: WIDTH,
       height: HEIGHT,
       fonts: [
-        { name: "Poppins", data: poppinsBold, weight: 700, style: "normal" },
-        { name: "Poppins", data: poppinsExtraBold, weight: 800, style: "normal" },
+        { name: "Poppins", data: fonts.bold, weight: 700, style: "normal" },
+        { name: "Poppins", data: fonts.extraBold, weight: 800, style: "normal" },
       ],
     },
   );
+
+  // A gist's OG card only really changes on an edit, and platforms that
+  // matter most here (WhatsApp/X/Facebook) cache the image on their own
+  // end regardless of what this header says — this mainly helps repeat
+  // fetches hitting this app's own server/CDN in the short window right
+  // after a link gets shared around.
+  image.headers.set("Cache-Control", "public, max-age=60, s-maxage=86400, stale-while-revalidate=604800");
+  return image;
 }

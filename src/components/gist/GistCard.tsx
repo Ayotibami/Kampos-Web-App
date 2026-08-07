@@ -18,7 +18,6 @@ import { useAuthStore } from "@/stores/authStore";
 import { requireAuth } from "@/lib/requireAuth";
 import {
   ShareIconFill,
-  QuoteIconFill,
   FlagIconFill,
   DotsIconFill,
   CommentIconFill,
@@ -85,6 +84,7 @@ export function GistCard({
   const unreactGist = useGistStore((s) => s.unreact);
   const report = useGistStore((s) => s.report);
   const removeGist = useGistStore((s) => s.remove);
+  const shareGist = useGistStore((s) => s.share);
   const avitag = useAuthStore((s) => s.avitag);
 
   const [showActions, setShowActions] = useState(false);
@@ -94,7 +94,6 @@ export function GistCard({
   // session's own clicks — a genuine "did I already report this," not a
   // local-only UI nicety that reset the moment the page refreshed.
   const [reported, setReported] = useState(!!gist.my_report);
-  const [showQuote, setShowQuote] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -179,14 +178,34 @@ export function GistCard({
   const shareUrl =
     typeof window !== "undefined" ? `${window.location.origin}/gist/${gist.gist_id}` : `/gist/${gist.gist_id}`;
 
+  // A short teaser, not the raw gist text (which can run up to 5000 chars
+  // for a verified profile) — the full gist is one tap away via the link
+  // anyway, and a very long `text` payload has been observed silently
+  // crashing/closing WhatsApp's iOS share extension right after it opens.
+  const SHARE_CAPTION_LIMIT = 200;
+  const shareCaption =
+    gist.gist_text.length > SHARE_CAPTION_LIMIT
+      ? `${gist.gist_text.slice(0, SHARE_CAPTION_LIMIT).trimEnd()}…`
+      : gist.gist_text;
+  // Combined into one field rather than passed as separate `text`/`url`
+  // params — iOS's native share-sheet "Copy" action (and some target
+  // apps' share extensions) only reads a single field and silently drops
+  // whichever one they don't use, which is exactly what caused Copy to
+  // grab the caption but not the link. Folding the link into the text
+  // itself means whichever field ends up used still has everything.
+  const shareText = `${shareCaption}\n\n${shareUrl}`;
+
   const handleShare = async () => {
-    const shareText = gist.gist_text;
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
         // Mobile's real OS share sheet — already lists whatever's actually
         // installed (WhatsApp, Instagram, X, ...), no per-platform buttons
         // needed here.
-        await navigator.share({ text: shareText, url: shareUrl });
+        await navigator.share({ text: shareText });
+        // navigator.share only resolves once the OS sheet's own action
+        // actually completed (not just opened/cancelled), so this reflects
+        // a real share the same way the ShareModal callers below do.
+        shareGist(gist.gist_id, "native");
         return;
       }
       // Desktop mostly doesn't implement navigator.share at all — explicit
@@ -294,7 +313,7 @@ export function GistCard({
           </div>
         </div>
 
-        {/* Actions — a three-dot trigger that pops share/quote/flag out
+        {/* Actions — a three-dot trigger that pops share/flag out
             straight below it, each with its own distinct entrance so the
             reveal feels alive rather than templated. Tap the dots again, or
             anywhere outside, to close. z-30 so it always sits above the body
@@ -351,15 +370,6 @@ export function GistCard({
                   </>
                 ) : (
                   <>
-                    <PopActionButton
-                      label="Quote"
-                      onClick={() => {
-                        if (!requireAuth("quote gists")) return;
-                        setShowQuote(true);
-                        setShowActions(false);
-                      }}
-                      icon={<QuoteIconFill size={17} weight="fill" />}
-                    />
                     <PopActionButton
                       label="Report"
                       onClick={() => {
@@ -475,11 +485,6 @@ export function GistCard({
         />
       </div>
 
-      {/* Repost, simplified for now: just the plain compose modal, no
-          quoted-text pre-fill — that raw "Quoting @x: '...'" dump in the
-          textarea was the clunky part. */}
-      <CreateGistSheet open={showQuote} onClose={() => setShowQuote(false)} />
-
       <CreateGistSheet
         open={showEdit}
         onClose={() => setShowEdit(false)}
@@ -507,7 +512,8 @@ export function GistCard({
         open={showShareModal}
         onClose={() => setShowShareModal(false)}
         url={shareUrl}
-        text={gist.gist_text}
+        text={shareCaption}
+        onShared={(platform) => shareGist(gist.gist_id, platform)}
       />
       <ErrorModal open={!!reportError} onClose={() => setReportError(undefined)} message={reportError} />
       <ErrorModal open={!!deleteError} onClose={() => setDeleteError(undefined)} message={deleteError} />

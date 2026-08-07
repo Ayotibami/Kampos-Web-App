@@ -16,6 +16,7 @@ function normalizeGist(raw: Gist): Gist {
     comments_count: Number(raw.comments_count ?? raw.counts?.comments_count ?? 0),
     views_count: Number(raw.views_count ?? raw.counts?.views_count ?? 0),
     reports_count: Number(raw.reports_count ?? raw.counts?.reports_count ?? 0),
+    shares_count: Number(raw.shares_count ?? raw.counts?.shares_count ?? 0),
     reactions_by_type: (raw.reactions_by_type as GistCounts["reactions_by_type"]) ?? raw.counts?.reactions_by_type,
   };
   return { ...raw, counts };
@@ -56,6 +57,10 @@ interface GistState {
   remove: (gistId: string) => Promise<void>;
   report: (gistId: string, reason?: string) => Promise<void>;
   view: (gistId: string) => Promise<void>;
+  /** Logs a real share event — call this once a share actually goes out
+   * (a platform link opened, copy-link/native-share completed), not just
+   * when the share sheet is opened. `platform` is optional/free-form. */
+  share: (gistId: string, platform?: string) => Promise<void>;
   react: (gistId: string, type: ReactionType) => Promise<void>;
   unreact: (gistId: string) => Promise<void>;
 }
@@ -228,6 +233,14 @@ export const useGistStore = create<GistState>((set) => ({
       await api.post(`/gists/${encodeURIComponent(gistId)}/view`);
     } catch {
       /* view tracking is best-effort; never surface an error */
+    }
+  },
+
+  share: async (gistId, platform) => {
+    try {
+      await api.post(`/gists/${encodeURIComponent(gistId)}/share`, platform ? { platform } : {});
+    } catch {
+      /* share tracking is best-effort; never block/interrupt the actual share */
     }
   },
 

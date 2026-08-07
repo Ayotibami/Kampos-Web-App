@@ -4,7 +4,7 @@ PAW
 
 error and success custom modals and little modals after creation, deleting , editing,reporting ,sharing
 
-error and empty ui
+error and empty ui for gist and comment
 
 sharing fuctionality
 
@@ -23,3 +23,5 @@ edit and delete functioanlity
 kreators and admins gist card ui
 
 put the links to tc and pp and commuity guidelines
+
+optimize site ,seo and images size
