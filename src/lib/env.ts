@@ -28,6 +28,22 @@ function readSiteUrl(): string {
   return value.replace(/\/$/, "");
 }
 
+// The separate marketing site (Kampos-website, not this app) that hosts
+// Terms/Privacy/Community Guidelines — kept as its own env var, distinct
+// from SITE_URL above (this app's own origin), so swapping in the real
+// production domain later is a one-line env change, not a code change.
+function readKamposWebsiteUrl(): string {
+  const raw = process.env.NEXT_PUBLIC_KAMPOS_WEBSITE_URL?.trim();
+  const value = raw && raw.length > 0 ? raw : "https://kampos-website.vercel.app";
+  try {
+    // eslint-disable-next-line no-new
+    new URL(value);
+  } catch {
+    throw new Error(`NEXT_PUBLIC_KAMPOS_WEBSITE_URL is not a valid URL: "${value}"`);
+  }
+  return value.replace(/\/$/, "");
+}
+
 export const env = {
   /** Backend origin, e.g. https://kamposbackend-001.onrender.com */
   API_URL: readApiUrl(),
@@ -41,6 +57,18 @@ export const env = {
    * localhost or preview-deploy URL they can't reach. Must be set to the
    * real production domain wherever this app is actually deployed. */
   SITE_URL: readSiteUrl(),
+  /** The separate Kampos marketing site — Terms, Privacy, Community
+   * Guidelines all live there, not in this app. */
+  KAMPOS_WEBSITE_URL: readKamposWebsiteUrl(),
+  get TERMS_URL() {
+    return `${this.KAMPOS_WEBSITE_URL}/terms`;
+  },
+  get PRIVACY_URL() {
+    return `${this.KAMPOS_WEBSITE_URL}/privacy`;
+  },
+  get COMMUNITY_GUIDELINES_URL() {
+    return `${this.KAMPOS_WEBSITE_URL}/community-guidelines`;
+  },
   /** GIPHY API key for the GIF/sticker picker — free from
    * https://developers.giphy.com. Empty until set; GiphyPicker shows
    * a "not configured yet" state rather than failing requests with an

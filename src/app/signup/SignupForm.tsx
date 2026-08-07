@@ -11,6 +11,7 @@ import { ErrorModal } from "@/components/ui/FeedbackModal";
 import { Check } from "@/components/ui/icons";
 import { useAuthStore } from "@/stores/authStore";
 import { destinationFor } from "@/lib/authGate";
+import { env } from "@/lib/env";
 import {
   sanitizeInput,
   validateEmail,
@@ -223,8 +224,28 @@ export function SignupForm() {
             />
             <span className="font-poppins text-xs leading-relaxed text-muted">
               By signing up, you agree to Kampos{" "}
-              <span className="font-semibold text-brand">Terms &amp; Conditions</span> &amp;{" "}
-              <span className="font-semibold text-brand">Privacy Policy</span>
+              <a
+                href={env.TERMS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                // Stops the click from also bubbling up to the <label> and
+                // toggling the checkbox — without this, tapping the link
+                // text both opens it in a new tab AND flips `agree`.
+                onClick={(e) => e.stopPropagation()}
+                className="font-semibold text-brand underline underline-offset-2"
+              >
+                Terms &amp; Conditions
+              </a>{" "}
+              &amp;{" "}
+              <a
+                href={env.PRIVACY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="font-semibold text-brand underline underline-offset-2"
+              >
+                Privacy Policy
+              </a>
             </span>
           </label>
         </div>

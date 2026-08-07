@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { X, Check } from "@/components/ui/icons";
+import { env } from "@/lib/env";
 
 // Standard moderation categories — matches what most platforms surface
 // (bullying/hate/violence/sexual content etc get their own explicit option
@@ -101,13 +102,11 @@ export function ReportModal({
         {/* Header */}
         <h2 className="shrink-0 pr-12 font-poppins text-2xl font-bold text-ink">Report this gist</h2>
 
-        {/* TODO: swap in the real community guidelines URL once we have it
-            (placeholder "#" for now). */}
         <p className="mt-3 shrink-0 font-poppins text-sm leading-relaxed text-muted">
           Kampos is a safe space — we work hard to keep your feed free of harmful content.
           If this gist breaks our{" "}
           <a
-            href="#"
+            href={env.COMMUNITY_GUIDELINES_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="font-semibold text-brand underline underline-offset-2"

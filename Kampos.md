@@ -221,7 +221,7 @@ Two parallel UIs exist: `CommentPanel.tsx` (the real one — a permanent side pa
 
 ### 5.9 Reporting
 
-`ReportModal.tsx` — a full dialog (not a quick pop-out menu, deliberately: "a report is a deliberate, considered action, not a quick one-tap toggle") with 10 standard moderation-category pills (Spam, Harassment, Hate speech, Violence, Nudity, Self-harm, False info, Scam, Impersonation, Other — "Other" requires free text). **The community-guidelines link is a literal `href="#"` placeholder** with an explicit `// TODO: swap in the real community guidelines URL once we have it` comment — confirmed still true as of this read. `gist.my_report` (persisted server-side) seeds whether a gist shows as already-reported across reloads, replacing an earlier session-only local flag.
+`ReportModal.tsx` — a full dialog (not a quick pop-out menu, deliberately: "a report is a deliberate, considered action, not a quick one-tap toggle") with 10 standard moderation-category pills (Spam, Harassment, Hate speech, Violence, Nudity, Self-harm, False info, Scam, Impersonation, Other — "Other" requires free text). The community-guidelines link points at `env.COMMUNITY_GUIDELINES_URL` (Section 11) — a real link now, not the old `href="#"` placeholder. `gist.my_report` (persisted server-side) seeds whether a gist shows as already-reported across reloads, replacing an earlier session-only local flag.
 
 ### 5.10 Sharing
 
@@ -316,6 +316,7 @@ From `.env.example` (copy to `.env.local`) and `src/lib/env.ts`. Only `NEXT_PUBL
 |---|---|---|
 | `NEXT_PUBLIC_API_URL` | Base URL of the Kampos backend (REST at `/api/v1`, WebSocket on the same origin, scheme swapped `http→ws`) | `https://kamposbackend-001.onrender.com` |
 | `NEXT_PUBLIC_SITE_URL` | This site's own public origin — required to resolve relative OG/Twitter image URLs (`/api/og/[gistId]`) into absolute ones share-preview crawlers can fetch. **Must** be set to the real production domain wherever deployed, or shared links' image previews break. | `http://localhost:3000` |
+| `NEXT_PUBLIC_KAMPOS_WEBSITE_URL` | The separate Kampos marketing site — Terms (`/terms`), Privacy (`/privacy`), and Community Guidelines (`/community-guidelines`) all live there, not in this app. `env.TERMS_URL`/`PRIVACY_URL`/`COMMUNITY_GUIDELINES_URL` derive from it. One env change swaps every link over once the real domain exists. | `https://kampos-website.vercel.app` |
 | `NEXT_PUBLIC_GIPHY_API_KEY` | GIPHY API key for the GIF/sticker picker (free from developers.giphy.com) | empty string — `GiphyPicker` shows a "not set up yet" state instead of erroring |
 
 `env.ts` validates both URLs with `new URL(...)` at module load, throwing a clear build/server-startup error if either is malformed — a deliberate fail-fast so the app never ships silently pointed at a broken API origin.
@@ -337,8 +338,6 @@ Currently the **only** consumer is `commentStore.ts`'s module-level `comment:cre
 ## 13. Things That Look Built But Aren't (Known Gaps)
 
 - **`/profile` and `/settings` pages are pure placeholders.** Both just render an illustration + a "coming soon"-style message ("Your profile dey cook 👀" / "Settings dey come 🔧"). No real profile view (own gists, bio, stats) or settings (account, notifications, privacy) exists yet, despite being fully gated/routed as if they were real pages.
-- **`ReportModal`'s community-guidelines link is `href="#"`** with an explicit TODO comment — confirmed unchanged as of this read.
-- **`SignupForm`'s "Terms & Conditions" / "Privacy Policy" text is not a link at all** — it's plain styled `<span>` text inside the agreement checkbox label, not an `<a>`/`<Link>`. Functionally the same class of placeholder as the ReportModal link (`todo.md` explicitly lists "put the links to tc and pp and community guidelines" as outstanding).
 - **`CommentSheet.tsx` exists but is unused** — no page/component currently renders it; `CommentPanel.tsx` is the only comment UI actually wired into the app. Possibly a leftover from before the panel-based layout, or reserved for a future mobile treatment.
 - **Multi-profile switching has no UI.** `profileStore.switchProfile` exists and is called internally (auto-switch after creating a profile, and `authStore`'s self-heal), but there's no screen or menu letting a logged-in user with multiple profiles pick which one is active.
 - **OAuth (Google/Facebook/Apple) has no frontend UI.** The backend supports it (per its own docs), and illustration assets for all three provider logos exist in `src/assets/illustrations/` (`Googleicon.svg`, `Facebookicon.svg`, `Appleicon.svg`), but no login/signup button in this repo actually wires them up — only email/password auth is reachable from the UI.
