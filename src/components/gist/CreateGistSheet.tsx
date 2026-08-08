@@ -8,12 +8,19 @@ import { ErrorModal } from "@/components/ui/FeedbackModal";
 import { WebcamCapture } from "./WebcamCapture";
 import { GiphyPicker } from "./GiphyPicker";
 import { CameraIconFill, ImageIconFill, X, Video, Sticker } from "@/components/ui/icons";
-import { useGistStore } from "@/stores/gistStore";
+import { useGistStore, MediaUploadError } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { apiErrorMessage } from "@/lib/api";
 import { LIMITS } from "@/lib/brand";
 import { stripInvisibleChars, sanitizeForSubmit, sanitizeFileName } from "@/lib/sanitize";
-import { ALLOWED_MEDIA_TYPES, maxBytesFor, isAllowedMediaType, isGenuineMedia } from "@/lib/mediaValidation";
+import {
+  ALLOWED_MEDIA_TYPES,
+  maxBytesFor,
+  isAllowedMediaType,
+  isGenuineMedia,
+  MAX_VIDEO_DURATION_SECONDS,
+  readVideoDurationSeconds,
+} from "@/lib/mediaValidation";
 import type { Gist } from "@/types";
 
 interface PickedMedia {
@@ -175,6 +182,11 @@ export function CreateGistSheet({
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string>();
   const [showError, setShowError] = useState(false);
+  // Upload percent per media item (by its local `id`, not server media_id
+  // — these are only-ever-new picks mid-upload), so each thumbnail can
+  // show its own real progress instead of one opaque "posting..." spinner
+  // for the whole sheet.
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
 
   // Seeds the existing gist's own media as removable/reorderable thumbnails
   // when opening in edit mode — re-seeded each time the sheet opens (not
@@ -216,6 +228,7 @@ export function CreateGistSheet({
     let rejectedType = false;
     let rejectedSize = false;
     let rejectedSpoof = false;
+    let rejectedDuration = false;
 
     for (const f of Array.from(files)) {
       if (!isAllowedMediaType(f.type)) {
@@ -232,14 +245,32 @@ export function CreateGistSheet({
         rejectedSpoof = true;
         continue;
       }
+      // Reject an over-length video before it ever uploads a single byte
+      // — much better than finding out only after waiting for a 2-minute
+      // upload to finish, or worse, letting the server reject it silently.
+      if (f.type.startsWith("video/")) {
+        try {
+          const duration = await readVideoDurationSeconds(f);
+          if (duration > MAX_VIDEO_DURATION_SECONDS) {
+            rejectedDuration = true;
+            continue;
+          }
+        } catch {
+          /* couldn't read duration client-side (unusual codec, etc.) —
+             let it through; the backend still enforces the real cap. */
+        }
+      }
       valid.push(f);
     }
 
     if (rejectedType || rejectedSpoof) {
       setError("Only real JPEG, PNG, WEBP, GIF images or MP4, WEBM, MOV videos are allowed.");
       setShowError(true);
+    } else if (rejectedDuration) {
+      setError(`No vex — videos can only be up to ${MAX_VIDEO_DURATION_SECONDS / 60} minutes long.`);
+      setShowError(true);
     } else if (rejectedSize) {
-      setError("No vex — that file too big. Max be 10MB for photos, 50MB for videos.");
+      setError("No vex — that file too big. Max be 10MB for photos, 150MB for videos.");
       setShowError(true);
     }
 
@@ -285,6 +316,24 @@ export function CreateGistSheet({
     setText("");
     setMedia([]);
     setRemovedMediaIds([]);
+    setUploadProgress({});
+  };
+
+  /** Turns whatever a failed upload actually threw into a specific,
+   * brand-voice reason — "no vex" is this app's established error voice
+   * (see the size/type rejection messages in `onFiles` above) — instead
+   * of one generic "something went wrong" no matter the real cause. */
+  const describeUploadFailure = (reason: unknown): string => {
+    if (reason instanceof MediaUploadError) {
+      if (reason.stage === "signature") {
+        return "No vex — we couldn't reach Kampos to start the upload. Check your connection and try again.";
+      }
+      if (reason.stage === "upload") {
+        return `No vex — the upload didn't go through: ${reason.message}`;
+      }
+      return `No vex — ${reason.message}`; // "finalize": backend's own specific reason
+    }
+    return apiErrorMessage(reason, "No vex — something broke uploading that. Check your connection and try again.");
   };
 
   /** Best-effort extraction of a freshly-uploaded media item's id, for
@@ -303,6 +352,7 @@ export function CreateGistSheet({
     const clean = sanitizeForSubmit(text);
     if (!clean || remaining < 0) return;
     setPosting(true);
+    setUploadProgress({});
     // All-or-none: a media item failing must never leave the gist posted
     // with just its text (or, when editing, half-applied). Every branch
     // below uploads media FIRST and only commits the text/removals once
@@ -317,7 +367,11 @@ export function CreateGistSheet({
         const uploadedIds: string[] = [];
         if (newMedia.length) {
           const results = await Promise.allSettled(
-            newMedia.map((m) => (m.remoteUrl ? attachMediaUrl(gistId, m.remoteUrl) : uploadMedia(gistId, m.blob!, m.name))),
+            newMedia.map((m) =>
+              m.remoteUrl
+                ? attachMediaUrl(gistId, m.remoteUrl)
+                : uploadMedia(gistId, m.blob!, m.name, (pct) => setUploadProgress((p) => ({ ...p, [m.id]: pct }))),
+            ),
           );
           for (const r of results) {
             if (r.status === "fulfilled") {
@@ -325,9 +379,10 @@ export function CreateGistSheet({
               if (id) uploadedIds.push(id);
             }
           }
-          if (results.some((r) => r.status === "rejected")) {
+          const failed = results.find((r) => r.status === "rejected");
+          if (failed) {
             await Promise.all(uploadedIds.map((id) => removeMediaApi(id).catch(() => null)));
-            setError("Couldn't save your changes — some media failed to upload. Nothing was changed; check your connection and try again.");
+            setError(describeUploadFailure((failed as PromiseRejectedResult).reason));
             setShowError(true);
             return;
           }
@@ -350,11 +405,16 @@ export function CreateGistSheet({
         const gistId = gist!.gist_id;
         if (media.length) {
           const results = await Promise.allSettled(
-            media.map((m) => (m.remoteUrl ? attachMediaUrl(gistId, m.remoteUrl) : uploadMedia(gistId, m.blob!, m.name))),
+            media.map((m) =>
+              m.remoteUrl
+                ? attachMediaUrl(gistId, m.remoteUrl)
+                : uploadMedia(gistId, m.blob!, m.name, (pct) => setUploadProgress((p) => ({ ...p, [m.id]: pct }))),
+            ),
           );
-          if (results.some((r) => r.status === "rejected")) {
+          const failed = results.find((r) => r.status === "rejected");
+          if (failed) {
             await removeGistApi(gistId).catch(() => null);
-            setError("Couldn't post — some media failed to upload. Nothing was posted; check your connection and try again.");
+            setError(describeUploadFailure((failed as PromiseRejectedResult).reason));
             setShowError(true);
             return;
           }
@@ -453,6 +513,15 @@ export function CreateGistSheet({
                     )}
                     {m.kind === "video" && (
                       <Video className="absolute left-1 top-1 h-4 w-4 text-white drop-shadow" />
+                    )}
+                    {/* Real upload progress, not a guess — only shows while
+                        this specific item is actually mid-upload (posting,
+                        no existingId/remoteUrl since those skip the upload
+                        step entirely, and not yet 100%). */}
+                    {posting && !m.existingId && !m.remoteUrl && (uploadProgress[m.id] ?? 0) < 100 && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/50 font-poppins text-xs font-bold text-white">
+                        {uploadProgress[m.id] ?? 0}%
+                      </div>
                     )}
                     <button
                       type="button"

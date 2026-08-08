@@ -11,21 +11,45 @@ export type AllowedMediaType = (typeof ALLOWED_MEDIA_TYPES)[number];
 
 // Split by type rather than one flat cap — a real phone photo is a few MB;
 // giving images the same headroom as video just invites slow uploads on
-// mobile data for no real benefit. 50MB of video comfortably covers well
-// over a minute at typical mobile bitrates (a 1-min clip at 4-6Mbps runs
-// ~30-45MB), with room to spare.
+// mobile data for no real benefit.
 //
-// MUST match the backend's own hard limits (KamposBackend gist.controller.ts
-// create/media upload handlers: images 10MB, videos 100MB) — these were
-// previously out of sync (this used to allow 15MB images), which meant a
-// 10-15MB photo passed this check, got selected, then silently 413'd on
-// actual upload with the failure swallowed client-side: the gist posted
-// with its text but that photo just vanished, no error shown anywhere.
+// MUST match the backend's own hard limits (KamposBackend
+// media.controller.ts's `finalize` handler: images 10MB, videos 150MB/120s)
+// — these were previously out of sync (this used to allow 15MB images),
+// which meant a 10-15MB photo passed this check, got selected, then
+// silently failed on actual upload with the failure swallowed client-side:
+// the gist posted with its text but that photo just vanished, no error
+// shown anywhere.
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+export const MAX_VIDEO_BYTES = 150 * 1024 * 1024;
+// Kampos gists are quick, in-the-moment posts, not a video platform — 2
+// minutes covers a real phone-recorded clip comfortably (Twitter/X's own
+// *default*, non-Premium upload cap is 140s, for the same reason).
+export const MAX_VIDEO_DURATION_SECONDS = 120;
 
 export function maxBytesFor(type: AllowedMediaType): number {
   return (ALLOWED_IMAGE_TYPES as readonly string[]).includes(type) ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES;
+}
+
+/** Reads a video file's actual duration client-side (via a throwaway
+ * `<video>` element's loaded metadata) before ever uploading a single
+ * byte of it — lets an over-length video get rejected instantly with a
+ * specific reason, instead of only finding out after a long upload. */
+export function readVideoDurationSeconds(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    const url = URL.createObjectURL(file);
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(video.duration);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not read video"));
+    };
+    video.src = url;
+  });
 }
 
 type SignatureFamily = "jpeg" | "png" | "gif" | "webp" | "webm" | "isobmff";

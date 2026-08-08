@@ -196,12 +196,25 @@ Images use `cloudinarySmartCrop()` (`src/lib/cloudinary.ts`), which injects Clou
 ### 5.5 Upload flow — `CreateGistSheet.tsx`
 
 - **Camera capture:** `WebcamCapture.tsx` — live `getUserMedia` preview, canvas snapshot to a JPEG blob, front/back camera toggle, mirrors the front-camera preview so the snapshot matches what was seen.
-- **File picker:** validated client-side by `src/lib/mediaValidation.ts` — checks declared MIME type against an allowlist (`ALLOWED_IMAGE_TYPES`: jpeg/png/webp/gif; `ALLOWED_VIDEO_TYPES`: mp4/webm/quicktime), a size cap (15MB images / 50MB video), **and** a real magic-byte signature sniff (`isGenuineMedia`) that reads the file's first bytes and confirms they actually match the claimed format — catches a renamed `virus.exe` → `photo.jpg` that MIME-type/extension checks alone would miss.
+- **File picker:** validated client-side by `src/lib/mediaValidation.ts` — checks declared MIME type against an allowlist (`ALLOWED_IMAGE_TYPES`: jpeg/png/webp/gif; `ALLOWED_VIDEO_TYPES`: mp4/webm/quicktime), a size cap (10MB images / 150MB video), a video-length cap (`readVideoDurationSeconds` reads real duration off a throwaway `<video>` element's metadata before any upload starts — 120s max, rejected instantly with no bytes sent), **and** a real magic-byte signature sniff (`isGenuineMedia`) that reads the file's first bytes and confirms they actually match the claimed format — catches a renamed `virus.exe` → `photo.jpg` that MIME-type/extension checks alone would miss.
 - **GIFs/stickers:** `GiphyPicker.tsx` (Section 5.7).
 - Up to `LIMITS.maxMediaPerGist` (2) media items per gist — matches `GistMediaOverlay`'s own hardcoded assumption of showing only the first 2 items.
 - Text limit: `LIMITS.gist` = 700 chars (comment limit is half that, 350) — a Twitter-style circular progress ring (`CharCountRing`) shows remaining count, only surfacing the actual number once close to the limit.
 - New media only actually uploads (or, for edits, only actually gets deleted server-side) on **Save** — picking/removing items before that is purely local draft state, so closing the sheet without saving leaves the real gist untouched.
 - On success, the gist is **re-fetched fresh** (not just the bare create/update response) so newly-attached media (uploaded in a separate step after the gist row itself is created) is actually reflected in what gets spliced into the feed.
+- **Posting is all-or-none.** `handlePost` uploads every media item *before* committing the gist's text (or, for an edit, before applying the text change/removals) — if any item fails, whatever DID just upload in that attempt is deleted again immediately (the just-created gist itself, for a new post; the just-attached media, for an edit), the compose sheet's text and picks are left completely untouched, and a specific error explains what happened. This was a real, previously-shipped bug: a failed upload used to be silently swallowed, leaving a gist posted with only some (or none) of its media and no error shown anywhere.
+
+#### Media upload: direct-to-Cloudinary, not through this app's own servers
+
+`gistStore.uploadMedia` (called per-item from `handlePost`) does **not** send the file to this app's `/api/v1` proxy at all — it uploads straight from the browser to Cloudinary, in three steps (`src/lib/cloudinary.ts` + the backend's `media.controller.ts`, see `KamposBackend/Kampos.md` Section 8):
+
+1. `GET /gists/:id/media/signature` — tiny request to this app's own backend, gets back a short-lived signed Cloudinary upload payload.
+2. `uploadToCloudinaryDirect()` — the actual file bytes go straight to Cloudinary's own API via `XMLHttpRequest` (not `fetch`, specifically because `fetch` has no upload-progress event) — real percentage progress, no double-hop through this app's own server or its Next.js proxy.
+3. `POST /gists/:id/media/finalize` — tells the backend what Cloudinary returned; the backend re-validates size/duration against real policy using Cloudinary's own reported numbers, not anything the client claims.
+
+**Why it's built this way:** routing large files (especially video) through this app's own `/api/v1/[...path]/route.ts` proxy hits hard platform limits that have nothing to do with any cap configured in code — e.g. Vercel serverless functions cap request bodies around 4.5MB, well under even a short video clip. That was a real, previously-silent failure: uploads would fail with no useful error, appearing to work for tiny images and mysteriously failing for anything larger, with no way to tell why. Going direct to Cloudinary removes that ceiling entirely for the heavy part, on top of being genuinely faster (client talks straight to Cloudinary's CDN instead of relaying through two extra hops).
+
+`MediaUploadError` (`gistStore.ts`) carries a `.stage` (`"signature" | "upload" | "finalize"`) so `CreateGistSheet.describeUploadFailure()` can show a specific, brand-voice reason per failure point — "couldn't reach Kampos to start the upload" vs. Cloudinary's own real rejection reason vs. the backend's own policy message — instead of one generic error no matter what actually went wrong.
 
 ### 5.6 Reactions in depth
 
@@ -393,7 +406,7 @@ kampos-web/
     │   ├── authGate.ts              destinationFor()
     │   ├── requireAuth.ts            requireAuth() — the shared "must be logged in" gate for actions
     │   ├── serverGist.ts             fetchGistContext() — server-side gist fetch for the share route
-    │   ├── cloudinary.ts             cloudinarySmartCrop()
+    │   ├── cloudinary.ts             cloudinarySmartCrop(), uploadToCloudinaryDirect() (Section 5.5)
     │   ├── sanitize.ts, mediaValidation.ts, validation.ts   Content/input safety
     │   ├── ws.ts                    WSClient
     │   ├── giphy.ts                  GIPHY API wrapper + cache

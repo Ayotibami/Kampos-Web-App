@@ -1,6 +1,19 @@
 import { create } from "zustand";
 import { api, apiGet, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
+import { uploadToCloudinaryDirect, type CloudinarySignature, type CloudinaryUploadResult } from "@/lib/cloudinary";
 import type { Gist, GistCounts, ReactionType } from "@/types";
+
+/** Which of the three legs of a direct-to-Cloudinary upload failed — lets
+ * `CreateGistSheet` show a genuinely specific, brand-voice message per
+ * stage instead of one generic "upload failed" for every possible cause. */
+export type MediaUploadStage = "signature" | "upload" | "finalize";
+export class MediaUploadError extends Error {
+  stage: MediaUploadStage;
+  constructor(stage: MediaUploadStage, message: string) {
+    super(message);
+    this.stage = stage;
+  }
+}
 
 /**
  * The backend returns reactions_count/comments_count/views_count/
@@ -47,7 +60,12 @@ interface GistState {
   counts: (gistId: string) => Promise<GistCounts | undefined>;
   create: (payload: { gist_text: string; [key: string]: unknown }) => Promise<Gist | undefined>;
   update: (gistId: string, gistText: string) => Promise<Gist | undefined>;
-  uploadMedia: (gistId: string, file: Blob, name?: string) => Promise<unknown>;
+  /** Uploads straight from the browser to Cloudinary (see cloudinary.ts) —
+   * `onProgress` (0-100) fires only during the actual upload leg, not the
+   * signature/finalize round trips either side of it, which are near-
+   * instant by comparison. Throws `MediaUploadError` with a `.stage` so
+   * callers can show a specific reason per failure point. */
+  uploadMedia: (gistId: string, file: Blob, name?: string, onProgress?: (percent: number) => void) => Promise<unknown>;
   /** GIF/sticker attachment (GIPHY) — the URL is already hosted on GIPHY's
    * CDN, so this just records it against the gist, no file upload. */
   attachMediaUrl: (gistId: string, url: string) => Promise<unknown>;
@@ -172,19 +190,40 @@ export const useGistStore = create<GistState>((set) => ({
     }
   },
 
-  uploadMedia: async (gistId, file, name = "media") => {
-    const fd = new FormData();
-    fd.append("file", file, name);
+  uploadMedia: async (gistId, file, name = "media", onProgress) => {
+    const isVideo = file.type.startsWith("video/");
+
+    let sig: CloudinarySignature;
     try {
-      const res = await api.post<ApiEnvelope<unknown>>(
-        `/gists/${encodeURIComponent(gistId)}/media`,
-        fd,
-        { headers: { "Content-Type": "multipart/form-data" } },
+      const res = await api.get<ApiEnvelope<CloudinarySignature>>(
+        `/gists/${encodeURIComponent(gistId)}/media/signature`,
+        { params: isVideo ? { resource_type: "video" } : undefined },
       );
+      if (!res.data?.data) throw new Error("No signature returned");
+      sig = res.data.data;
+    } catch (err) {
+      throw new MediaUploadError("signature", apiErrorMessage(err, "Couldn't start the upload"));
+    }
+
+    let result: CloudinaryUploadResult;
+    try {
+      result = await uploadToCloudinaryDirect(file, name, sig, onProgress);
+    } catch (err) {
+      throw new MediaUploadError("upload", err instanceof Error ? err.message : "Upload failed");
+    }
+
+    try {
+      const res = await api.post<ApiEnvelope<unknown>>(`/gists/${encodeURIComponent(gistId)}/media/finalize`, {
+        media_url: result.secure_url,
+        public_id: result.public_id,
+        resource_type: result.resource_type,
+        bytes: result.bytes,
+        duration: result.duration,
+        thumbnail_url: result.eager?.[0]?.secure_url,
+      });
       return res.data?.data;
     } catch (err) {
-      set({ error: apiErrorMessage(err, "Media upload failed") });
-      throw err;
+      throw new MediaUploadError("finalize", apiErrorMessage(err, "Couldn't save the upload"));
     }
   },
 
