@@ -60,7 +60,13 @@ export function NameStep({ onNext, setController }: StepProps) {
   return (
     <>
       <ErrorModal open={showError} onClose={() => setShowError(false)} message={message} />
-      <div className="flex flex-col gap-6">
+      {/* On mobile, this step's short content used to sit pinned to the top
+          of the flexible middle strip, leaving a big empty gap below it
+          before the pinned bottom bar — filling the strip (flex-1) and
+          centering within it reads far more intentional. Desktop keeps its
+          original top-aligned, natural-height layout (md:flex-none) — it
+          already has more headroom and a separate top bar, no gap to fix. */}
+      <div className="flex flex-1 flex-col justify-center gap-6 md:flex-none md:justify-start">
         <div className="flex flex-col gap-1.5">
           <TextInput
             value={firstName}
