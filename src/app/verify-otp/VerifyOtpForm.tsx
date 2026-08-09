@@ -99,8 +99,8 @@ export function VerifyOtpForm() {
     <AuthShell>
       <ErrorModal open={showError} onClose={() => setShowError(false)} message={message} />
       <div className="flex flex-col gap-8">
-        <div className="space-y-6">
-          <h1 className="font-poppins text-2xl font-extrabold text-ink">Sign-Up</h1>
+        <div className="space-y-6 text-center">
+          <h1 className="font-poppins text-2xl font-extrabold text-ink">Verify OTP</h1>
           <p
             className={`font-poppins text-sm font-semibold ${
               wrong || secondsLeft <= 0 ? "text-danger" : "text-brand"

@@ -131,7 +131,7 @@ function ResetPasswordInner() {
 
       {stage === "code" ? (
         <div className="flex flex-col gap-8">
-          <div className="space-y-5">
+          <div className="space-y-5 text-center">
             <h1 className="font-poppins text-2xl font-extrabold text-ink">
               Reset Password
             </h1>
@@ -188,15 +188,17 @@ function ResetPasswordInner() {
       ) : (
         <div className="flex flex-col gap-8">
           <div className="space-y-5">
-            <h1 className="font-poppins text-2xl font-extrabold text-ink">
-              Reset Password
-            </h1>
-            <p className="font-poppins text-sm font-semibold text-brand">
-              Create a New Password
-            </p>
-            <p className="font-poppins text-sm text-muted">
-              Code confirmed — create your new password.
-            </p>
+            <div className="space-y-5 text-center">
+              <h1 className="font-poppins text-2xl font-extrabold text-ink">
+                Reset Password
+              </h1>
+              <p className="font-poppins text-sm font-semibold text-brand">
+                Create a New Password
+              </p>
+              <p className="font-poppins text-sm text-muted">
+                Code confirmed — create your new password.
+              </p>
+            </div>
 
             <div className="space-y-4">
               <TextInput
