@@ -21,27 +21,34 @@ export default async function WelcomePage() {
   return (
     <>
       <HydrateAuth state={state} account={account} profiles={profiles} />
-      <div className="flex min-h-dvh w-full flex-col bg-brand text-white md:h-dvh md:flex-row md:overflow-hidden">
+      {/* `h-dvh` + `overflow-hidden` on mobile (not just `min-h-dvh`) — the
+          whole point is this screen fits in one shot on a real phone with
+          no scroll. The preview card above is the flexible part (`flex-1
+          min-h-0`, no fixed height), so it's the one that shrinks to
+          whatever room is actually left on a short viewport; the heading/
+          copy/buttons below always get their natural size and are never
+          the thing that gets squeezed or clipped. */}
+      <div className="flex h-dvh w-full flex-col overflow-hidden bg-brand text-white md:flex-row">
         {/* Gist card preview half */}
-        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-6 pt-10 md:flex-[1.1] md:p-10">
-          <GistPreviewMarquee className="h-[26rem] w-full max-w-sm sm:h-[28rem] sm:max-w-md md:h-[80%] md:max-w-lg" />
+        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-6 pt-6 sm:pt-10 md:flex-[1.1] md:p-10">
+          <GistPreviewMarquee className="h-full w-full max-w-sm sm:max-w-md md:h-[80%] md:max-w-lg" />
         </div>
 
         {/* Copy + controls half */}
-        <div className="flex flex-col px-6 pb-10 pt-6 md:flex-1 md:justify-center md:px-16 md:py-12">
+        <div className="flex shrink-0 flex-col px-6 pb-6 pt-4 sm:pb-8 md:flex-1 md:justify-center md:px-16 md:py-12">
           <header className="text-center md:text-left">
-            <h1 className="font-poppins text-2xl font-extrabold text-white sm:text-3xl md:text-4xl">
+            <h1 className="font-poppins text-xl font-extrabold text-white sm:text-2xl md:text-4xl">
               Welcome to <span className="text-brand-accent">Kampos</span>
             </h1>
           </header>
 
-          <p className="mt-6 text-center font-poppins text-sm leading-relaxed text-white/85 md:mt-8 md:text-left md:max-w-md md:text-base">
+          <p className="mt-3 text-center font-poppins text-xs leading-relaxed text-white/85 sm:mt-4 sm:text-sm md:mt-8 md:max-w-md md:text-base">
             Oya, enough talk — it&apos;s time to dive in and experience Kampos
             for yourself. Tap in, let&apos;s make some crazy memories together fr
             fr. 🚀
           </p>
 
-          <div className="mt-8 space-y-3 md:mt-10 md:max-w-xs">
+          <div className="mt-4 space-y-2.5 sm:mt-6 sm:space-y-3 md:mt-10 md:max-w-xs">
             <Link href="/login" className="block">
               <Button variant="secondary" invert>
                 Hop in

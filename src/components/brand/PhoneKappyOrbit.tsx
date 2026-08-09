@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import KappyPhone from "@/assets/illustrations/KappyPhone.webp";
 import { MiniGistCard } from "./MiniGistCard";
 import { MiniCommentCard } from "./MiniCommentCard";
+import { GhostCard } from "./GhostCard";
 
 type CardKind = "post" | "comment";
 
@@ -19,19 +20,30 @@ interface CardDef {
   kind: CardKind;
 }
 
-// Positioned in toward Kappy (not pushed out past the edges) so the cards
-// read as overlaying him, not just floating beside him in empty space —
-// fine for them to clip off the container's own edges since they're meant
-// to spill slightly past his silhouette, just not stack up over his face:
-// there's a deliberate vertical gap down the middle (his head/phone) with
-// 3 cards down each side instead.
-const CARD_DEFS: CardDef[] = [
-  { top: "-2%", left: "2%", width: "40%", amp: 10, duration: 4.4, delay: 0.2, rotate: -4, kind: "post" },
-  { top: "0%", left: "60%", width: "38%", amp: 9, duration: 4.8, delay: 0.6, rotate: 5, kind: "post" },
-  { top: "36%", left: "72%", width: "38%", amp: 12, duration: 4.1, delay: 1, rotate: -5, kind: "comment" },
-  { top: "34%", left: "-6%", width: "38%", amp: 11, duration: 4.6, delay: 0.9, rotate: 4, kind: "comment" },
-  { top: "72%", left: "0%", width: "40%", amp: 10, duration: 5, delay: 0.4, rotate: 4, kind: "post" },
-  { top: "74%", left: "58%", width: "38%", amp: 9, duration: 4.3, delay: 0.7, rotate: -4, kind: "post" },
+// Desktop keeps real, readable mini cards — but noticeably smaller than
+// the original treatment (was 38-40% width, which read as genuinely
+// squeezed even on desktop's wider box). Still 3 down each side with a
+// clear vertical gap through the middle for Kappy.
+const DESKTOP_CARD_DEFS: CardDef[] = [
+  { top: "-2%", left: "4%", width: "28%", amp: 10, duration: 4.4, delay: 0.2, rotate: -4, kind: "post" },
+  { top: "0%", left: "66%", width: "26%", amp: 9, duration: 4.8, delay: 0.6, rotate: 5, kind: "post" },
+  { top: "36%", left: "76%", width: "26%", amp: 12, duration: 4.1, delay: 1, rotate: -5, kind: "comment" },
+  { top: "34%", left: "0%", width: "26%", amp: 11, duration: 4.6, delay: 0.9, rotate: 4, kind: "comment" },
+  { top: "74%", left: "6%", width: "28%", amp: 10, duration: 5, delay: 0.4, rotate: 4, kind: "post" },
+  { top: "76%", left: "64%", width: "26%", amp: 9, duration: 4.3, delay: 0.7, rotate: -4, kind: "post" },
+];
+
+// Mobile swaps the real cards for small abstract shapes (see GhostCard) —
+// on a narrow, near-square box, even the shrunk-down desktop cards above
+// still read as too much and end up covering Kappy's face; a shape you
+// only glance at doesn't need to be legible to read as "a gist card."
+const MOBILE_CARD_DEFS: CardDef[] = [
+  { top: "-4%", left: "0%", width: "22%", amp: 8, duration: 4.4, delay: 0.2, rotate: -4, kind: "post" },
+  { top: "-2%", left: "78%", width: "20%", amp: 7, duration: 4.8, delay: 0.6, rotate: 5, kind: "post" },
+  { top: "40%", left: "84%", width: "20%", amp: 9, duration: 4.1, delay: 1, rotate: -5, kind: "comment" },
+  { top: "38%", left: "-4%", width: "20%", amp: 8, duration: 4.6, delay: 0.9, rotate: 4, kind: "comment" },
+  { top: "82%", left: "2%", width: "22%", amp: 8, duration: 5, delay: 0.4, rotate: 4, kind: "post" },
+  { top: "84%", left: "76%", width: "20%", amp: 7, duration: 4.3, delay: 0.7, rotate: -4, kind: "post" },
 ];
 
 const POSTS = [
@@ -104,17 +116,55 @@ const COMMENTS = [
   },
 ] as const;
 
-/**
- * Kappy on his phone, orbited by 6 small cards built from the app's real
- * GistCard/CommentPanel styling — 4 posts, 2 comments — each continuously
- * bobbing on its own independent loop (same mechanic HeroOrbit uses on the
- * marketing site: everything alive at once, nothing cycling in/out on a
- * timer, since a slide is only on screen briefly).
- */
-export function PhoneKappyOrbit({ className = "" }: { className?: string }) {
+const COLOR_SEEDS = ["a", "d", "g", "j", "b", "e"];
+
+function CardOrbit({ defs, wrapperClassName, ghost }: { defs: CardDef[]; wrapperClassName: string; ghost: boolean }) {
   let postIdx = 0;
   let commentIdx = 0;
+  return (
+    <div className={wrapperClassName}>
+      {defs.map((card, i) => {
+        const isPost = card.kind === "post";
+        const post = isPost ? POSTS[postIdx++ % POSTS.length] : null;
+        const comment = !isPost ? COMMENTS[commentIdx++ % COMMENTS.length] : null;
+        return (
+          <motion.div
+            key={i}
+            className="absolute"
+            style={{ top: card.top, left: card.left, width: card.width }}
+            animate={{
+              y: [0, -card.amp, 0, card.amp * 0.6, 0],
+              x: [0, card.amp * 0.5, 0, -card.amp * 0.5, 0],
+              rotate: [0, card.rotate, 0, -card.rotate, 0],
+            }}
+            transition={{ duration: card.duration, delay: card.delay, repeat: Infinity, ease: "easeInOut" }}
+          >
+            {ghost ? (
+              <GhostCard tail={!isPost} colorSeed={COLOR_SEEDS[i]} />
+            ) : (
+              <>
+                {post && <MiniGistCard {...post} />}
+                {comment && <MiniCommentCard {...comment} />}
+              </>
+            )}
+          </motion.div>
+        );
+      })}
+    </div>
+  );
+}
 
+/**
+ * Kappy on his phone, orbited by 6 small cards — real MiniGistCard/
+ * MiniCommentCard content on desktop (shrunk from the original treatment,
+ * which read as squeezed even there), swapped for small abstract shapes
+ * on mobile (see GhostCard) where even the shrunk real cards still ended
+ * up covering his face on a narrow, near-square box. Same bob/drift/rotate
+ * mechanic either way (same mechanic HeroOrbit uses on the marketing site
+ * — everything alive at once, independently looping, nothing cycling on a
+ * timer since a slide is only on screen briefly).
+ */
+export function PhoneKappyOrbit({ className = "" }: { className?: string }) {
   return (
     <div className={`relative ${className}`}>
       {/* Same object-cover/object-top treatment as the waving Kappy on
@@ -129,27 +179,8 @@ export function PhoneKappyOrbit({ className = "" }: { className?: string }) {
         className="object-cover object-top"
       />
 
-      {CARD_DEFS.map((card, i) => {
-        const isPost = card.kind === "post";
-        const post = isPost ? POSTS[postIdx++] : null;
-        const comment = !isPost ? COMMENTS[commentIdx++] : null;
-        return (
-          <motion.div
-            key={i}
-            className="absolute"
-            style={{ top: card.top, left: card.left, width: card.width }}
-            animate={{
-              y: [0, -card.amp, 0, card.amp * 0.6, 0],
-              x: [0, card.amp * 0.5, 0, -card.amp * 0.5, 0],
-              rotate: [0, card.rotate, 0, -card.rotate, 0],
-            }}
-            transition={{ duration: card.duration, delay: card.delay, repeat: Infinity, ease: "easeInOut" }}
-          >
-            {post && <MiniGistCard {...post} />}
-            {comment && <MiniCommentCard {...comment} />}
-          </motion.div>
-        );
-      })}
+      <CardOrbit defs={MOBILE_CARD_DEFS} wrapperClassName="md:hidden" ghost />
+      <CardOrbit defs={DESKTOP_CARD_DEFS} wrapperClassName="hidden md:block" ghost={false} />
     </div>
   );
 }
