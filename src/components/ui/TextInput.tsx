@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useState, type InputHTMLAttributes } from "react";
+import { forwardRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
 import { Eye, EyeOff } from "@/components/ui/icons";
 
 interface TextInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "onChange"> {
@@ -10,6 +10,10 @@ interface TextInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "on
   /** Renders a show/hide toggle and manages the password visibility. */
   isPassword?: boolean;
   error?: boolean;
+  /** Anything rendered in the same trailing slot as the password toggle —
+   * e.g. a live-status icon (spinner/check/x) while the field is validated
+   * against the backend as the user types. */
+  trailingIcon?: ReactNode;
 }
 
 /**
@@ -17,7 +21,7 @@ interface TextInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "on
  * optional label and password visibility toggle. Fully responsive / touch-sized.
  */
 export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function TextInput(
-  { value, onChange, label, isPassword = false, error = false, className = "", type, ...props },
+  { value, onChange, label, isPassword = false, error = false, trailingIcon, className = "", type, ...props },
   ref,
 ) {
   const [show, setShow] = useState(true);
@@ -51,6 +55,7 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
             {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         )}
+        {trailingIcon && <span className="ml-2 flex shrink-0 items-center justify-center">{trailingIcon}</span>}
       </div>
     </label>
   );

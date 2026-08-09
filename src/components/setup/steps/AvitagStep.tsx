@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TextInput } from "@/components/ui/TextInput";
+import { Avatar } from "@/components/ui/Avatar";
+import { Check, X } from "@/components/ui/icons";
 import { ErrorModal, SuccessModal } from "@/components/ui/FeedbackModal";
 import { useSetupProfileStore } from "@/stores/setupProfileStore";
 import { useProfileStore } from "@/stores/profileStore";
@@ -166,6 +168,22 @@ export function AvitagStep({
         ? "text-success"
         : "text-muted";
 
+  // Inline status right in the field — spinner while checking, X once
+  // confirmed taken, green check once confirmed free — the same glance-
+  // able pattern most sites use for a live username check, instead of
+  // only ever finding out from the text underneath.
+  const trailingIcon =
+    availability === "checking" ? (
+      <span className="h-4 w-4 animate-spin rounded-full border-2 border-line border-t-brand" />
+    ) : availability === "taken" ? (
+      <X className="h-4 w-4 text-danger" />
+    ) : availability === "available" ? (
+      <Check className="h-4 w-4 text-success" />
+    ) : undefined;
+
+  const displayName = [data.first_name, data.last_name].filter(Boolean).join(" ");
+  const previewTags = [data.campus_tag, data.major_tag, data.level ? `${data.level}L` : null].filter(Boolean);
+
   return (
     <>
       <ErrorModal
@@ -187,10 +205,48 @@ export function AvitagStep({
           placeholder="Create your Unique Avitag"
           maxLength={LIMITS.avitagMax}
           autoCapitalize="none"
+          trailingIcon={trailingIcon}
         />
         {statusText && (
           <p className={`font-poppins text-sm font-medium ${statusColor}`}>{statusText}</p>
         )}
+
+        {/* Only once it's actually confirmed free — not while still
+            checking, not on a taken tag — so this reads as "here's you,
+            for real" rather than a preview of a name someone else already
+            has. Real avatar/name/tags, the same header treatment a real
+            gist card uses, so picking an avitag feels like seeing your
+            actual profile rather than filling out one more form field. */}
+        {availability === "available" && (
+          <div className="flex items-center gap-2.5 rounded-2xl border border-line bg-white p-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-line/60 ring-1 ring-line">
+              <Avatar src={imageUrl} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+                {displayName && (
+                  <span className="min-w-0 truncate font-poppins text-sm font-bold text-ink">{displayName}</span>
+                )}
+                <span className="min-w-0 truncate font-poppins text-xs text-faint">
+                  @{normalizeAvitag(avitag)}
+                </span>
+              </div>
+              {previewTags.length > 0 && (
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  {previewTags.map((t) => (
+                    <span
+                      key={t}
+                      className="inline-block rounded-full bg-brand/10 px-2 py-0.5 font-poppins text-[10px] font-semibold uppercase tracking-wide text-brand"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <p className="font-poppins text-sm leading-relaxed text-muted">
           Just keep it respectful, or your account may be suspended.
         </p>
