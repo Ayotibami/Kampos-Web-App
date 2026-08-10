@@ -435,7 +435,7 @@ export function CreateGistSheet({
   return (
     <>
       <Modal open={open} onClose={onClose} variant="sheet" desktopCenter>
-        <div className="flex max-h-[85vh] flex-col rounded-t-3xl bg-brand-tint shadow-none md:max-h-[min(88vh,860px)] md:min-h-[min(88vh,700px)] md:rounded-3xl md:shadow-2xl md:shadow-black/20">
+        <div className="flex h-[80vh] flex-col rounded-t-3xl bg-brand-tint shadow-none md:h-auto md:max-h-[min(88vh,860px)] md:min-h-[min(88vh,700px)] md:rounded-3xl md:shadow-2xl md:shadow-black/20">
           {/* Grab handle (mobile bottom-sheet affordance, hidden once this
               becomes a real centered dialog on desktop) + close */}
           <div className="relative flex shrink-0 items-center justify-center px-5 pt-3 md:justify-end md:pt-4">
@@ -454,8 +454,14 @@ export function CreateGistSheet({
               textarea itself scrolls internally once its own text overflows
               its fixed height, so a long draft never pushes media (or the
               header/actions) out of view. */}
-          <div className="flex flex-col px-5 pt-4">
-            <div className="flex items-start gap-3">
+          <div className="flex min-h-0 flex-1 flex-col px-5 pt-4 md:flex-none">
+            {/* flex-1 here (mobile only) is what actually gives the
+                textarea most of the sheet's now-much-taller 80vh — it eats
+                whatever's left after the header and the actions bar below,
+                and the textarea itself (h-full) fills that. Desktop keeps
+                its original fixed h-40 behavior (md:flex-none/md:h-40),
+                since its container is already generously sized on its own. */}
+            <div className="flex min-h-0 flex-1 items-stretch gap-3 md:flex-none md:items-start">
               {/* Who this is posting as — same anchor X/Facebook/LinkedIn's
                   own compose dialogs use, so it doesn't read as posting into
                   a void. */}
@@ -470,7 +476,7 @@ export function CreateGistSheet({
                   onChange={(e) => setText(stripInvisibleChars(e.target.value).slice(0, LIMITS.gist))}
                   onScroll={updateScrollThumb}
                   placeholder={placeholder || DEFAULT_PLACEHOLDER}
-                  className="h-40 w-full resize-none overflow-y-auto bg-transparent py-2 pr-3 font-poppins text-[15px] leading-relaxed text-ink outline-none placeholder:text-faint no-scrollbar"
+                  className="h-full w-full resize-none overflow-y-auto bg-transparent py-2 pr-3 font-poppins text-[15px] leading-relaxed text-ink outline-none placeholder:text-faint no-scrollbar md:h-40"
                 />
                 {/* A sleeker stand-in for the native scrollbar (hidden via
                     no-scrollbar above) — same idea, just styled to match. */}

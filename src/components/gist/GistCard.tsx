@@ -8,6 +8,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { GistMediaBackdrop, GistMediaBodyPanel } from "./GistMediaStage";
 import { GistMediaOverlay } from "./GistMediaOverlay";
 import { ReactionButton } from "./ReactionButton";
+import { MobileReactionBadge } from "./MobileReactionBadge";
 import { CreateGistSheet } from "./CreateGistSheet";
 import { ReportModal } from "./ReportModal";
 import { ShareModal } from "./ShareModal";
@@ -16,11 +17,11 @@ import { apiErrorMessage } from "@/lib/api";
 import { useGistStore } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { requireAuth } from "@/lib/requireAuth";
+import { useIsMobile } from "@/lib/useIsMobile";
 import {
   ShareIconFill,
   FlagIconFill,
   DotsIconFill,
-  CommentIconFill,
   ReactionIconFill,
   ViewIconFill,
   EditIconFill,
@@ -85,6 +86,10 @@ export function GistCard({
   const report = useGistStore((s) => s.report);
   const removeGist = useGistStore((s) => s.remove);
   const shareGist = useGistStore((s) => s.share);
+  // Mounted exclusively, never both at once — otherwise a double-tap's
+  // externalTrigger would fire two separate optimistic updates (and two
+  // network calls) for the same reaction, one from each instance.
+  const isMobile = useIsMobile();
   const avitag = useAuthStore((s) => s.avitag);
 
   const [showActions, setShowActions] = useState(false);
@@ -450,17 +455,20 @@ export function GistCard({
         </AnimatePresence>
       </div>
 
-      {/* Actions & info — date first, then comments/reactions-total/views/shares
-          (left, icon-only for space; date complements the relative time up in
-          the header), then the reaction picker on the right. Share is
-          display-only for now — the actual share action lands separately later. */}
+      {/* Actions & info — date first, then reactions-total/views/shares (left,
+          icon-only for space; date complements the relative time up in the
+          header), then the reaction picker on the right. Comments dropped
+          from here entirely (both platforms) — it's shown elsewhere already
+          (the comment sheet/panel header, and mobile's own bottom-bar
+          icon+count), so repeating it here was pure duplication. Reactions
+          stays as the one total number here on purpose — the reaction
+          badge/tray next to it only ever shows the per-emoji breakdown, not
+          a total, so this is the one place a total reaction count is
+          actually visible. Share is display-only for now — the actual share
+          action lands separately later. */}
       <div className="relative z-10 mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-line/40 pt-1.5">
         <div className="flex items-center gap-3 text-faint">
           <span className="font-poppins text-[10px]">{friendlyDateTime(gist.created_at)}</span>
-          <span className="flex items-center gap-1 font-poppins text-xs">
-            <CommentIconFill size={14} weight="regular" />
-            {compactNumber(gist.counts?.comments_count)}
-          </span>
           <span className="flex items-center gap-1 font-poppins text-xs">
             <ReactionIconFill size={14} weight="regular" />
             {compactNumber(gist.counts?.reactions_count)}
@@ -474,15 +482,30 @@ export function GistCard({
             {compactNumber(gist.counts?.shares_count)}
           </span>
         </div>
-        <ReactionButton
-          onReact={handleReact}
-          onUnreact={handleUnreact}
-          counts={gist.counts?.reactions_by_type}
-          initialActive={gist.my_reaction}
-          externalTrigger={reactTrigger}
-          onReacted={(type) => setCenterBurst({ id: Date.now(), type })}
-          guardClick={() => requireAuth("react to gists")}
-        />
+        {/* Mobile: hero + orbit badge — tap opens the vertical picker tray.
+            Desktop keeps the classic always-visible row. Double-tap-to-react
+            on the card body drives whichever one is actually mounted. */}
+        {isMobile ? (
+          <MobileReactionBadge
+            onReact={handleReact}
+            onUnreact={handleUnreact}
+            counts={gist.counts?.reactions_by_type}
+            initialActive={gist.my_reaction}
+            externalTrigger={reactTrigger}
+            onReacted={(type) => setCenterBurst({ id: Date.now(), type })}
+            guardClick={() => requireAuth("react to gists")}
+          />
+        ) : (
+          <ReactionButton
+            onReact={handleReact}
+            onUnreact={handleUnreact}
+            counts={gist.counts?.reactions_by_type}
+            initialActive={gist.my_reaction}
+            externalTrigger={reactTrigger}
+            onReacted={(type) => setCenterBurst({ id: Date.now(), type })}
+            guardClick={() => requireAuth("react to gists")}
+          />
+        )}
       </div>
 
       <CreateGistSheet

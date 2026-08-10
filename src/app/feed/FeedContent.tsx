@@ -8,24 +8,27 @@ import { GistStack } from "@/components/gist/GistStack";
 import { GistCardSkeleton } from "@/components/gist/GistCardSkeleton";
 import { CreateGistSheet } from "@/components/gist/CreateGistSheet";
 import { CommentPanel } from "@/components/comment/CommentPanel";
+import { CommentSheet } from "@/components/comment/CommentSheet";
 import { Illustration } from "@/components/brand/illustrations";
 import { Avatar } from "@/components/ui/Avatar";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { SettingsIconFill, Plus, RefreshCw } from "@/components/ui/icons";
+import { SettingsIconFill, Plus, RefreshCw, CommentIconFill } from "@/components/ui/icons";
 import { AnimatePresence } from "framer-motion";
 import { useGistStore } from "@/stores/gistStore";
 import { useCommentStore } from "@/stores/commentStore";
 import { useAuthStore } from "@/stores/authStore";
+import { compactNumber } from "@/lib/format";
 import type { Gist } from "@/types";
 
 type Tab = "Gist" | "Amebo";
 
-// Compose-trigger animation timing — two independent loops (see the effects below):
-// a fast "notice me" pulse, and a slow prompt rotation.
-const PROMPT_PULSE_INTERVAL_MS = 3000; // how often the flash + avatar ping fires
+// Compose-trigger animation timing. The "notice me" pulse used to run on its
+// own faster interval, independent of the prompt text changing — now it
+// fires exactly when the text does, once per PROMPT_ROTATE_MS, so the two
+// read as one event (new prompt landing) instead of two unrelated ones.
 const PROMPT_PULSE_MS = 550; // how long each flash lasts
-const PROMPT_ROTATE_MS = 60_000; // how often the prompt text changes
+const PROMPT_ROTATE_MS = 60_000; // how often the prompt text changes (and the pulse fires)
 const PROMPT_FADE_MS = 250;
 const PROMPT_TYPE_SPEED_MS = 50;
 
@@ -74,13 +77,18 @@ export function FeedContent() {
   const [tab, setTab] = useState<Tab>("Gist");
   const [current, setCurrent] = useState<Gist>();
   const [showCreate, setShowCreate] = useState(false);
+  const [showCommentSheet, setShowCommentSheet] = useState(false);
+  // The icon+count trigger just opens the sheet to look — it shouldn't pop
+  // the keyboard open. The pill trigger is the one meant for typing, so
+  // that one still autofocuses. Tracked per-open rather than hardcoded on
+  // CommentSheet since the same sheet now has two different doors in.
+  const [commentSheetAutoFocus, setCommentSheetAutoFocus] = useState(true);
   // Snapshotted at click time (not the live promptText) — the trigger's
   // rotating prompt keeps typing/swapping in the background while the
   // modal is open, so the placeholder has to freeze to whatever was showing
   // the moment someone actually clicked, not keep changing under them.
   const [composePlaceholder, setComposePlaceholder] = useState("");
   const [promptText, setPromptText] = useState("");
-  const [promptDone, setPromptDone] = useState(false);
   const [promptPulse, setPromptPulse] = useState(false);
   const [promptFading, setPromptFading] = useState(false);
   const [avatarPing, setAvatarPing] = useState(0);
@@ -121,13 +129,11 @@ export function FeedContent() {
   }, []);
 
   /**
-   * Two independent loops for the compose trigger, on purpose decoupled:
-   *
-   * 1. Content — types in a prompt, then swaps to a new one every
-   *    PROMPT_ROTATE_MS (slow — a real content change, not decoration).
-   * 2. Attention — flashes the text + pings the avatar every
-   *    PROMPT_PULSE_INTERVAL_MS (fast — a "notice me" cue, independent of
-   *    whether the text is actually changing at that moment).
+   * Prompt rotation + attention pulse — a single loop now, on purpose: the
+   * pulse (text flash + avatar ping) fires exactly when a new prompt lands,
+   * every PROMPT_ROTATE_MS, instead of on its own faster independent timer.
+   * Reads as one event ("a new prompt just arrived") rather than two
+   * unrelated animations that happened to overlap sometimes.
    */
   useEffect(() => {
     let cancelled = false;
@@ -169,16 +175,25 @@ export function FeedContent() {
       afterTyping(tick, PROMPT_TYPE_SPEED_MS);
     };
 
+    // Only on an actual rotation (not the very first prompt on mount) — a
+    // fresh page load doesn't need a "notice me" flash for content that was
+    // never there a moment ago to change from.
+    const firePulse = () => {
+      setPromptPulse(true);
+      setAvatarPing((n) => n + 1);
+      afterTyping(() => setPromptPulse(false), PROMPT_PULSE_MS);
+    };
+
     const swap = () => {
       setPromptFading(true);
       afterTyping(() => {
         setPromptFading(false);
         typeIn(nextPrompt(), () => {});
+        firePulse();
       }, PROMPT_FADE_MS);
     };
 
-    setPromptDone(false);
-    typeIn(nextPrompt(), () => setPromptDone(true));
+    typeIn(nextPrompt(), () => {});
     const rotateInterval = window.setInterval(swap, PROMPT_ROTATE_MS);
 
     return () => {
@@ -187,22 +202,6 @@ export function FeedContent() {
       window.clearInterval(rotateInterval);
     };
   }, [avitag]);
-
-  // Attention pulse: flash the text + ping the avatar every few seconds,
-  // completely independent of when the prompt text itself changes.
-  useEffect(() => {
-    if (!promptDone) return;
-    let flashTimeout: number | undefined;
-    const pulseInterval = window.setInterval(() => {
-      setPromptPulse(true);
-      setAvatarPing((n) => n + 1);
-      flashTimeout = window.setTimeout(() => setPromptPulse(false), PROMPT_PULSE_MS);
-    }, PROMPT_PULSE_INTERVAL_MS);
-    return () => {
-      window.clearInterval(pulseInterval);
-      if (flashTimeout) window.clearTimeout(flashTimeout);
-    };
-  }, [promptDone]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -317,7 +316,7 @@ export function FeedContent() {
               stretched: the source art is a tall 360×800 scattered doodle, not
               a seamless single-image cover, so tiling is what lets it genuinely
               fill a wide area without cropping most of it away. */}
-          <div className="relative flex min-h-0 flex-1 flex-col items-center pt-3 pb-4 sm:pt-4 sm:pb-6">
+          <div className="relative flex min-h-0 flex-1 flex-col items-center pb-0 pt-3 sm:pt-4 md:pb-6">
             <div
               aria-hidden
               // The SVG bakes in its own 8% fill-opacity per path (subtle by design),
@@ -334,7 +333,7 @@ export function FeedContent() {
             />
 
             {/* Compose Trigger */}
-            <div className="relative z-10 w-full max-w-[620px] md:max-w-[740px] px-6 mb-2 shrink-0">
+            <div className="relative z-10 w-full max-w-[620px] px-4 mb-2 shrink-0 md:max-w-[740px] md:px-6">
               <button
                 type="button"
                 onClick={() => {
@@ -344,17 +343,17 @@ export function FeedContent() {
                   setShowCreate(true);
                   dismissComposeHint();
                 }}
-                className="group flex w-full cursor-pointer items-center gap-3 border-b-2 border-line pb-2 font-poppins text-base font-medium text-faint transition hover:border-brand/60 hover:text-brand focus:outline-none"
+                className="group flex w-full cursor-pointer items-center gap-2 rounded-full bg-surface-2 px-3 py-2 shadow-sm shadow-black/5 ring-1 ring-line/50 font-poppins text-base font-medium text-faint transition md:gap-3 md:rounded-none md:bg-transparent md:px-0 md:py-0 md:pb-2 md:border-b-2 md:border-line md:shadow-none md:ring-0 md:hover:border-brand/60 md:hover:text-brand focus:outline-none"
               >
                 {/* Only the avatar + prompt pulse-scale \u2014 the trailing Plus
                     icon sits outside this wrapper so it stays put, unscaled. */}
                 <motion.div
-                  className="flex flex-1 items-center gap-3"
+                  className="flex min-w-0 flex-1 items-center gap-2 md:gap-3"
                   animate={{ scale: promptPulse ? 1.02 : 1 }}
                   transition={{ type: "spring", stiffness: 300, damping: 18 }}
                 >
-                  <div className="relative h-10 w-10 shrink-0">
-                    <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-brand/5 ring-1 ring-line/50">
+                  <div className="relative h-7 w-7 shrink-0 md:h-10 md:w-10">
+                    <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-brand/5 ring-1 ring-line/50 md:h-10 md:w-10">
                       <Avatar src={myImageUrl} />
                     </div>
                     {avatarPing > 0 && (
@@ -368,7 +367,7 @@ export function FeedContent() {
                       />
                     )}
                   </div>
-                  <span className="flex flex-1 items-center">
+                  <span className="flex min-w-0 flex-1 items-center overflow-hidden">
                     {/* Blinking caret up front, deliberately \u2014 a live "type here"
                         cue that invites tapping, even though it opens the full
                         composer rather than accepting text inline. */}
@@ -377,7 +376,7 @@ export function FeedContent() {
                       className="mr-1 inline-block h-[1.1em] w-[2px] shrink-0 animate-pulse bg-brand"
                     />
                     <span
-                      className={`transition duration-300 ${
+                      className={`min-w-0 flex-1 truncate text-left text-sm transition duration-300 md:text-base ${
                         promptFading ? "opacity-0" : "opacity-100"
                       } ${promptPulse ? "text-brand" : ""}`}
                     >
@@ -389,13 +388,14 @@ export function FeedContent() {
                     cue. Solid brand fill: this is the primary CTA on the whole
                     feed, so it should read as more confident than the per-gist
                     dot-menu (a secondary utility), not less. */}
-                <span className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand text-white transition">
-                  <Plus className="h-4 w-4" />
+                <span className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand text-white transition md:h-7 md:w-7">
+                  <Plus className="h-3.5 w-3.5 md:h-4 md:w-4" />
                 </span>
               </button>
 
               {/* One-time coach mark: teaches that this row is tappable. Arrow
-                  points straight up at the row, bubble sits just beneath it. */}
+                  points at the avatar, wherever it currently sits (smaller,
+                  left-shifted on mobile's pill; original spot on desktop). */}
               <AnimatePresence>
                 {showComposeHint && (
                   <motion.div
@@ -403,7 +403,7 @@ export function FeedContent() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.25 }}
-                    className="absolute left-16 top-full z-20 mt-1.5 flex flex-col items-center"
+                    className="absolute left-7 top-full z-20 mt-1.5 flex flex-col items-center md:left-16"
                   >
                     <span aria-hidden className="h-2 w-2 rotate-45 bg-brand-ink" />
                     <span className="-mt-1 rounded-full bg-brand-ink px-3 py-1.5 font-poppins text-xs font-medium text-white shadow-lg">
@@ -420,18 +420,79 @@ export function FeedContent() {
                 </div>
               </div>
             ) : gists.length ? (
-              <div className="relative z-10 flex min-h-0 flex-1 w-full">
-                <GistStack
-                  gists={gists}
-                  onCurrentChange={setCurrent}
-                  onGistDeleted={(gistId) =>
-                    setGists((prev) => prev.filter((g) => g.gist_id !== gistId))
-                  }
-                  onGistEdited={(fresh) =>
-                    setGists((prev) => prev.map((g) => (g.gist_id === fresh.gist_id ? fresh : g)))
-                  }
-                  onNearEnd={loadMore}
-                />
+              <div className="relative z-10 flex min-h-0 flex-1 w-full flex-col">
+                {/* On mobile the card no longer fills the whole remaining
+                    height — a compact comment input sits below it, flush,
+                    with zero forced gap either side. The input takes only
+                    its own natural height (shrink-0, not a fixed 20% flex
+                    share — a forced band left dead space around the actual
+                    pill-shaped input, exactly the "margins" that shouldn't
+                    be there); the card (flex-1) fills whatever's left,
+                    which lands close to that ~80% anyway. Desktop reverts
+                    both to their original behavior: the card back to
+                    filling the whole area, the mobile composer hidden
+                    entirely (the real CommentPanel already covers that in
+                    its own side pane there). */}
+                <div className="flex min-h-0 w-full flex-1">
+                  <GistStack
+                    gists={gists}
+                    onCurrentChange={setCurrent}
+                    onGistDeleted={(gistId) =>
+                      setGists((prev) => prev.filter((g) => g.gist_id !== gistId))
+                    }
+                    onGistEdited={(fresh) =>
+                      setGists((prev) => prev.map((g) => (g.gist_id === fresh.gist_id ? fresh : g)))
+                    }
+                    onNearEnd={loadMore}
+                  />
+                </div>
+                {/* Natural height only (shrink-0) — sits immediately below
+                    the card with zero gap, and its own bottom edge sits
+                    flush against the bottom of the screen (the outer
+                    container's bottom padding was dropped on mobile for
+                    exactly this — see its own comment above).
+
+                    This is NOT a real input — tapping it never focuses
+                    anything in place, it just opens CommentSheet (the real
+                    comment surface, autofocused input and all) — a button
+                    styled to look like one, same "tap to open the real
+                    thing" pattern the gist compose-trigger up top uses. */}
+                {/* Solid fill both themes — needed so the doodle pattern
+                    tiled behind the whole feed column doesn't show through
+                    this area — but no border/shadow/ring of its own, so it
+                    reads as part of the page rather than a second, separately
+                    boxed card sitting on top of the pill. */}
+                <div className="flex w-full shrink-0 items-center gap-3 bg-surface px-4 py-3 dark:bg-brand-ink md:hidden">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCommentSheetAutoFocus(true);
+                      setShowCommentSheet(true);
+                    }}
+                    className="block flex-1 rounded-3xl border-0 bg-[#A9C9F85C] px-4 py-4 text-left font-poppins text-sm text-ink/50"
+                  >
+                    Talk your own...
+                  </button>
+                  {/* Icon + live count, both inside the circle, for whichever
+                      gist is currently in view (current, not gists[0] —
+                      updates as the stack is swiped). Just opens the sheet
+                      to look, so it does not autofocus the composer the way
+                      the pill does. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCommentSheetAutoFocus(false);
+                      setShowCommentSheet(true);
+                    }}
+                    aria-label="View comments"
+                    className="flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full bg-brand text-white shadow-sm shadow-brand/30"
+                  >
+                    <CommentIconFill className="h-4 w-4" weight="fill" />
+                    <span className="font-poppins text-[9px] font-medium leading-none tabular-nums">
+                      {compactNumber(current?.counts?.comments_count)}
+                    </span>
+                  </button>
+                </div>
               </div>
             ) : loadError ? (
               <div className="relative z-10 flex flex-1 w-full flex-col items-center justify-center gap-3 text-center px-6">
@@ -473,6 +534,12 @@ export function FeedContent() {
         onClose={() => setShowCreate(false)}
         onPosted={(fresh) => setGists((prev) => [...prev, fresh])}
         placeholder={composePlaceholder}
+      />
+      <CommentSheet
+        open={showCommentSheet}
+        onClose={() => setShowCommentSheet(false)}
+        gist={current}
+        autoFocusInput={commentSheetAutoFocus}
       />
     </AppShell>
   );

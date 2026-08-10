@@ -4,11 +4,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, type PanInfo } from "framer-motion";
 import { GistCard } from "./GistCard";
 import { ChevronLeft, ChevronRight } from "@/components/ui/icons";
+import { useIsMobile } from "@/lib/useIsMobile";
 import type { Gist } from "@/types";
 
 const SWIPE_THRESHOLD = 90; // px of horizontal drag to advance
-const WINDOW_AHEAD = 3; // how many upcoming cards to keep mounted (the peek)
+const WINDOW_AHEAD = 3; // how many upcoming cards to keep mounted (the peek) — desktop only, see isMobile below
 const HINT_SEEN_KEY = "kampos-swipe-hint-seen";
+// On mobile the card is already at (near-)full screen width, so the stacked
+// peek behind it reads as cramped/broken rather than a tease — the split
+// with the mobile-only comment input below the card (see FeedContent)
+// shrinks the card's own height too, which made the peek's rotation/offset
+// spill past the card's own bounds. Desktop, with room to spare on both
+// axes, keeps the peek.
 
 /** Resting transform for a card at a given stack offset from the front (0). */
 function slotFor(offset: number) {
@@ -68,6 +75,7 @@ export function GistStack({
   onNearEnd?: () => void;
 }) {
   const [index, setIndex] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(gists.length - 1, 0)));
+  const isMobile = useIsMobile();
 
   // The gist list is owned by the parent (feed page) and can shrink out from
   // under the stack (a delete) — clamped during render (not an effect,
@@ -164,6 +172,8 @@ export function GistStack({
         {gists.map((gist, i) => {
           const offset = i - index;
           if (offset < -1 || offset > WINDOW_AHEAD) return null;
+          // Peek cards (offset > 0) only render on desktop — see isMobile.
+          if (isMobile && offset > 0) return null;
           const isFront = offset === 0;
           const slot = slotFor(offset);
           return (
