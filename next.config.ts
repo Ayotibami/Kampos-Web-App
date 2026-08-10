@@ -27,7 +27,11 @@ const csp = [
   `media-src 'self' blob: https://res.cloudinary.com https://*.giphy.com${isDev ? " https://www.w3schools.com" : ""}`,
   `font-src 'self'`,
   // api.giphy.com: the GIF/sticker picker's search/trending requests.
-  `connect-src 'self' ${API_ORIGIN} ${WS_ORIGIN} https://api.giphy.com`,
+  // api.cloudinary.com: the browser uploads media straight there (see
+  // uploadToCloudinaryDirect) — without it in connect-src the browser
+  // silently blocks that XHR, which surfaces as a bare "network error",
+  // not a CSP violation, making it look like a connectivity problem.
+  `connect-src 'self' ${API_ORIGIN} ${WS_ORIGIN} https://api.giphy.com https://api.cloudinary.com`,
   `frame-ancestors 'none'`,
   `base-uri 'self'`,
   `form-action 'self'`,
