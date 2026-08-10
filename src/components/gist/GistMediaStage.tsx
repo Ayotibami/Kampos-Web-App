@@ -12,14 +12,15 @@ import {
 } from "@/components/ui/icons";
 import type { GistMedia as GistMediaType } from "@/types";
 import { cloudinarySmartCrop } from "@/lib/cloudinary";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 // Chars are tuned per breakpoint so the slice actually fits within that
-// breakpoint's line-clamp (3/4/6 lines below) — not just visually similar,
+// breakpoint's line-clamp (2/4/3 lines below) — not just visually similar,
 // but enough that the "…more" affordance we append isn't itself clipped off
-// by the line-clamp before it ever gets shown. A narrower card holds fewer
-// characters per line, so it gets more lines *and* a bigger char budget;
-// a wider desktop card holds more per line, so fewer lines suffice.
-const PREVIEW_CHARS_BY_BREAKPOINT = { mobile: 220, sm: 160, md: 110 } as const;
+// by the line-clamp before it ever gets shown. Mobile is deliberately capped
+// at 2 lines (a small char budget) so the caption stays short enough to
+// leave the media beneath it tappable, instead of covering most of the card.
+const PREVIEW_CHARS_BY_BREAKPOINT = { mobile: 80, sm: 160, md: 110 } as const;
 
 /** Tracks which Tailwind breakpoint we're at (sm: 640px, md: 768px) via
  * matchMedia, so the preview length can respond to real viewport width. */
@@ -282,6 +283,12 @@ export function GistMediaBackdrop({
   const items = media.slice(0, 2);
   const isDuo = items.length === 2;
   const interactive = !blurred && active && !overlayOpen;
+  // Two-media layout is the only thing that ever differs by breakpoint here
+  // — desktop's side-by-side split stays exactly as-is, permanently; mobile
+  // gets its own branch below so it can keep changing without touching
+  // desktop at all (this used to be one shared layout for both, which is
+  // why earlier mobile-only experiments were silently affecting desktop too).
+  const isMobile = useIsMobile();
 
   // Single source of truth for "which tile is playing" — lives here, not
   // per-tile, specifically so pressing play on one can pause the other:
@@ -335,10 +342,21 @@ export function GistMediaBackdrop({
 
   return (
     <div className="absolute inset-0 z-0">
-      {isDuo ? (
-        // Each tile gets its own full white frame — reads as two distinct
-        // photos placed side by side, rather than one image accidentally
-        // split in half by a thin gap.
+      {isDuo && isMobile ? (
+        // Mobile: stacked top/bottom, even 50/50 split — both photos fully
+        // visible at once (not a one-at-a-time carousel), and halving the
+        // HEIGHT instead of the width keeps each photo's full width, which
+        // crops far less of it away on a narrow portrait card than the
+        // side-by-side split (still used on desktop) does.
+        <div className="flex h-full w-full flex-col gap-1">
+          {items.map((item, idx) =>
+            tile(item, idx, "relative w-full flex-1 overflow-hidden rounded-2xl border border-black/25 dark:border-white/25"),
+          )}
+        </div>
+      ) : isDuo ? (
+        // Desktop: permanent side-by-side split — each tile gets its own
+        // full frame, reading as two distinct photos placed side by side
+        // rather than one image accidentally split in half by a thin gap.
         <div className="flex h-full w-full gap-1">
           {items.map((item, idx) =>
             tile(item, idx, "relative h-full flex-1 overflow-hidden rounded-2xl border border-black/25 dark:border-white/25"),
@@ -403,13 +421,13 @@ export function GistMediaBodyPanel({
               <button
                 type="button"
                 onClick={() => onModeChange("text")}
-                className="pointer-events-auto absolute inset-x-0 bottom-0 line-clamp-6 break-words bg-black/55 px-4 pb-2.5 pt-3 text-left font-poppins text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3"
+                className="pointer-events-auto absolute inset-x-0 bottom-0 line-clamp-2 break-words bg-black/55 px-4 pb-2.5 pt-3 text-left font-poppins text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3"
               >
                 {preview}
                 <span className="font-bold text-white"> …more</span>
               </button>
             ) : (
-              <p className="pointer-events-none absolute inset-x-0 bottom-0 line-clamp-6 break-words bg-black/55 px-4 pb-2.5 pt-3 text-left font-poppins text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3">
+              <p className="pointer-events-none absolute inset-x-0 bottom-0 line-clamp-2 break-words bg-black/55 px-4 pb-2.5 pt-3 text-left font-poppins text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3">
                 {preview}
               </p>
             )}
