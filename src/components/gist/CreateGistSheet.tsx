@@ -326,7 +326,7 @@ export function CreateGistSheet({
   const describeUploadFailure = (reason: unknown): string => {
     if (reason instanceof MediaUploadError) {
       if (reason.stage === "signature") {
-        return "No vex — we couldn't reach Kampos to start the upload. Check your connection and try again.";
+        return `No vex — ${reason.message}`; // real reason (rate limit, server error, or an actual network drop)
       }
       if (reason.stage === "upload") {
         return `No vex — the upload didn't go through: ${reason.message}`;

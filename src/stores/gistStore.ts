@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import axios from "axios";
 import { api, apiGet, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
 import { uploadToCloudinaryDirect, type CloudinarySignature, type CloudinaryUploadResult } from "@/lib/cloudinary";
 import type { Gist, GistCounts, ReactionType } from "@/types";
@@ -202,6 +203,12 @@ export const useGistStore = create<GistState>((set) => ({
       if (!res.data?.data) throw new Error("No signature returned");
       sig = res.data.data;
     } catch (err) {
+      // 429 is Kampos's own rate limiter, not a dropped connection — the
+      // generic "check your connection" copy this used to fall back to was
+      // actively misleading here, since the request reached the server fine.
+      if (axios.isAxiosError(err) && err.response?.status === 429) {
+        throw new MediaUploadError("signature", "Too many uploads at once — wait a few seconds and try again.");
+      }
       throw new MediaUploadError("signature", apiErrorMessage(err, "Couldn't start the upload"));
     }
 
