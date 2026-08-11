@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Lottie from "lottie-react";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
@@ -42,8 +42,19 @@ const SHORT_TEXT = 200;
  * A single gist's content: profile header, engagement metrics, then either a
  * bold colored card (short text) or text + media (longer). Ported from the
  * mobile Gist component. Rendered inside the animated stack shell.
+ *
+ * Wrapped in memo — GistStack keeps several of these mounted at once for
+ * the cascading peek, and re-renders itself on every single index change
+ * (each scroll/swipe/arrow-key step). Without memo, every mounted card —
+ * not just the one or two whose isActive actually flipped — fully
+ * re-rendered on every step, right in the same frame the stack transition
+ * starts. That's real work (this component alone carries a dozen-plus
+ * pieces of state) landing exactly when the frame budget is tightest,
+ * which is what read as the stack "hanging" mid-scroll. Only pays off
+ * as long as callers pass stable callback identities — see GistStack's
+ * own useCallback around onOverlayOpenChange.
  */
-export function GistCard({
+export const GistCard = memo(function GistCard({
   gist,
   isActive = true,
   onOverlayOpenChange,
@@ -536,7 +547,7 @@ export function GistCard({
       </AnimatePresence>
     </div>
   );
-}
+});
 
 /** Circular icon button that pops out of the three-dot trigger — matches the
  * dot button's own resting look (soft brand tint, filling solid brand once

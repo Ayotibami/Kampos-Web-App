@@ -117,6 +117,14 @@ export function GistStack({
   // stack re-render, it just needs to be checkable inside the imperative
   // keydown/wheel handlers below at the moment a key/scroll actually fires.
   const overlayOpenRef = useRef(false);
+  // Stable identity across every index change — GistCard is memoized (see
+  // its own docstring) specifically so most of the mounted stack skips
+  // re-rendering on a scroll step; passing a fresh inline closure here for
+  // this prop on every render would silently defeat that for every single
+  // card, every time.
+  const handleOverlayOpenChange = useCallback((open: boolean) => {
+    overlayOpenRef.current = open;
+  }, []);
 
   useEffect(() => {
     let seen = true;
@@ -233,9 +241,7 @@ export function GistStack({
                 <GistCard
                   gist={gist}
                   isActive={isFront && !mediaPaused}
-                  onOverlayOpenChange={(open) => {
-                    overlayOpenRef.current = open;
-                  }}
+                  onOverlayOpenChange={handleOverlayOpenChange}
                   onDeleted={onGistDeleted}
                   onEdited={onGistEdited}
                 />
