@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { motion, AnimatePresence, type MotionValue } from "framer-motion";
 import Lottie from "lottie-react";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
@@ -64,6 +64,7 @@ export const GistCard = memo(function GistCard({
   onNext,
   onPrev,
   pullY,
+  touchSurfaceRef,
 }: {
   gist: Gist;
   isActive?: boolean;
@@ -91,6 +92,11 @@ export const GistCard = memo(function GistCard({
    * whole card's transform, so the entire card frame moves as one piece,
    * not just whatever's inside it. */
   pullY: MotionValue<number>;
+  /** Where the vertical-overscroll gesture's touch listeners actually
+   * attach — the whole card frame (header, body, footer), not just
+   * whatever's scrollable, so the gesture works no matter where on the
+   * card a thumb lands. See useOverscrollNav's own docs. */
+  touchSurfaceRef: RefObject<HTMLElement | null>;
 }) {
   const reactGist = useGistStore((s) => s.react);
   const unreactGist = useGistStore((s) => s.unreact);
@@ -124,6 +130,7 @@ export const GistCard = memo(function GistCard({
   // GistMediaBackdrop/GistMediaBodyPanel instead, since their scrollable
   // (or non-scrollable) surface lives there, not here.
   const { scrollRef: textScrollRef } = useOverscrollNav<HTMLDivElement>({
+    surfaceRef: touchSurfaceRef,
     y: pullY,
     onNext,
     onPrev,
@@ -438,6 +445,7 @@ export const GistCard = memo(function GistCard({
               onNext={onNext}
               onPrev={onPrev}
               pullY={pullY}
+              touchSurfaceRef={touchSurfaceRef}
             />
             <GistMediaBodyPanel
               mode={mediaMode}
@@ -446,6 +454,7 @@ export const GistCard = memo(function GistCard({
               onNext={onNext}
               onPrev={onPrev}
               pullY={pullY}
+              touchSurfaceRef={touchSurfaceRef}
             />
           </>
         ) : (

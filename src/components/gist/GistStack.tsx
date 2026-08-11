@@ -300,6 +300,13 @@ function GistStackCard({
   const isFront = offset === 0;
   const slot = isMobile ? mobileSlotFor(offset) : slotFor(offset);
   const pullY = useMotionValue(0);
+  // Where the vertical-overscroll gesture's touch listeners actually
+  // attach — the WHOLE card frame below (header, body, footer, all of
+  // it), not just the scrollable content inside it, so the gesture works
+  // no matter where on the card a thumb lands. See useOverscrollNav's own
+  // docs for why this is a separate ref from the one that measures scroll
+  // position.
+  const touchSurfaceRef = useRef<HTMLDivElement>(null);
 
   return (
     <motion.div
@@ -342,7 +349,10 @@ function GistStackCard({
           front card's content ever enables the touch listeners that drive
           it (see GistCard's isActive-gated useOverscrollNav call). */}
       <motion.div style={{ y: pullY }} className="h-full w-full">
-        <div className="relative h-full w-full overflow-hidden rounded-[32px] shadow-[0_24px_60px_-24px_rgba(9,30,66,0.55)] ring-1 ring-black/5">
+        <div
+          ref={touchSurfaceRef}
+          className="relative h-full w-full overflow-hidden rounded-[32px] shadow-[0_24px_60px_-24px_rgba(9,30,66,0.55)] ring-1 ring-black/5"
+        >
           <GistCard
             gist={gist}
             isActive={isFront && !mediaPaused}
@@ -351,6 +361,7 @@ function GistStackCard({
             onEdited={onGistEdited}
             onNext={isFront ? next : undefined}
             onPrev={isFront ? prev : undefined}
+            touchSurfaceRef={touchSurfaceRef}
             pullY={pullY}
           />
           {/* Swipe-peek tease (desktop only — mobile's offset-1 card

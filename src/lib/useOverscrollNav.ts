@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { animate, type MotionValue } from "framer-motion";
 
 // How much the content visually "gives" while pulled past its own edge —
@@ -12,6 +12,17 @@ const PULL_RESISTANCE = 0.45;
 // the natural little bounce at the end of a normal scroll never fires it by
 // accident.
 const COMMIT_THRESHOLD_PX = 70;
+// Raw finger movement (before any resistance) required before this even
+// CLAIMS a touch as a pull attempt, regardless of boundary state. Matters
+// most now that the touch surface spans the whole card frame, not just
+// scrollable content: on a short/no-scroll gist, atTop()/atBottom() are
+// true from the very first pixel, so without this, the tiniest incidental
+// jitter during an ordinary tap on a header/footer button (the avatar, the
+// "…" menu, a reaction) would claim the touch and preventDefault() it,
+// silently eating the tap. A small slop distance — the same idea every
+// native touch gesture system uses to tell "tap" from "drag" apart — fixes
+// that without meaningfully delaying a genuine pull.
+const CLAIM_SLOP_PX = 8;
 
 /**
  * Turns "keep dragging vertically after you've hit the edge of this
@@ -31,28 +42,38 @@ const COMMIT_THRESHOLD_PX = 70;
  * vertical drag on it is immediately treated as a pull past the edge. No
  * special-casing needed for the no-scroll case; it falls out for free.
  *
- * Takes an externally-owned motion value rather than creating its own —
- * detection (does THIS specific piece of content still have room to
- * scroll?) has to happen deep inside whatever's actually being touched
- * (the text paragraph, the media tile, the caption panel — a different
- * element per gist type), but the visual response needs to move the WHOLE
- * card (header, footer, shadow, everything), not just that one inner
- * piece. So the caller (GistStack, which already owns the whole-card
- * wrapper) creates one shared `pullY` and hands it down; every content
- * piece that might be the thing someone's touching drives the same shared
- * value, and GistStack is the only one that actually renders it as a
- * transform.
+ * Two different elements are involved on purpose, and they're not the same
+ * thing:
+ *  - `surfaceRef` (passed in) is WHERE the touch listeners actually attach
+ *    — the whole card frame (header, body, footer, all of it), so the
+ *    gesture works no matter where on the card someone's thumb happens to
+ *    land, not just over the scrollable content itself.
+ *  - `scrollRef` (returned) is WHAT gets measured for "is there room left
+ *    to scroll" — the actual content element (a text paragraph, a caption
+ *    panel, or nothing at all for bare media). Attach it to that specific
+ *    element so its overflow/scrollTop is what the boundary check reads,
+ *    even though the touch that triggers it might have started somewhere
+ *    else on the card entirely.
+ * Only one call site is ever `enabled` at a time per card (text vs. media
+ * vs. expanded caption are mutually exclusive), so only one ever actually
+ * attaches to the shared surface.
  *
- * Returns a ref for the actual scrollable element (or any plain element,
- * for the no-scroll case) — attach it to whatever's being watched for its
- * own scroll boundary.
+ * Takes an externally-owned motion value rather than creating its own —
+ * the visual response needs to move the WHOLE card, not just whatever
+ * content happens to be inside it. So the caller (GistStack, which already
+ * owns the whole-card wrapper) creates one shared `pullY` and hands it
+ * down; every content piece that might be the thing someone's touching
+ * drives the same shared value, and GistStack is the only one that
+ * actually renders it as a transform.
  */
 export function useOverscrollNav<T extends HTMLElement>({
+  surfaceRef,
   y,
   onNext,
   onPrev,
   enabled = true,
 }: {
+  surfaceRef: RefObject<HTMLElement | null>;
   y: MotionValue<number>;
   onNext?: () => void;
   onPrev?: () => void;
@@ -61,8 +82,8 @@ export function useOverscrollNav<T extends HTMLElement>({
   const scrollRef = useRef<T>(null);
 
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || !enabled) return;
+    const surface = surfaceRef.current;
+    if (!surface || !enabled) return;
 
     let startY = 0;
     // Where the finger was at the MOMENT the gesture got claimed as an
@@ -83,8 +104,20 @@ export function useOverscrollNav<T extends HTMLElement>({
     let pulling = false;
     let committed = false;
 
-    const atTop = () => el.scrollTop <= 0;
-    const atBottom = () => el.scrollTop >= el.scrollHeight - el.clientHeight - 1;
+    // Measured on the CONTENT element (scrollRef), not the surface the
+    // touch landed on — a touch starting on the header/footer chrome has
+    // no scroll position of its own; it defers entirely to whatever the
+    // actual content's boundary state is. No content element at all (or
+    // one that's never been measured) reads as "no scroll room," same as
+    // any other no-overflow case — trivially always at both edges.
+    const atTop = () => {
+      const el = scrollRef.current;
+      return !el || el.scrollTop <= 0;
+    };
+    const atBottom = () => {
+      const el = scrollRef.current;
+      return !el || el.scrollTop >= el.scrollHeight - el.clientHeight - 1;
+    };
 
     const onTouchStart = (e: TouchEvent) => {
       startY = e.touches[0].clientY;
@@ -95,10 +128,13 @@ export function useOverscrollNav<T extends HTMLElement>({
     const onTouchMove = (e: TouchEvent) => {
       const currentY = e.touches[0].clientY;
       if (!pulling) {
-        // Claim the gesture only at the exact moment it's trying to go
-        // past an edge it's already resting at — anywhere mid-content this
-        // never fires, so a normal scroll is never interrupted.
+        // Claim the gesture only once it's moved a real amount (not just
+        // tap jitter — see CLAIM_SLOP_PX) AND is trying to go past an edge
+        // it's already resting at — anywhere mid-content, or below the
+        // slop, this never fires, so a normal scroll (or a tap on a
+        // header/footer button) is never interrupted.
         const dy = currentY - startY;
+        if (Math.abs(dy) < CLAIM_SLOP_PX) return;
         if (dy > 0 && atTop()) {
           pulling = true;
           pullStartY = currentY;
@@ -128,17 +164,17 @@ export function useOverscrollNav<T extends HTMLElement>({
       animate(y, 0, { type: "spring", stiffness: 400, damping: 32 });
     };
 
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
-    el.addEventListener("touchmove", onTouchMove, { passive: false });
-    el.addEventListener("touchend", onTouchEnd);
-    el.addEventListener("touchcancel", onTouchEnd);
+    surface.addEventListener("touchstart", onTouchStart, { passive: true });
+    surface.addEventListener("touchmove", onTouchMove, { passive: false });
+    surface.addEventListener("touchend", onTouchEnd);
+    surface.addEventListener("touchcancel", onTouchEnd);
     return () => {
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove", onTouchMove);
-      el.removeEventListener("touchend", onTouchEnd);
-      el.removeEventListener("touchcancel", onTouchEnd);
+      surface.removeEventListener("touchstart", onTouchStart);
+      surface.removeEventListener("touchmove", onTouchMove);
+      surface.removeEventListener("touchend", onTouchEnd);
+      surface.removeEventListener("touchcancel", onTouchEnd);
     };
-  }, [enabled, onNext, onPrev, y]);
+  }, [surfaceRef, enabled, onNext, onPrev, y]);
 
   return { scrollRef };
 }

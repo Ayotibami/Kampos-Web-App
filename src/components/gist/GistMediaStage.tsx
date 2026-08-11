@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { motion, AnimatePresence, type MotionValue } from "framer-motion";
 import { useOverscrollNav } from "@/lib/useOverscrollNav";
 import {
@@ -126,8 +126,24 @@ function MediaFrame({
   }, [shouldPlay]);
 
   if (!isVideo) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img src={cloudinarySmartCrop(item.media_url)} alt="" className={className} />;
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={cloudinarySmartCrop(item.media_url)}
+        alt=""
+        className={className}
+        // <img> is natively draggable by default — on iOS Safari that can
+        // mean a touch on the image gets partly claimed by the browser's
+        // own drag-to-save gesture recognition before the vertical
+        // overscroll-pull's touch listener (see useOverscrollNav) ever gets
+        // a clean, uninterrupted read of it — text-only gists have no <img>
+        // in the way, so they were never affected, only image tiles were.
+        // draggable={false} (plus the CSS belt-and-suspenders below) turns
+        // that native gesture off entirely.
+        draggable={false}
+        style={{ WebkitUserDrag: "none" } as React.CSSProperties}
+      />
+    );
   }
 
   return (
@@ -137,9 +153,6 @@ function MediaFrame({
       // action while scrolling past sound-off content); once already
       // unmuted, subsequent taps toggle play/pause instead — mute doesn't
       // need to be re-toggled every tap once it's already been handled once.
-      // Deliberately no onPointerDownCapture stop here: the parent tile's
-      // drag (swipe-up-for-text) still needs to see the pointer sequence to
-      // work; a plain tap won't cross its drag threshold anyway.
       onClick={
         canControl
           ? () => {
@@ -162,10 +175,10 @@ function MediaFrame({
       {canControl && (
         <>
           <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5">
-            {/* onPointerDownCapture stops the parent tile's drag gesture from
-                ever seeing a press that started on these buttons — drag is
-                tracked from pointerdown, separately from the click bubbling
-                that onClick's stopPropagation already handles. */}
+            {/* onPointerDownCapture stops the video's own onClick (mute/play
+                toggle) from also seeing a press that started on these
+                buttons — belt-and-suspenders alongside onClick's own
+                stopPropagation below. */}
             <button
               type="button"
               aria-label={playing ? "Pause" : "Play"}
@@ -252,9 +265,9 @@ function MediaFrame({
  * dimmed behind the text — so reading still feels like part of the same
  * photo/video, not a jump to an unrelated screen.
  *
- * Each tile owns its own click and its own swipe-up-for-text drag — not a
- * single guessed-coordinate layer on top, since that couldn't reliably tell
- * which tile was actually tapped. Images tap-open the overlay directly;
+ * Each tile owns its own click — not a single guessed-coordinate layer on
+ * top, since that couldn't reliably tell which tile was actually tapped.
+ * Images tap-open the overlay directly;
  * videos reassign the tap to mute/pause (see MediaFrame) and get a dedicated
  * expand button instead. Interaction is disabled while `blurred` (text mode
  * already has its own controls on top).
@@ -268,6 +281,7 @@ export function GistMediaBackdrop({
   onNext,
   onPrev,
   pullY,
+  touchSurfaceRef,
 }: {
   media: GistMediaType[];
   blurred?: boolean;
@@ -290,6 +304,9 @@ export function GistMediaBackdrop({
    * GistStack — this only reads/writes it for the boundary gesture;
    * GistStack is what actually renders it as the whole card's transform. */
   pullY: MotionValue<number>;
+  /** Same shared touch surface (the whole card frame) as GistCard's own
+   * call — see useOverscrollNav's docs. */
+  touchSurfaceRef: RefObject<HTMLElement | null>;
 }) {
   const items = media.slice(0, 2);
   const isDuo = items.length === 2;
@@ -349,6 +366,7 @@ export function GistMediaBackdrop({
   // past the edge, exactly like a short hero-text card with nothing to
   // scroll through either.
   const { scrollRef } = useOverscrollNav<HTMLDivElement>({
+    surfaceRef: touchSurfaceRef,
     y: pullY,
     onNext,
     onPrev,
@@ -408,6 +426,7 @@ export function GistMediaBodyPanel({
   onNext,
   onPrev,
   pullY,
+  touchSurfaceRef,
 }: {
   mode: "media" | "text";
   onModeChange: (mode: "media" | "text") => void;
@@ -418,10 +437,14 @@ export function GistMediaBodyPanel({
   onPrev?: () => void;
   /** Same shared pull motion value as GistMediaBackdrop — see its docs. */
   pullY: MotionValue<number>;
+  /** Same shared touch surface (the whole card frame) as GistMediaBackdrop's
+   * own call — see useOverscrollNav's docs. */
+  touchSurfaceRef: RefObject<HTMLElement | null>;
 }) {
   const previewChars = usePreviewChars();
   const { preview, truncated } = previewText(text, previewChars);
   const { scrollRef } = useOverscrollNav<HTMLDivElement>({
+    surfaceRef: touchSurfaceRef,
     y: pullY,
     onNext,
     onPrev,
@@ -448,9 +471,9 @@ export function GistMediaBodyPanel({
             {/* Only tappable when there's actually more to show — if the
                 whole gist already fits in the caption, "text" mode would
                 just show the exact same text again, so there's nothing to
-                open. Clicks/drags everywhere else pass through (pointer-
-                events-none above) to the media tiles underneath, which own
-                their own tap-to-open-overlay and swipe-up-for-text now. */}
+                open. Clicks everywhere else pass through (pointer-events-none
+                above) to the media tile underneath, which owns its own
+                tap-to-open-overlay. */}
             {truncated ? (
               <button
                 type="button"
