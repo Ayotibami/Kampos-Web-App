@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motion, type PanInfo } from "framer-motion";
+import { motion, useMotionValue, type PanInfo } from "framer-motion";
 import { GistCard } from "./GistCard";
 import { ChevronLeft, ChevronRight } from "@/components/ui/icons";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -211,80 +211,147 @@ export function GistStack({
           // (+1) — since its transition is driven by those two slots alone,
           // not a stack.
           if (isMobile && offset > 1) return null;
-          const isFront = offset === 0;
-          const slot = isMobile ? mobileSlotFor(offset) : slotFor(offset);
           return (
-            <motion.div
+            <GistStackCard
               key={gist.gist_id}
-              className="absolute inset-0 will-change-transform"
-              style={{ zIndex: slot.zIndex, pointerEvents: isFront ? "auto" : "none" }}
-              initial={false}
-              animate={{
-                x: slot.x,
-                y: slot.y,
-                rotate: slot.rotate,
-                scale: slot.scale,
-                opacity: slot.opacity,
-              }}
-              transition={
-                isMobile
-                  ? { type: "spring", stiffness: 230, damping: 27, mass: 0.9 }
-                  : { type: "spring", stiffness: 260, damping: 30 }
-              }
-              drag={isFront ? "x" : false}
-              dragElastic={0.5}
-              dragConstraints={{ left: 0, right: 0 }}
-              whileDrag={{ cursor: "grabbing" }}
-              onDragEnd={(_, info) => handleDragEnd(info)}
-            >
-              <div className="relative h-full w-full overflow-hidden rounded-[32px] shadow-[0_24px_60px_-24px_rgba(9,30,66,0.55)] ring-1 ring-black/5">
-                <GistCard
-                  gist={gist}
-                  isActive={isFront && !mediaPaused}
-                  onOverlayOpenChange={handleOverlayOpenChange}
-                  onDeleted={onGistDeleted}
-                  onEdited={onGistEdited}
-                  onNext={isFront ? next : undefined}
-                  onPrev={isFront ? prev : undefined}
-                />
-                {/* Swipe-peek tease (desktop only — mobile's offset-1 card
-                    sits fully off to the side edge-on/invisible until its
-                    own flip-in animation, so there's no partial edge to
-                    peek from). Peeking cards (offset > 0) already sit
-                    rotated/offset behind the front card, so a sliver of their
-                    right edge sticks out during a drag. Painting the gist's
-                    first media item right there means a person glimpses the
-                    actual photo/video while swiping past — before they've
-                    even arrived at the card — only possible because of this
-                    horizontal stack, not a bolt-on UI affordance.
-
-                    An <img> can't render a video file, so a video item only
-                    gets a peek when it actually has a thumbnail_url (a real
-                    poster frame) — if not, skip the peek entirely rather
-                    than try to load the raw .mp4 as an image and silently
-                    fail. */}
-                {(() => {
-                  const first = gist.media?.[0];
-                  if (isMobile || offset <= 0 || !first) return null;
-                  const isVideo = first.media_type?.toLowerCase().includes("video");
-                  const previewSrc = isVideo ? first.thumbnail_url : first.media_url || first.thumbnail_url;
-                  if (!previewSrc) return null;
-                  return (
-                    <div className="pointer-events-none absolute inset-y-0 right-0 w-16 overflow-hidden sm:w-20">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={previewSrc} alt="" className="h-full w-full object-cover" />
-                      <div className="absolute inset-0 bg-gradient-to-r from-surface-2 via-surface-2/30 to-transparent" />
-                    </div>
-                  );
-                })()}
-              </div>
-            </motion.div>
+              gist={gist}
+              offset={offset}
+              isMobile={isMobile}
+              mediaPaused={mediaPaused}
+              handleOverlayOpenChange={handleOverlayOpenChange}
+              onGistDeleted={onGistDeleted}
+              onGistEdited={onGistEdited}
+              next={next}
+              prev={prev}
+              handleDragEnd={handleDragEnd}
+            />
           );
         })}
 
         {showHint && <SwipeHint />}
       </div>
     </div>
+  );
+}
+
+/**
+ * A single card's slot in the stack — split out from GistStack's own render
+ * specifically so it can own its own `pullY` motion value (a hook call
+ * inside a raw `.map()` isn't legal; a proper per-item component, keyed the
+ * same way the map already was, is). `pullY` is the vertical-overscroll
+ * gesture's shared value for this one card — GistCard and its media
+ * sub-components only ever read/write it (see useOverscrollNav), but it's
+ * rendered as an actual transform right here, on the same wrapper that
+ * already carries the horizontal swipe's transform. That's deliberate: the
+ * whole card (header, footer, shadow, everything) needs to move together
+ * for the vertical gesture, exactly like it already does for the
+ * horizontal one — not just whatever content happens to be inside it.
+ */
+function GistStackCard({
+  gist,
+  offset,
+  isMobile,
+  mediaPaused,
+  handleOverlayOpenChange,
+  onGistDeleted,
+  onGistEdited,
+  next,
+  prev,
+  handleDragEnd,
+}: {
+  gist: Gist;
+  offset: number;
+  isMobile: boolean;
+  mediaPaused: boolean;
+  handleOverlayOpenChange: (open: boolean) => void;
+  onGistDeleted?: (gistId: string) => void;
+  onGistEdited?: (gist: Gist) => void;
+  next: () => void;
+  prev: () => void;
+  handleDragEnd: (info: PanInfo) => void;
+}) {
+  const isFront = offset === 0;
+  const slot = isMobile ? mobileSlotFor(offset) : slotFor(offset);
+  const pullY = useMotionValue(0);
+
+  return (
+    <motion.div
+      className="absolute inset-0 will-change-transform"
+      style={{ zIndex: slot.zIndex, pointerEvents: isFront ? "auto" : "none" }}
+      initial={false}
+      animate={{
+        x: slot.x,
+        y: slot.y,
+        rotate: slot.rotate,
+        scale: slot.scale,
+        opacity: slot.opacity,
+      }}
+      transition={
+        isMobile
+          ? { type: "spring", stiffness: 230, damping: 27, mass: 0.9 }
+          : { type: "spring", stiffness: 260, damping: 30 }
+      }
+      drag={isFront ? "x" : false}
+      dragElastic={0.5}
+      dragConstraints={{ left: 0, right: 0 }}
+      whileDrag={{ cursor: "grabbing" }}
+      onDragEnd={(_, info) => handleDragEnd(info)}
+    >
+      {/* Carries ONLY the vertical-overscroll pull, layered on top of the
+          parent's horizontal/stack transform above — CSS transforms on
+          nested elements compose, so this adds to (never fights) the
+          parent's own x/rotate/scale/spring animation. Always present,
+          never conditional on isFront, so toggling front/peeking never
+          remounts anything below (which would reset GistCard's own local
+          state, restart video elements, etc.) — it just never receives a
+          nonzero pullY unless it's actually the front card, since only the
+          front card's content ever enables the touch listeners that drive
+          it (see GistCard's isActive-gated useOverscrollNav call). */}
+      <motion.div style={{ y: pullY }} className="h-full w-full">
+        <div className="relative h-full w-full overflow-hidden rounded-[32px] shadow-[0_24px_60px_-24px_rgba(9,30,66,0.55)] ring-1 ring-black/5">
+          <GistCard
+            gist={gist}
+            isActive={isFront && !mediaPaused}
+            onOverlayOpenChange={handleOverlayOpenChange}
+            onDeleted={onGistDeleted}
+            onEdited={onGistEdited}
+            onNext={isFront ? next : undefined}
+            onPrev={isFront ? prev : undefined}
+            pullY={pullY}
+          />
+          {/* Swipe-peek tease (desktop only — mobile's offset-1 card
+              sits fully off to the side edge-on/invisible until its
+              own flip-in animation, so there's no partial edge to
+              peek from). Peeking cards (offset > 0) already sit
+              rotated/offset behind the front card, so a sliver of their
+              right edge sticks out during a drag. Painting the gist's
+              first media item right there means a person glimpses the
+              actual photo/video while swiping past — before they've
+              even arrived at the card — only possible because of this
+              horizontal stack, not a bolt-on UI affordance.
+
+              An <img> can't render a video file, so a video item only
+              gets a peek when it actually has a thumbnail_url (a real
+              poster frame) — if not, skip the peek entirely rather
+              than try to load the raw .mp4 as an image and silently
+              fail. */}
+          {(() => {
+            const first = gist.media?.[0];
+            if (isMobile || offset <= 0 || !first) return null;
+            const isVideo = first.media_type?.toLowerCase().includes("video");
+            const previewSrc = isVideo ? first.thumbnail_url : first.media_url || first.thumbnail_url;
+            if (!previewSrc) return null;
+            return (
+              <div className="pointer-events-none absolute inset-y-0 right-0 w-16 overflow-hidden sm:w-20">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={previewSrc} alt="" className="h-full w-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-r from-surface-2 via-surface-2/30 to-transparent" />
+              </div>
+            );
+          })()}
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 

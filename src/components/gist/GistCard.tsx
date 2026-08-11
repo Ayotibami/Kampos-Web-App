@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, type MotionValue } from "framer-motion";
 import Lottie from "lottie-react";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
 import { Avatar } from "@/components/ui/Avatar";
@@ -63,6 +63,7 @@ export const GistCard = memo(function GistCard({
   onEdited,
   onNext,
   onPrev,
+  pullY,
 }: {
   gist: Gist;
   isActive?: boolean;
@@ -84,6 +85,12 @@ export const GistCard = memo(function GistCard({
    * horizontal swipe, just a second way in. */
   onNext?: () => void;
   onPrev?: () => void;
+  /** GistStack's shared pull motion value — this card's own scrollable
+   * content (or bare media) only ever reads/writes it for the boundary
+   * gesture above; GistStack itself is what actually renders it as the
+   * whole card's transform, so the entire card frame moves as one piece,
+   * not just whatever's inside it. */
+  pullY: MotionValue<number>;
 }) {
   const reactGist = useGistStore((s) => s.react);
   const unreactGist = useGistStore((s) => s.unreact);
@@ -116,7 +123,8 @@ export const GistCard = memo(function GistCard({
   // see useOverscrollNav. Media gists get the equivalent inside
   // GistMediaBackdrop/GistMediaBodyPanel instead, since their scrollable
   // (or non-scrollable) surface lives there, not here.
-  const { scrollRef: textScrollRef, y: textY } = useOverscrollNav<HTMLDivElement>({
+  const { scrollRef: textScrollRef } = useOverscrollNav<HTMLDivElement>({
+    y: pullY,
     onNext,
     onPrev,
     enabled: isActive,
@@ -429,6 +437,7 @@ export const GistCard = memo(function GistCard({
               onTileClick={setOverlayIndex}
               onNext={onNext}
               onPrev={onPrev}
+              pullY={pullY}
             />
             <GistMediaBodyPanel
               mode={mediaMode}
@@ -436,12 +445,12 @@ export const GistCard = memo(function GistCard({
               text={gist.gist_text}
               onNext={onNext}
               onPrev={onPrev}
+              pullY={pullY}
             />
           </>
         ) : (
-          <motion.div
+          <div
             ref={textScrollRef}
-            style={{ y: textY }}
             className="h-full overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20 pr-1"
           >
             {short ? (
@@ -451,7 +460,7 @@ export const GistCard = memo(function GistCard({
                 {gist.gist_text}
               </p>
             )}
-          </motion.div>
+          </div>
         )}
 
         {/* Center-pop reaction burst — same animation/placement whether it

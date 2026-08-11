@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useMotionValue, animate } from "framer-motion";
+import { animate, type MotionValue } from "framer-motion";
 
 // How much the content visually "gives" while pulled past its own edge —
 // damped well below 1:1 with the finger so it reads as resistance (the
@@ -20,10 +20,10 @@ const COMMIT_THRESHOLD_PX = 70;
  * left to scroll, this does nothing at all and the browser's native scroll
  * owns the gesture completely. Only once the user is already resting at the
  * very top or bottom AND keeps dragging past it does this take over —
- * rubber-banding the content a little so it reads as "one more pull and
- * this'll move on," then firing onPrev (pulled down past the top) or onNext
- * (pulled up past the bottom) once they commit past the threshold, and
- * spring-snapping back to rest either way on release.
+ * rubber-banding a little so it reads as "one more pull and this'll move
+ * on," then firing onPrev (pulled down past the top) or onNext (pulled up
+ * past the bottom) once they commit past the threshold, and spring-snapping
+ * back to rest either way on release.
  *
  * Works identically for content with nothing to scroll at all (a short
  * hero-text card, a bare media tile) — with no overflow, `scrollTop` is
@@ -31,21 +31,34 @@ const COMMIT_THRESHOLD_PX = 70;
  * vertical drag on it is immediately treated as a pull past the edge. No
  * special-casing needed for the no-scroll case; it falls out for free.
  *
- * Returns a ref for the actual scrollable element (or any plain element, for
- * the no-scroll case) and a motion value to apply as that same element's `y`
- * — spread it onto a `motion.div` as `style={{ y }}`.
+ * Takes an externally-owned motion value rather than creating its own —
+ * detection (does THIS specific piece of content still have room to
+ * scroll?) has to happen deep inside whatever's actually being touched
+ * (the text paragraph, the media tile, the caption panel — a different
+ * element per gist type), but the visual response needs to move the WHOLE
+ * card (header, footer, shadow, everything), not just that one inner
+ * piece. So the caller (GistStack, which already owns the whole-card
+ * wrapper) creates one shared `pullY` and hands it down; every content
+ * piece that might be the thing someone's touching drives the same shared
+ * value, and GistStack is the only one that actually renders it as a
+ * transform.
+ *
+ * Returns a ref for the actual scrollable element (or any plain element,
+ * for the no-scroll case) — attach it to whatever's being watched for its
+ * own scroll boundary.
  */
 export function useOverscrollNav<T extends HTMLElement>({
+  y,
   onNext,
   onPrev,
   enabled = true,
 }: {
+  y: MotionValue<number>;
   onNext?: () => void;
   onPrev?: () => void;
   enabled?: boolean;
 }) {
   const scrollRef = useRef<T>(null);
-  const y = useMotionValue(0);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -127,5 +140,5 @@ export function useOverscrollNav<T extends HTMLElement>({
     };
   }, [enabled, onNext, onPrev, y]);
 
-  return { scrollRef, y };
+  return { scrollRef };
 }

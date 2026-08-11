@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, type MotionValue } from "framer-motion";
 import { useOverscrollNav } from "@/lib/useOverscrollNav";
 import {
   ChevronDown,
@@ -267,6 +267,7 @@ export function GistMediaBackdrop({
   onTileClick,
   onNext,
   onPrev,
+  pullY,
 }: {
   media: GistMediaType[];
   blurred?: boolean;
@@ -285,6 +286,10 @@ export function GistMediaBackdrop({
    * on the media itself is free to mean this instead. */
   onNext?: () => void;
   onPrev?: () => void;
+  /** GistCard's shared pull motion value, passed straight through from
+   * GistStack — this only reads/writes it for the boundary gesture;
+   * GistStack is what actually renders it as the whole card's transform. */
+  pullY: MotionValue<number>;
 }) {
   const items = media.slice(0, 2);
   const isDuo = items.length === 2;
@@ -343,14 +348,15 @@ export function GistMediaBackdrop({
   // drag — any vertical drag on the media immediately counts as a pull
   // past the edge, exactly like a short hero-text card with nothing to
   // scroll through either.
-  const { scrollRef, y } = useOverscrollNav<HTMLDivElement>({
+  const { scrollRef } = useOverscrollNav<HTMLDivElement>({
+    y: pullY,
     onNext,
     onPrev,
     enabled: interactive,
   });
 
   return (
-    <motion.div ref={scrollRef} style={{ y }} className="absolute inset-0 z-0">
+    <div ref={scrollRef} className="absolute inset-0 z-0">
       {isDuo && isMobile ? (
         // Mobile: stacked top/bottom, even 50/50 split — both photos fully
         // visible at once (not a one-at-a-time carousel), and halving the
@@ -377,7 +383,7 @@ export function GistMediaBackdrop({
       {blurred && (
         <div aria-hidden className="pointer-events-none absolute inset-0 rounded-2xl bg-black/55" />
       )}
-    </motion.div>
+    </div>
   );
 }
 
@@ -401,6 +407,7 @@ export function GistMediaBodyPanel({
   text,
   onNext,
   onPrev,
+  pullY,
 }: {
   mode: "media" | "text";
   onModeChange: (mode: "media" | "text") => void;
@@ -409,10 +416,13 @@ export function GistMediaBodyPanel({
    * expanded caption's own scrollable text once it's scrolled to its edge. */
   onNext?: () => void;
   onPrev?: () => void;
+  /** Same shared pull motion value as GistMediaBackdrop — see its docs. */
+  pullY: MotionValue<number>;
 }) {
   const previewChars = usePreviewChars();
   const { preview, truncated } = previewText(text, previewChars);
-  const { scrollRef, y } = useOverscrollNav<HTMLDivElement>({
+  const { scrollRef } = useOverscrollNav<HTMLDivElement>({
+    y: pullY,
     onNext,
     onPrev,
     enabled: mode === "text",
@@ -465,15 +475,14 @@ export function GistMediaBodyPanel({
             exit={{ y: 70, opacity: 0 }}
             transition={{ type: "spring", stiffness: 320, damping: 30 }}
           >
-            <motion.div
+            <div
               ref={scrollRef}
-              style={{ y }}
               className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pr-3 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/30"
             >
               <p className="w-full whitespace-pre-wrap break-words font-nunito text-[15px] leading-relaxed text-white text-justify">
                 {text}
               </p>
-            </motion.div>
+            </div>
             <button
               type="button"
               aria-label="Back to media"
