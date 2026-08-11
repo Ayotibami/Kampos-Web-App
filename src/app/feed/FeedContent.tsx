@@ -444,6 +444,7 @@ export function FeedContent() {
                       setGists((prev) => prev.map((g) => (g.gist_id === fresh.gist_id ? fresh : g)))
                     }
                     onNearEnd={loadMore}
+                    mediaPaused={showCreate || showCommentSheet}
                   />
                 </div>
                 {/* Natural height only (shrink-0) — sits immediately below

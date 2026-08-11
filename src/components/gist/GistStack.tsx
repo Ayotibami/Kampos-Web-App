@@ -74,6 +74,7 @@ export function GistStack({
   onGistDeleted,
   onGistEdited,
   onNearEnd,
+  mediaPaused = false,
 }: {
   gists: Gist[];
   /** Opens the stack on a specific gist instead of always the front (index
@@ -92,6 +93,11 @@ export function GistStack({
    * pagination and its own re-entrancy guard, so this can fire more than
    * once without needing to track "have we already asked" here. */
   onNearEnd?: () => void;
+  /** True while something feed-level is covering the card (the comment
+   * sheet, the new-gist compose sheet) — the front card's own video should
+   * pause for the same reason it already pauses for peeking/inactive cards,
+   * not stay playing (and audible) underneath a modal that has focus. */
+  mediaPaused?: boolean;
 }) {
   const [index, setIndex] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(gists.length - 1, 0)));
   const isMobile = useIsMobile();
@@ -226,7 +232,7 @@ export function GistStack({
               <div className="relative h-full w-full overflow-hidden rounded-[32px] shadow-[0_24px_60px_-24px_rgba(9,30,66,0.55)] ring-1 ring-black/5">
                 <GistCard
                   gist={gist}
-                  isActive={isFront}
+                  isActive={isFront && !mediaPaused}
                   onOverlayOpenChange={(open) => {
                     overlayOpenRef.current = open;
                   }}
