@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Lottie from "lottie-react";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
@@ -28,33 +28,23 @@ import {
   DeleteIconFill,
 } from "@/components/ui/icons";
 import type { Gist, ReactionType } from "@/types";
-import { gistColorFor } from "@/lib/brand";
+import { gistColorForGist } from "@/lib/brand";
 import { timeAgo, friendlyDateTime, compactNumber } from "@/lib/format";
 
 const SHORT_TEXT = 200;
 
-// Fluid-typography constants for the hero statement block. Was a ladder of
-// ten fixed Tailwind size tiers stepping down across the 0-200 length range
-// — clean at the tier boundaries, but any two gists in the same tier looked
-// identical regardless of how different their lengths actually were, and the
-// bottom tiers (text-xs/text-[11px]) read as illegibly small on mobile for
-// anything past ~130 chars. A `clamp()` formula scales continuously with
-// length instead of jumping between steps, and — the actual fix for that
-// complaint — MIN_REM sets a floor long text can never drop below.
-const HERO_TEXT_MIN_REM = 1.125; // ~18px — smallest a hero statement should ever render, any device
-const HERO_TEXT_MAX_REM = 4; // one-word gist ceiling, roughly matching the old text-6xl top tier
-const HERO_TEXT_LENGTH_SLOPE = 0.017; // rem shaved off per character of gist_text
-
-/**
- * A one-word gist should hit like a bold headline; a gist near the
- * SHORT_TEXT limit should still fit comfortably. `calc()`'s vw term keeps it
- * responsive across breakpoints the same way the old sm:/md: modifiers did,
- * without needing separate tiers per breakpoint.
- */
-function heroTextFontSize(length: number): string {
-  const preferred = `${HERO_TEXT_MAX_REM}rem - ${(length * HERO_TEXT_LENGTH_SLOPE).toFixed(3)}rem + 0.6vw`;
-  return `clamp(${HERO_TEXT_MIN_REM}rem, calc(${preferred}), ${HERO_TEXT_MAX_REM}rem)`;
-}
+// Hero statement block sizing — was first a ladder of fixed Tailwind size
+// tiers (any two gists in the same length range looked identical), then a
+// clamp()/character-count formula (a guess at how much room text would
+// need, which doesn't actually know the box's real size or how the words
+// happen to wrap — same length can overflow for a run of long words and
+// look tiny for a run of short ones). ShortGist below instead measures the
+// real rendered box, the same way WhatsApp's status composer does: start
+// big, shrink in steps until it actually fits, so short text stays big,
+// long text shrinks exactly as much as it needs to and never overflows.
+const HERO_TEXT_MIN_REM = 1; // ~16px — smallest a hero statement should ever render, any device
+const HERO_TEXT_MAX_REM = 3; // one-word gist ceiling — the old 4rem read too big once it was actually hit
+const HERO_TEXT_STEP_REM = 0.0625; // 1px steps at the default root size — fine enough not to visibly jump
 
 /**
  * A single gist's content: profile header, engagement metrics, then either a
@@ -421,7 +411,7 @@ export function GistCard({
         ) : (
           <div className="h-full overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20 pr-1">
             {short ? (
-              <ShortGist text={gist.gist_text} colorKey={gist.gist_id} />
+              <ShortGist text={gist.gist_text} colorKey={gist.color_key} fallbackSeed={gist.gist_id} />
             ) : (
               <p className="w-full whitespace-pre-wrap break-words font-poppins text-[15px] leading-relaxed text-ink text-justify">
                 {gist.gist_text}
@@ -674,15 +664,63 @@ function LevelTag({ children }: { children: React.ReactNode }) {
  * the way a quote card should. Text scales up on larger screens so a very
  * short gist doesn't read as a tiny caption lost in a big colored void.
  */
-function ShortGist({ text, colorKey }: { text: string; colorKey: string }) {
+function ShortGist({
+  text,
+  colorKey,
+  fallbackSeed,
+}: {
+  text: string;
+  colorKey?: string | null;
+  fallbackSeed: string;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const [fontSizeRem, setFontSizeRem] = useState(HERO_TEXT_MAX_REM);
+
+  // Runs synchronously after layout but before paint, so there's no visible
+  // flash of the wrong size — measure at the max size, then actually shrink
+  // in steps (not guess from length) until the text's own box stops
+  // overflowing its fixed-size container in either dimension.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const el = textRef.current;
+    if (!container || !el) return;
+
+    const fit = () => {
+      let size = HERO_TEXT_MAX_REM;
+      el.style.fontSize = `${size}rem`;
+      let guard = 0;
+      while (
+        (el.scrollHeight > container.clientHeight || el.scrollWidth > container.clientWidth) &&
+        size > HERO_TEXT_MIN_REM &&
+        guard < 80
+      ) {
+        size = Math.max(HERO_TEXT_MIN_REM, size - HERO_TEXT_STEP_REM);
+        el.style.fontSize = `${size}rem`;
+        guard += 1;
+      }
+      setFontSizeRem(size);
+    };
+
+    fit();
+    // Covers device rotation / the card resizing under it — a static
+    // one-time measurement would otherwise go stale and start overflowing
+    // (or under-filling) the moment the container's own size changes.
+    const ro = new ResizeObserver(fit);
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [text]);
+
   return (
     <div
-      className="flex h-full min-h-[160px] w-full items-center justify-center overflow-hidden rounded-3xl p-4 text-left sm:p-5"
-      style={{ backgroundColor: gistColorFor(colorKey) }}
+      ref={containerRef}
+      className="flex h-full min-h-[160px] w-full items-center justify-center overflow-hidden rounded-3xl p-4 text-center sm:p-5"
+      style={{ backgroundColor: gistColorForGist(colorKey, fallbackSeed) }}
     >
       <p
+        ref={textRef}
         className="min-w-0 break-words font-nunito font-bold leading-snug text-white"
-        style={{ fontSize: heroTextFontSize(text.length) }}
+        style={{ fontSize: `${fontSizeRem}rem` }}
       >
         {text}
       </p>
