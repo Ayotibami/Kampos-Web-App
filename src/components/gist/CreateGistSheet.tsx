@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
@@ -12,6 +12,7 @@ import { useGistStore, MediaUploadError } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { apiErrorMessage } from "@/lib/api";
 import { LIMITS, GIST_CARD_PALETTE, GIST_COLOR_KEYS, type GistColorKey } from "@/lib/brand";
+import { fitHeroTextarea, nominalHeroTextRem } from "@/lib/heroText";
 import { stripInvisibleChars, sanitizeForSubmit, sanitizeFileName } from "@/lib/sanitize";
 import {
   ALLOWED_MEDIA_TYPES,
@@ -180,6 +181,7 @@ export function CreateGistSheet({
   );
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const heroBoxRef = useRef<HTMLDivElement>(null);
   const isEditing = !!editGist;
 
   const [text, setText] = useState("");
@@ -230,6 +232,35 @@ export function CreateGistSheet({
   // the backend's PATCH route, so offering the picker mid-edit would look
   // like it works and then silently not save.
   const colorPickerEligible = !isEditing && text.length < 200 && media.length === 0;
+  // Live WYSIWYG preview only kicks in once an actual pick has been made —
+  // before that there's no way to know what the eventual gist_id-hash-based
+  // fallback color would be (it doesn't exist yet), so showing some
+  // arbitrary placeholder color would be a preview of nothing real.
+  const heroPreviewActive = colorPickerEligible && pickedColor !== null;
+  const heroPreviewHex = pickedColor ? GIST_CARD_PALETTE[GIST_COLOR_KEYS.indexOf(pickedColor)] : undefined;
+
+  // Same shrink-to-fit as the posted card (lib/heroText) — genuinely shows
+  // what posting will look like, not a separately-tuned approximation. Runs
+  // synchronously after layout, before paint, so there's no flash of the
+  // wrong size while typing.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    if (!heroPreviewActive) {
+      // Leaving hero mode — clear the inline fontSize/height fitHeroTextarea
+      // left behind, since an inline style always beats the plain-mode
+      // Tailwind classes (h-full, text-[15px]) for the same property. Left
+      // uncleared, the textarea would keep rendering at its last hero-mode
+      // size after reverting.
+      el.style.fontSize = "";
+      el.style.height = "";
+      return;
+    }
+    const container = heroBoxRef.current;
+    if (!container) return;
+    fitHeroTextarea(el, container, nominalHeroTextRem(text.length));
+  }, [text, heroPreviewActive]);
+
   // Existing media the user removed during this edit session — the actual
   // DELETE calls only fire on Save (matches how new picks only actually
   // upload on Save too), so closing without saving leaves the gist
@@ -525,11 +556,28 @@ export function CreateGistSheet({
             <div className="flex min-h-0 flex-1 items-stretch gap-3 md:flex-none md:items-start">
               {/* Who this is posting as — same anchor X/Facebook/LinkedIn's
                   own compose dialogs use, so it doesn't read as posting into
-                  a void. */}
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-light ring-1 ring-black/5">
-                <Avatar src={myImageUrl} />
-              </div>
-              <div className="relative min-w-0 flex-1">
+                  a void. Hidden in hero-preview mode: the actual posted
+                  colored hero block never has an avatar inside it either
+                  (that lives in the card's header, separately), so keeping
+                  it here would make the preview lie about its own layout. */}
+              {!heroPreviewActive && (
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-light ring-1 ring-black/5">
+                  <Avatar src={myImageUrl} />
+                </div>
+              )}
+              <div
+                ref={heroBoxRef}
+                className={
+                  heroPreviewActive
+                    ? "flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden rounded-3xl p-4"
+                    : "relative min-w-0 flex-1"
+                }
+                style={heroPreviewActive ? { backgroundColor: heroPreviewHex, minHeight: 160 } : undefined}
+              >
+                {/* One persistent element regardless of mode — swapping in a
+                    second, differently-styled textarea on toggle would
+                    remount it and drop focus/cursor position mid-keystroke
+                    right as someone crosses the length threshold. */}
                 <textarea
                   ref={textareaRef}
                   autoFocus
@@ -537,11 +585,17 @@ export function CreateGistSheet({
                   onChange={(e) => setText(stripInvisibleChars(e.target.value).slice(0, LIMITS.gist))}
                   onScroll={updateScrollThumb}
                   placeholder={placeholder || DEFAULT_PLACEHOLDER}
-                  className="h-full w-full resize-none overflow-y-auto bg-transparent py-2 pr-3 font-poppins text-[15px] leading-relaxed text-ink outline-none placeholder:text-faint no-scrollbar md:h-40"
+                  className={
+                    heroPreviewActive
+                      ? "w-full resize-none overflow-hidden bg-transparent text-center font-nunito font-bold leading-snug text-white outline-none placeholder:text-white/60 no-scrollbar"
+                      : "h-full w-full resize-none overflow-y-auto bg-transparent py-2 pr-3 font-poppins text-[15px] leading-relaxed text-ink outline-none placeholder:text-faint no-scrollbar md:h-40"
+                  }
                 />
                 {/* A sleeker stand-in for the native scrollbar (hidden via
-                    no-scrollbar above) — same idea, just styled to match. */}
-                {scrollThumb && (
+                    no-scrollbar above) — same idea, just styled to match.
+                    Hero-preview mode auto-sizes (no internal scroll), so
+                    this never applies there. */}
+                {!heroPreviewActive && scrollThumb && (
                   <div className="pointer-events-none absolute right-0 top-2 bottom-2 w-1 rounded-full bg-black/5 dark:bg-white/10">
                     <div
                       className="absolute w-full rounded-full bg-brand/50"
