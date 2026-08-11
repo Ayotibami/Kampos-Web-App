@@ -33,26 +33,27 @@ import { timeAgo, friendlyDateTime, compactNumber } from "@/lib/format";
 
 const SHORT_TEXT = 200;
 
+// Fluid-typography constants for the hero statement block. Was a ladder of
+// ten fixed Tailwind size tiers stepping down across the 0-200 length range
+// — clean at the tier boundaries, but any two gists in the same tier looked
+// identical regardless of how different their lengths actually were, and the
+// bottom tiers (text-xs/text-[11px]) read as illegibly small on mobile for
+// anything past ~130 chars. A `clamp()` formula scales continuously with
+// length instead of jumping between steps, and — the actual fix for that
+// complaint — MIN_REM sets a floor long text can never drop below.
+const HERO_TEXT_MIN_REM = 1.125; // ~18px — smallest a hero statement should ever render, any device
+const HERO_TEXT_MAX_REM = 4; // one-word gist ceiling, roughly matching the old text-6xl top tier
+const HERO_TEXT_LENGTH_SLOPE = 0.017; // rem shaved off per character of gist_text
+
 /**
- * Text-length-driven size tiers for the hero statement block: a one-word gist
- * should hit like a bold headline, while a gist near the SHORT_TEXT limit
- * should still fit comfortably — ten tiers stepping down across the full
- * 0-200 range, with finer, smaller steps in the 100-200 zone (the riskiest
- * range for overflow: enough characters to wrap several lines, but not
- * enough length to justify a big font). Each tier stays responsive across
- * breakpoints; only the base tier changes with length.
+ * A one-word gist should hit like a bold headline; a gist near the
+ * SHORT_TEXT limit should still fit comfortably. `calc()`'s vw term keeps it
+ * responsive across breakpoints the same way the old sm:/md: modifiers did,
+ * without needing separate tiers per breakpoint.
  */
-function heroTextSizeClass(length: number): string {
-  if (length <= 10) return "text-4xl sm:text-5xl md:text-6xl";
-  if (length <= 20) return "text-3xl sm:text-4xl md:text-5xl";
-  if (length <= 32) return "text-2xl sm:text-3xl md:text-4xl";
-  if (length <= 45) return "text-xl sm:text-2xl md:text-3xl";
-  if (length <= 60) return "text-lg sm:text-xl md:text-2xl";
-  if (length <= 80) return "text-base sm:text-lg md:text-xl";
-  if (length <= 100) return "text-sm sm:text-base md:text-lg";
-  if (length <= 130) return "text-sm sm:text-base md:text-base";
-  if (length <= 165) return "text-xs sm:text-sm md:text-base";
-  return "text-[11px] sm:text-xs md:text-sm";
+function heroTextFontSize(length: number): string {
+  const preferred = `${HERO_TEXT_MAX_REM}rem - ${(length * HERO_TEXT_LENGTH_SLOPE).toFixed(3)}rem + 0.6vw`;
+  return `clamp(${HERO_TEXT_MIN_REM}rem, calc(${preferred}), ${HERO_TEXT_MAX_REM}rem)`;
 }
 
 /**
@@ -679,7 +680,10 @@ function ShortGist({ text, colorKey }: { text: string; colorKey: string }) {
       className="flex h-full min-h-[160px] w-full items-center justify-center overflow-hidden rounded-3xl p-4 text-left sm:p-5"
       style={{ backgroundColor: gistColorFor(colorKey) }}
     >
-      <p className={`min-w-0 break-words font-nunito font-bold leading-snug text-white ${heroTextSizeClass(text.length)}`}>
+      <p
+        className="min-w-0 break-words font-nunito font-bold leading-snug text-white"
+        style={{ fontSize: heroTextFontSize(text.length) }}
+      >
         {text}
       </p>
     </div>
