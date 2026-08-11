@@ -72,6 +72,29 @@ body {
   height: 100%;
 }
 
+/* The feed is the one screen with its own fully self-contained, fixed
+   (h-dvh) scroll shell — every scrollable region inside it is meant to
+   handle its own scrolling, and nothing above that shell should ever move
+   at all. But a tiny sub-pixel layout overflow (hard to fully rule out
+   across nested min-h-dvh flex containers, especially with iOS Safari's own
+   dvh rounding quirks) is enough to make the DOCUMENT itself technically
+   scrollable by a few px — and once that's true, iOS's native rubber-band
+   bounce takes the whole page along for a vertical drag, dragging the
+   header/wordmark and everything else with it, even though the gesture was
+   meant to be scoped to one card.
+   Scoped to the feed specifically (via the `feed-locked` class — see
+   FeedScrollLock, toggled per-route the same way ThemeRouteSync scopes dark
+   mode) rather than applied globally: other screens (settings, profile,
+   forms) have no scroll shell of their own and genuinely rely on normal
+   document scroll on mobile when their content runs taller than the
+   viewport — locking html/body unconditionally would break scrolling on
+   every one of those. */
+html.feed-locked,
+html.feed-locked body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

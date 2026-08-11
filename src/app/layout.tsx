@@ -4,6 +4,7 @@ import Script from "next/script";
 import { SessionWatcher } from "@/components/auth/SessionWatcher";
 import { AuthPromptModal } from "@/components/auth/AuthPromptModal";
 import { ThemeRouteSync } from "@/components/theme/ThemeRouteSync";
+import { FeedScrollLock } from "@/components/layout/FeedScrollLock";
 import { env } from "@/lib/env";
 import "./globals.css";
 
@@ -75,6 +76,7 @@ export default function RootLayout({
         </Script>
         <SessionWatcher />
         <ThemeRouteSync />
+        <FeedScrollLock />
         <AuthPromptModal />
         {children}
       </body>
