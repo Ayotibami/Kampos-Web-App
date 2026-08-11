@@ -7,11 +7,11 @@ import { Avatar } from "@/components/ui/Avatar";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
 import { WebcamCapture } from "./WebcamCapture";
 import { GiphyPicker } from "./GiphyPicker";
-import { CameraIconFill, ImageIconFill, X, Video, Sticker } from "@/components/ui/icons";
+import { CameraIconFill, ImageIconFill, PaletteIconFill, X, Video, Sticker } from "@/components/ui/icons";
 import { useGistStore, MediaUploadError } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { apiErrorMessage } from "@/lib/api";
-import { LIMITS } from "@/lib/brand";
+import { LIMITS, GIST_CARD_PALETTE, GIST_COLOR_KEYS, type GistColorKey } from "@/lib/brand";
 import { stripInvisibleChars, sanitizeForSubmit, sanitizeFileName } from "@/lib/sanitize";
 import {
   ALLOWED_MEDIA_TYPES,
@@ -183,12 +183,23 @@ export function CreateGistSheet({
   const isEditing = !!editGist;
 
   const [text, setText] = useState("");
+  // Poster's own pick for the short-text hero color — null means "no pick,
+  // fall back to the hash-based color" same as before this existed. Only
+  // ever meaningful while colorPickerEligible (see below) is true; kept
+  // around (not cleared) if they type past the threshold and back below it,
+  // so a pick isn't thrown away just because they were mid-typing.
+  const [pickedColor, setPickedColor] = useState<GistColorKey | null>(null);
+  const [showColorPicker, setShowColorPicker] = useState(false);
 
   // Quoting a gist (or editing one) opens this sheet pre-filled — re-seed
   // the text each time it's opened (not just on mount) since the sheet can
   // be reused across different quotes/edits.
   useEffect(() => {
-    if (open) setText(editGist?.gist_text ?? initialText ?? "");
+    if (open) {
+      setText(editGist?.gist_text ?? initialText ?? "");
+      setPickedColor(null);
+      setShowColorPicker(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editGist?.gist_id]);
 
@@ -212,6 +223,13 @@ export function CreateGistSheet({
   }, [text, updateScrollThumb]);
 
   const [media, setMedia] = useState<PickedMedia[]>([]);
+  // Same rendering rule GistCard uses to decide "colored hero card vs plain
+  // text + media" (SHORT_TEXT there) — a color pick only ever matters while
+  // this is true, since otherwise the plain layout never shows it at all.
+  // Also creation-only for now: `update()` doesn't send color_key through to
+  // the backend's PATCH route, so offering the picker mid-edit would look
+  // like it works and then silently not save.
+  const colorPickerEligible = !isEditing && text.length < 200 && media.length === 0;
   // Existing media the user removed during this edit session — the actual
   // DELETE calls only fire on Save (matches how new picks only actually
   // upload on Save too), so closing without saving leaves the gist
@@ -441,7 +459,10 @@ export function CreateGistSheet({
         // Text creates the gist row first (unavoidable with the current
         // two-step API), but if any media fails, that gist is deleted
         // again immediately rather than left behind text-only.
-        const gist = await create({ gist_text: clean });
+        const gist = await create({
+          gist_text: clean,
+          color_key: colorPickerEligible ? pickedColor : null,
+        });
         const gistId = gist!.gist_id;
         if (media.length) {
           const results = await Promise.allSettled(
@@ -585,7 +606,36 @@ export function CreateGistSheet({
 
           {/* Actions */}
           <div className="shrink-0 space-y-5 border-t border-white/40 px-5 py-4">
-            <div className="flex items-center gap-3">
+            {/* Background-color swatch strip — its own row directly above
+                the icon row the palette button lives in (not squeezed
+                beside that button): 12 swatches need real width, and
+                cramming them next to camera/image/gif on a narrow mobile
+                sheet forced an awkward wrap right against unrelated
+                buttons. This still reads as "belonging" to the palette
+                button since it's the row immediately above it. Only
+                reachable via that button, and only ever rendered while a
+                pick would actually show up (colorPickerEligible): the
+                colored hero block this controls only renders for short,
+                media-free gists (matches GistCard's own `short` check), so
+                offering it any other time would be a dead affordance. */}
+            {showColorPicker && colorPickerEligible && (
+              <div className="flex flex-wrap gap-2">
+                {GIST_COLOR_KEYS.map((key, i) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setPickedColor((c) => (c === key ? null : key))}
+                    aria-label={`${key} background`}
+                    aria-pressed={pickedColor === key}
+                    className={`h-7 w-7 shrink-0 rounded-full ring-2 ring-offset-2 ring-offset-brand-tint transition active:scale-90 ${
+                      pickedColor === key ? "ring-brand" : "ring-transparent"
+                    }`}
+                    style={{ backgroundColor: GIST_CARD_PALETTE[i] }}
+                  />
+                ))}
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={() => setShowCamera(true)}
@@ -624,7 +674,19 @@ export function CreateGistSheet({
                   e.target.value = "";
                 }}
               />
-              <div className="ml-auto">
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowColorPicker((v) => !v)}
+                  aria-label="Choose a background color"
+                  aria-pressed={showColorPicker}
+                  disabled={!colorPickerEligible}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition active:scale-95 disabled:opacity-30 disabled:shadow-none disabled:active:scale-100 ${
+                    showColorPicker ? "bg-brand-dark shadow-brand/40" : "bg-brand shadow-brand/30 hover:bg-brand-dark"
+                  }`}
+                >
+                  <PaletteIconFill className="h-4 w-4" weight="fill" />
+                </button>
                 <CharCountRing length={text.length} max={LIMITS.gist} />
               </div>
             </div>

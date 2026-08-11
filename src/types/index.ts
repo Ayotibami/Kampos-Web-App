@@ -76,6 +76,10 @@ export interface Gist {
   campus_tag?: string;
   major_tag?: string;
   level?: string;
+  /** The poster's own pick for the short-text hero color (one of
+   * GIST_COLOR_KEYS in lib/brand.ts) — null/absent falls back to the
+   * gist_id-hash-based color, same as before this existed. */
+  color_key?: string | null;
   /** The viewer's own existing reaction on this gist, hydrated straight from
    * the list/get response — null when there's no viewer or they haven't
    * reacted yet, so the UI can show it as already-selected without a

@@ -57,4 +57,5 @@ export {
   Image as ImageIconFill,
   PencilSimple as EditIconFill,
   TrashSimple as DeleteIconFill,
+  Palette as PaletteIconFill,
 } from "@phosphor-icons/react";

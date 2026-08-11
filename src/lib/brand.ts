@@ -4,19 +4,24 @@
  * deliberate brand decision.
  */
 
-// Muted dark backgrounds used for short, text-only gists (mobile Gist.tsx GistCard).
+// Muted dark backgrounds used for short, text-only gists (mobile Gist.tsx
+// GistCard). One recipe, fixed 36% saturation / 25% lightness — only hue
+// changes swatch to swatch — retuned so each one actually reads as its
+// common name (a layman color wheel: red/orange/yellow/.../pink) instead of
+// design-jargon like "olive" or "indigo" for names a lot of people won't
+// immediately place.
 export const GIST_CARD_PALETTE = [
   "#572929", // red
-  "#573E29", // orange
-  "#575729", // olive
-  "#3E5729", // lime
-  "#2E5729", // green
-  "#29573E", // teal
-  "#295757", // cyan
-  "#293E57", // blue
-  "#2E2957", // indigo
-  "#3E2957", // purple
-  "#572948", // magenta
+  "#574029", // orange
+  "#575329", // yellow
+  "#3c5729", // lime
+  "#295730", // green
+  "#29574b", // teal
+  "#294f57", // cyan
+  "#293857", // blue
+  "#2f2957", // indigo
+  "#442957", // purple
+  "#572940", // pink
   "#292929", // neutral
 ] as const;
 
@@ -30,6 +35,33 @@ export function gistColorFor(key: string): string {
     hash = (hash * 31 + key.charCodeAt(i)) | 0;
   }
   return GIST_CARD_PALETTE[Math.abs(hash) % GIST_CARD_PALETTE.length];
+}
+
+// Stable identifiers for each palette swatch, same order as
+// GIST_CARD_PALETTE — lets a poster's chosen color survive as a small
+// string on the gist (color_key) instead of an array index that would
+// silently point at a different color if the palette's order ever changes.
+// Mirrored by hand in KamposBackend's gist.controller.ts (GIST_COLOR_KEYS)
+// since that's a separate repo/language — keep both in sync if this list
+// ever changes.
+export const GIST_COLOR_KEYS = [
+  "red", "orange", "yellow", "lime", "green", "teal",
+  "cyan", "blue", "indigo", "purple", "pink", "neutral",
+] as const;
+export type GistColorKey = (typeof GIST_COLOR_KEYS)[number];
+
+/**
+ * Resolves a gist's actual hero color: the poster's own pick when they made
+ * one (validated against GIST_COLOR_KEYS — never trust a stray string
+ * straight into a lookup), falling back to the deterministic hash-based
+ * pick for gists nobody explicitly colored.
+ */
+export function gistColorForGist(colorKey: string | null | undefined, fallbackSeed: string): string {
+  if (colorKey) {
+    const idx = GIST_COLOR_KEYS.indexOf(colorKey as GistColorKey);
+    if (idx !== -1) return GIST_CARD_PALETTE[idx];
+  }
+  return gistColorFor(fallbackSeed);
 }
 
 const GIST_LIMIT = 700;
