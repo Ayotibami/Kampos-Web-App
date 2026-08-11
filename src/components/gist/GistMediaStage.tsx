@@ -478,13 +478,13 @@ export function GistMediaBodyPanel({
               <button
                 type="button"
                 onClick={() => onModeChange("text")}
-                className="pointer-events-auto absolute inset-x-0 bottom-0 line-clamp-2 break-words bg-black/55 px-4 pb-2.5 pt-3 text-left font-nunito text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3"
+                className="pointer-events-auto absolute inset-x-0 bottom-0 line-clamp-2 break-words rounded-2xl bg-black/55 px-4 pb-2.5 pt-3 text-left font-nunito text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3"
               >
                 {preview}
-                <span className="font-bold text-white"> …more</span>
+                <span className="font-bold text-brand-accent"> …more</span>
               </button>
             ) : (
-              <p className="pointer-events-none absolute inset-x-0 bottom-0 line-clamp-2 break-words bg-black/55 px-4 pb-2.5 pt-3 text-left font-nunito text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3">
+              <p className="pointer-events-none absolute inset-x-0 bottom-0 line-clamp-2 break-words rounded-2xl bg-black/55 px-4 pb-2.5 pt-3 text-left font-nunito text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3">
                 {preview}
               </p>
             )}
