@@ -125,6 +125,19 @@ export const GistCard = memo(function GistCard({
   const [reactError, setReactError] = useState<string>();
   const actionsRef = useRef<HTMLDivElement>(null);
 
+  // Needed here (not just further down where it used to live) to gate the
+  // hook right below — a media gist never renders the text-only branch
+  // this hook's scrollRef is meant to attach to, so its scrollRef would
+  // stay null forever. With a null scrollRef, useOverscrollNav's
+  // startedInContent check reads as "not content" for every touch, which
+  // made it claim ANY touch on the card as immediate-navigate — including
+  // a touch actually meant to scroll the media gist's own expanded
+  // caption, racing against GistMediaBodyPanel's own, correctly-scoped
+  // instance for the same touch. Simplest fix: don't even run this one
+  // for a media gist, since GistMediaBackdrop/GistMediaBodyPanel already
+  // cover it completely.
+  const hasMedia = !!gist.media && gist.media.length > 0;
+
   // Text-only body's own vertical-drag-past-the-edge → next/prev gist —
   // see useOverscrollNav. Media gists get the equivalent inside
   // GistMediaBackdrop/GistMediaBodyPanel instead, since their scrollable
@@ -134,7 +147,7 @@ export const GistCard = memo(function GistCard({
     y: pullY,
     onNext,
     onPrev,
-    enabled: isActive,
+    enabled: isActive && !hasMedia,
   });
 
   // Double-tap-to-react (Instagram-style) — anywhere on a text-only card
@@ -166,7 +179,8 @@ export const GistCard = memo(function GistCard({
     }
   };
 
-  const hasMedia = !!gist.media && gist.media.length > 0;
+  // (hasMedia itself now lives further up, ahead of the useOverscrollNav
+  // call it needs to gate — see its own comment there.)
   // Lifted up (not local to the media panel) because the header/footer need
   // to know about it too — they switch to light text + let the backdrop show
   // through only while media mode is active.
