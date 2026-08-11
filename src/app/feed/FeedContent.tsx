@@ -12,8 +12,7 @@ import { CommentSheet } from "@/components/comment/CommentSheet";
 import { Illustration } from "@/components/brand/illustrations";
 import { Avatar } from "@/components/ui/Avatar";
 import { Wordmark } from "@/components/brand/Wordmark";
-import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { SettingsIconFill, Plus, RefreshCw, CommentIconFill } from "@/components/ui/icons";
+import { Plus, RefreshCw, CommentIconFill } from "@/components/ui/icons";
 import { AnimatePresence } from "framer-motion";
 import { useGistStore } from "@/stores/gistStore";
 import { useCommentStore } from "@/stores/commentStore";
@@ -284,18 +283,90 @@ export function FeedContent() {
               I looking at" reads as content, not global nav), left-aligned
               so it has room to grow rightward as more filters get added. */}
           <header className="sticky top-0 z-10 w-full shrink-0 border-b border-line bg-surface/85 backdrop-blur-md">
-            <div className="mx-auto flex max-w-[740px] items-center justify-between px-4 py-2 sm:px-6 md:py-2.5">
-              <Wordmark accentClassName="text-brand" className="text-lg sm:text-xl" />
+            <div className="mx-auto flex max-w-[740px] items-center gap-3 px-4 py-2 sm:px-6 md:py-2.5">
+              <Wordmark accentClassName="text-brand" className="shrink-0 text-lg sm:text-xl" />
 
-              <div className="flex items-center justify-end gap-1.5 sm:gap-2.5">
-                <Link
-                  href="/settings"
-                  aria-label="Settings"
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
+              {/* Compose trigger — squeezed onto the wordmark's row (which
+                  had height to spare) instead of its own full row below.
+                  One consistent condensed pill style at every breakpoint,
+                  not the old mobile-pill/desktop-underline split, since
+                  this slot is always a short single line now. */}
+              <div className="relative min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setComposePlaceholder(currentFullPromptRef.current || promptText);
+                    setShowCreate(true);
+                    dismissComposeHint();
+                  }}
+                  className="group flex w-full cursor-pointer items-center gap-2 rounded-full bg-surface-2 px-3 py-1.5 shadow-sm shadow-black/5 ring-1 ring-line/50 font-poppins text-sm font-medium text-faint transition hover:ring-brand/40 focus:outline-none"
                 >
-                  <SettingsIconFill className="h-5 w-5" weight="regular" />
-                </Link>
-                <ThemeToggle />
+                  <motion.div
+                    className="flex min-w-0 flex-1 items-center gap-2"
+                    animate={{ scale: promptPulse ? 1.02 : 1 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 18 }}
+                  >
+                    <div className="relative h-6 w-6 shrink-0">
+                      <div className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full bg-brand/5 ring-1 ring-line/50">
+                        <Avatar src={myImageUrl} />
+                      </div>
+                      {avatarPing > 0 && (
+                        <motion.span
+                          key={avatarPing}
+                          aria-hidden
+                          className="pointer-events-none absolute inset-0 rounded-full border-2 border-brand"
+                          initial={{ scale: 1, opacity: 0.6 }}
+                          animate={{ scale: 1.7, opacity: 0 }}
+                          transition={{ duration: 0.8, ease: "easeOut" }}
+                        />
+                      )}
+                    </div>
+                    <span className="flex min-w-0 flex-1 items-center overflow-hidden">
+                      <span
+                        aria-hidden
+                        className="mr-1 inline-block h-[1.1em] w-[2px] shrink-0 animate-pulse bg-brand"
+                      />
+                      <span
+                        className={`min-w-0 flex-1 truncate text-left text-sm transition duration-300 ${
+                          promptFading ? "opacity-0" : "opacity-100"
+                        } ${promptPulse ? "text-brand" : ""}`}
+                      >
+                        {promptText || ' '}
+                      </span>
+                    </span>
+                  </motion.div>
+                  <span className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand text-white transition">
+                    <Plus className="h-3 w-3" />
+                  </span>
+                </button>
+
+                {/* One-time coach mark: teaches that this row is tappable. */}
+                <AnimatePresence>
+                  {showComposeHint && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.25 }}
+                      className="absolute left-6 top-full z-20 mt-1.5 flex flex-col items-center"
+                    >
+                      <span aria-hidden className="h-2 w-2 rotate-45 bg-brand-ink" />
+                      <span className="-mt-1 whitespace-nowrap rounded-full bg-brand-ink px-3 py-1.5 font-poppins text-xs font-medium text-white shadow-lg">
+                        Tap here make you gist!
+                      </span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            <div className="mx-auto flex max-w-[740px] items-center justify-between gap-3 px-4 pb-2.5 pt-1 sm:px-6">
+              <div className="inline-flex items-center gap-2 overflow-x-auto no-scrollbar">{tabButtons}</div>
+
+              {/* Settings + theme toggle moved off the header for now — they
+                  belong on the profile page instead. Just the avatar stays
+                  as the header's own entry point to it. */}
+              <div className="flex shrink-0 items-center justify-end">
                 <Link
                   href="/profile"
                   aria-label="Your profile"
@@ -304,10 +375,6 @@ export function FeedContent() {
                   <Avatar src={myImageUrl} />
                 </Link>
               </div>
-            </div>
-
-            <div className="mx-auto max-w-[740px] overflow-x-auto px-4 pb-2.5 pt-1 no-scrollbar sm:px-6">
-              <div className="inline-flex items-center gap-2">{tabButtons}</div>
             </div>
           </header>
 
@@ -332,87 +399,6 @@ export function FeedContent() {
               }}
             />
 
-            {/* Compose Trigger */}
-            <div className="relative z-10 w-full max-w-[620px] px-4 mb-2 shrink-0 md:max-w-[740px] md:px-6">
-              <button
-                type="button"
-                onClick={() => {
-                  // The full sentence, not whatever partial fragment had
-                  // typed out so far (see currentFullPromptRef).
-                  setComposePlaceholder(currentFullPromptRef.current || promptText);
-                  setShowCreate(true);
-                  dismissComposeHint();
-                }}
-                className="group flex w-full cursor-pointer items-center gap-2 rounded-full bg-surface-2 px-3 py-2 shadow-sm shadow-black/5 ring-1 ring-line/50 font-poppins text-base font-medium text-faint transition md:gap-3 md:rounded-none md:bg-transparent md:px-0 md:py-0 md:pb-2 md:border-b-2 md:border-line md:shadow-none md:ring-0 md:hover:border-brand/60 md:hover:text-brand focus:outline-none"
-              >
-                {/* Only the avatar + prompt pulse-scale \u2014 the trailing Plus
-                    icon sits outside this wrapper so it stays put, unscaled. */}
-                <motion.div
-                  className="flex min-w-0 flex-1 items-center gap-2 md:gap-3"
-                  animate={{ scale: promptPulse ? 1.02 : 1 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 18 }}
-                >
-                  <div className="relative h-7 w-7 shrink-0 md:h-10 md:w-10">
-                    <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-brand/5 ring-1 ring-line/50 md:h-10 md:w-10">
-                      <Avatar src={myImageUrl} />
-                    </div>
-                    {avatarPing > 0 && (
-                      <motion.span
-                        key={avatarPing}
-                        aria-hidden
-                        className="pointer-events-none absolute inset-0 rounded-full border-2 border-brand"
-                        initial={{ scale: 1, opacity: 0.6 }}
-                        animate={{ scale: 1.7, opacity: 0 }}
-                        transition={{ duration: 0.8, ease: "easeOut" }}
-                      />
-                    )}
-                  </div>
-                  <span className="flex min-w-0 flex-1 items-center overflow-hidden">
-                    {/* Blinking caret up front, deliberately \u2014 a live "type here"
-                        cue that invites tapping, even though it opens the full
-                        composer rather than accepting text inline. */}
-                    <span
-                      aria-hidden
-                      className="mr-1 inline-block h-[1.1em] w-[2px] shrink-0 animate-pulse bg-brand"
-                    />
-                    <span
-                      className={`min-w-0 flex-1 truncate text-left text-sm transition duration-300 md:text-base ${
-                        promptFading ? "opacity-0" : "opacity-100"
-                      } ${promptPulse ? "text-brand" : ""}`}
-                    >
-                      {promptText || '\u00A0'}
-                    </span>
-                  </span>
-                </motion.div>
-                {/* Trailing icon \u2014 a persistent, universal "this creates something"
-                    cue. Solid brand fill: this is the primary CTA on the whole
-                    feed, so it should read as more confident than the per-gist
-                    dot-menu (a secondary utility), not less. */}
-                <span className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand text-white transition md:h-7 md:w-7">
-                  <Plus className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                </span>
-              </button>
-
-              {/* One-time coach mark: teaches that this row is tappable. Arrow
-                  points at the avatar, wherever it currently sits (smaller,
-                  left-shifted on mobile's pill; original spot on desktop). */}
-              <AnimatePresence>
-                {showComposeHint && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -6 }}
-                    transition={{ duration: 0.25 }}
-                    className="absolute left-7 top-full z-20 mt-1.5 flex flex-col items-center md:left-16"
-                  >
-                    <span aria-hidden className="h-2 w-2 rotate-45 bg-brand-ink" />
-                    <span className="-mt-1 rounded-full bg-brand-ink px-3 py-1.5 font-poppins text-xs font-medium text-white shadow-lg">
-                      Tap here make you gist!
-                    </span>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
             {loading ? (
               <div className="relative z-10 flex min-h-0 flex-1 w-full justify-center px-4">
                 <div className="h-full w-full max-w-[620px] md:max-w-[740px]">
