@@ -6,12 +6,19 @@ import { animate, type MotionValue } from "framer-motion";
 // How much the content visually "gives" while pulled past its own edge —
 // damped well below 1:1 with the finger so it reads as resistance (the
 // classic iOS overscroll bounce), not a full free drag.
-const PULL_RESISTANCE = 0.45;
+const PULL_RESISTANCE = 0.55;
 // How far (already-damped) that pull has to travel before release actually
 // commits to navigating, rather than just snapping back — big enough that
 // the natural little bounce at the end of a normal scroll never fires it by
-// accident.
-const COMMIT_THRESHOLD_PX = 70;
+// accident. Deliberately small: this is the SLOW-drag path, not the only
+// path — see VELOCITY_COMMIT_PX_PER_MS below for a quick flick that
+// commits well before traveling this far at all.
+const COMMIT_THRESHOLD_PX = 42;
+// A fast flick commits even short of the distance threshold — same idea as
+// the horizontal swipe's own velocity check (SWIPE_THRESHOLD in GistStack,
+// paired with a ~500px/s velocity trigger). 0.5px/ms = 500px/s, matching
+// that existing feel so both gestures need roughly the same effort.
+const VELOCITY_COMMIT_PX_PER_MS = 0.5;
 // Raw finger movement (before any resistance) required before this even
 // CLAIMS a touch as a pull attempt, regardless of boundary state. Matters
 // most now that the touch surface spans the whole card frame, not just
@@ -33,8 +40,11 @@ const CLAIM_SLOP_PX = 8;
  * very top or bottom AND keeps dragging past it does this take over —
  * rubber-banding a little so it reads as "one more pull and this'll move
  * on," then firing onPrev (pulled down past the top) or onNext (pulled up
- * past the bottom) once they commit past the threshold, and spring-snapping
- * back to rest either way on release.
+ * past the bottom) once the release qualifies as a commit — either the pull
+ * traveled far enough (COMMIT_THRESHOLD_PX, for a slower deliberate drag)
+ * or it was moving fast enough (VELOCITY_COMMIT_PX_PER_MS, for a quick
+ * short flick that never had to travel far) — and spring-snapping back to
+ * rest either way on release.
  *
  * Works identically for content with nothing to scroll at all (a short
  * hero-text card, a bare media tile) — with no overflow, `scrollTop` is
@@ -103,18 +113,36 @@ export function useOverscrollNav<T extends HTMLElement>({
     // scroll behaves completely normally.
     let pulling = false;
     let committed = false;
+    // Instantaneous speed of the last touchmove, in raw (pre-resistance)
+    // px/ms, signed the same way as `dy` (negative = moving up). Tracked
+    // only from the moment of claiming onward — a fast, short flick should
+    // commit on release even if it never traveled far enough to cross
+    // COMMIT_THRESHOLD_PX on distance alone.
+    let velocity = 0;
+    let lastMoveY = 0;
+    let lastMoveTime = 0;
+    // Whether THIS touch started inside the actual scrollable content (the
+    // text paragraph, the caption panel) as opposed to the surrounding
+    // header/footer chrome (avatar row, date/reactions row). The
+    // header/footer were never readable in the first place — there's no
+    // "still scrolling to read" state to protect there, so a pull starting
+    // on them should navigate immediately regardless of where the content
+    // happens to be scrolled to. Only a touch that starts ON the content
+    // itself needs the boundary gate below.
+    let startedInContent = true;
 
-    // Measured on the CONTENT element (scrollRef), not the surface the
-    // touch landed on — a touch starting on the header/footer chrome has
-    // no scroll position of its own; it defers entirely to whatever the
-    // actual content's boundary state is. No content element at all (or
-    // one that's never been measured) reads as "no scroll room," same as
-    // any other no-overflow case — trivially always at both edges.
+    // Measured on the CONTENT element (scrollRef) — but only actually
+    // consulted when the touch itself started there (see startedInContent
+    // above). No content element at all (or one that's never been
+    // measured) reads as "no scroll room," same as any other no-overflow
+    // case — trivially always at both edges.
     const atTop = () => {
+      if (!startedInContent) return true;
       const el = scrollRef.current;
       return !el || el.scrollTop <= 0;
     };
     const atBottom = () => {
+      if (!startedInContent) return true;
       const el = scrollRef.current;
       return !el || el.scrollTop >= el.scrollHeight - el.clientHeight - 1;
     };
@@ -123,6 +151,8 @@ export function useOverscrollNav<T extends HTMLElement>({
       startY = e.touches[0].clientY;
       pulling = false;
       committed = false;
+      const target = e.touches[0].target;
+      startedInContent = !!scrollRef.current && target instanceof Node && scrollRef.current.contains(target);
     };
 
     const onTouchMove = (e: TouchEvent) => {
@@ -144,10 +174,17 @@ export function useOverscrollNav<T extends HTMLElement>({
         } else {
           return;
         }
+        lastMoveY = currentY;
+        lastMoveTime = performance.now();
       }
       // Once claimed, this touch is ours for the rest of the gesture —
       // stop the browser from also trying to scroll/bounce the same drag.
       e.preventDefault();
+      const now = performance.now();
+      const dt = now - lastMoveTime;
+      if (dt > 0) velocity = (currentY - lastMoveY) / dt;
+      lastMoveY = currentY;
+      lastMoveTime = now;
       const pullDy = currentY - pullStartY;
       const resisted = pullDy * PULL_RESISTANCE;
       y.set(resisted);
@@ -155,12 +192,19 @@ export function useOverscrollNav<T extends HTMLElement>({
     };
 
     const onTouchEnd = () => {
-      if (pulling && committed) {
-        if (y.get() > 0) onPrev?.();
+      const fastFlick = Math.abs(velocity) > VELOCITY_COMMIT_PX_PER_MS;
+      if (pulling && (committed || fastFlick)) {
+        // A fast flick trusts velocity's sign (the most instantaneous,
+        // accurate signal for a quick gesture); a slower pull that
+        // committed on distance alone trusts the pulled position's sign
+        // instead — either way, positive means "pulled down past the top."
+        const direction = fastFlick ? velocity : y.get();
+        if (direction > 0) onPrev?.();
         else onNext?.();
       }
       pulling = false;
       committed = false;
+      velocity = 0;
       animate(y, 0, { type: "spring", stiffness: 400, damping: 32 });
     };
 
