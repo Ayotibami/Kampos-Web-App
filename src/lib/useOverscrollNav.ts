@@ -4,9 +4,12 @@ import { useEffect, useRef, type RefObject } from "react";
 import { animate, type MotionValue } from "framer-motion";
 
 // How much the content visually "gives" while pulled past its own edge —
-// damped well below 1:1 with the finger so it reads as resistance (the
-// classic iOS overscroll bounce), not a full free drag.
-const PULL_RESISTANCE = 0.55;
+// still damped enough to read as resistance (the classic iOS overscroll
+// bounce) rather than a bare 1:1 drag, but only lightly — heavier damping
+// here is what made the whole gesture feel stiff/rigid even after the
+// commit threshold itself came down, since the card visibly lags behind
+// the finger for the ENTIRE drag, not just at the very end.
+const PULL_RESISTANCE = 0.7;
 // How far (already-damped) that pull has to travel before release actually
 // commits to navigating, rather than just snapping back — big enough that
 // the natural little bounce at the end of a normal scroll never fires it by
@@ -32,25 +35,26 @@ const VELOCITY_COMMIT_PX_PER_MS = 0.5;
 const CLAIM_SLOP_PX = 8;
 
 /**
- * Turns "keep dragging vertically after you've hit the edge of this
- * content" into a next/prev navigation gesture, without ever competing with
- * ordinary reading-scroll for the same touch: while there's still something
- * left to scroll, this does nothing at all and the browser's native scroll
- * owns the gesture completely. Only once the user is already resting at the
- * very top or bottom AND keeps dragging past it does this take over —
- * rubber-banding a little so it reads as "one more pull and this'll move
- * on," then firing onPrev (pulled down past the top) or onNext (pulled up
- * past the bottom) once the release qualifies as a commit — either the pull
- * traveled far enough (COMMIT_THRESHOLD_PX, for a slower deliberate drag)
- * or it was moving fast enough (VELOCITY_COMMIT_PX_PER_MS, for a quick
- * short flick that never had to travel far) — and spring-snapping back to
- * rest either way on release.
+ * A vertical drag turns into a next/prev navigation gesture, driven by
+ * where the touch actually started:
+ *  - Started on the header/footer chrome, or on content with nothing to
+ *    scroll (a short hero card, bare media) — navigates right away. There's
+ *    no reading-scroll to protect in either case, so the whole thing
+ *    behaves like a big tap-adjacent swipe target.
+ *  - Started on content that genuinely overflows (a long paragraph, an
+ *    expanded caption) — this NEVER navigates, full stop, no matter how far
+ *    it's scrolled. That area is pure-scroll-only by design: reaching the
+ *    end doesn't switch gists either, only touching the header/footer does.
+ *    Ordinary reading-scroll is never competed with, since this simply
+ *    never claims a touch that started there.
  *
- * Works identically for content with nothing to scroll at all (a short
- * hero-text card, a bare media tile) — with no overflow, `scrollTop` is
- * always 0 and already at both "top" and "bottom" simultaneously, so any
- * vertical drag on it is immediately treated as a pull past the edge. No
- * special-casing needed for the no-scroll case; it falls out for free.
+ * When it does navigate: a little rubber-band as the drag builds, so it
+ * reads as "one more pull and this'll move on," then firing onPrev (pulled
+ * down) or onNext (pulled up) once the release qualifies as a commit —
+ * either the pull traveled far enough (COMMIT_THRESHOLD_PX, for a slower
+ * deliberate drag) or it was moving fast enough
+ * (VELOCITY_COMMIT_PX_PER_MS, for a quick short flick that never had to
+ * travel far) — and spring-snapping back to rest either way on release.
  *
  * Two different elements are involved on purpose, and they're not the same
  * thing:
@@ -131,20 +135,37 @@ export function useOverscrollNav<T extends HTMLElement>({
     // itself needs the boundary gate below.
     let startedInContent = true;
 
+    // True only when the content element actually has more height than it
+    // can show — a real, scrollable overflow, not just "technically has a
+    // scrollRef." A short hero card or a caption that fits with room to
+    // spare has none, and should keep behaving like the header/footer (see
+    // below) — swiping it navigates immediately, since there's no reading
+    // left to protect. Only genuinely overflowing content gets the
+    // pure-scroll treatment.
+    const hasOverflow = () => {
+      const el = scrollRef.current;
+      return !!el && el.scrollHeight > el.clientHeight + 1;
+    };
+
     // Measured on the CONTENT element (scrollRef) — but only actually
     // consulted when the touch itself started there (see startedInContent
-    // above). No content element at all (or one that's never been
-    // measured) reads as "no scroll room," same as any other no-overflow
-    // case — trivially always at both edges.
+    // above). A touch starting on the header/footer chrome always reads as
+    // "at the edge" (nothing there to protect). A touch starting on
+    // genuinely overflowing content NEVER reads as "at the edge" — no
+    // matter how far it's scrolled, that content stays pure-scroll-only,
+    // per its own explicit request: reaching the end shouldn't switch
+    // gists either, only touching the header/footer should. Content with
+    // nothing to scroll falls through to "always at the edge," same as the
+    // chrome, since there's no scroll state worth protecting there.
     const atTop = () => {
       if (!startedInContent) return true;
-      const el = scrollRef.current;
-      return !el || el.scrollTop <= 0;
+      if (hasOverflow()) return false;
+      return true;
     };
     const atBottom = () => {
       if (!startedInContent) return true;
-      const el = scrollRef.current;
-      return !el || el.scrollTop >= el.scrollHeight - el.clientHeight - 1;
+      if (hasOverflow()) return false;
+      return true;
     };
 
     const onTouchStart = (e: TouchEvent) => {
@@ -205,7 +226,14 @@ export function useOverscrollNav<T extends HTMLElement>({
       pulling = false;
       committed = false;
       velocity = 0;
-      animate(y, 0, { type: "spring", stiffness: 400, damping: 32 });
+      // Matches the stack's own mobile fly-off spring (GistStack's
+      // mobileSlotFor transition) exactly, not just "something snappy" —
+      // when this fires, the outer card is ALSO mid-transition into its
+      // new slot on that same spring; a stiffer, faster spring here used
+      // to finish resetting this inner offset well before the outer one
+      // settled, so the last bit of the transition visibly changed speed
+      // partway through instead of reading as one continuous motion.
+      animate(y, 0, { type: "spring", stiffness: 230, damping: 27, mass: 0.9 });
     };
 
     surface.addEventListener("touchstart", onTouchStart, { passive: true });
