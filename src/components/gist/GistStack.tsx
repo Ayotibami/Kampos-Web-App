@@ -34,6 +34,25 @@ function slotFor(offset: number) {
   return { ...s, zIndex: 40 - offset };
 }
 
+// Mobile's transition — matching the reference in Kampos-frontend's
+// AnimatedGist: no 3D flip, no hinge, just a full-card-width slide plus a
+// light, consistent 20° tilt in the direction of travel. The outgoing card
+// slides one full width to the left while tilting to -20°; the incoming
+// card (mounted one offset ahead, off to the right at the mirror-image
+// +20°) slides the opposite full width back to 0 while untilting to 0° —
+// both driven by the same two numbers, meeting in the middle. Purely
+// translateX + a small rotate, nothing fancier.
+// zIndex is deliberately NOT graded by direction (unlike desktop's stack) —
+// whichever card is becoming front needs to paint on top of whichever is
+// leaving in BOTH directions, or the tilt's wider bounding box lets the
+// leaving card's edge visibly sit on top of the arriving one instead of
+// disappearing behind it.
+function mobileSlotFor(offset: number) {
+  if (offset < 0) return { x: "-100%", y: 0, rotate: -20, scale: 1, opacity: 1, zIndex: 20 };
+  if (offset === 0) return { x: 0, y: 0, rotate: 0, scale: 1, opacity: 1, zIndex: 50 };
+  return { x: "100%", y: 0, rotate: 20, scale: 1, opacity: 1, zIndex: 20 };
+}
+
 /**
  * The signature Kampos feed: a horizontal card stack. The front gist can be
  * dragged/flicked off to the side (rotating out) while the next rises into view
@@ -172,15 +191,19 @@ export function GistStack({
         {gists.map((gist, i) => {
           const offset = i - index;
           if (offset < -1 || offset > WINDOW_AHEAD) return null;
-          // Peek cards (offset > 0) only render on desktop — see isMobile.
-          if (isMobile && offset > 0) return null;
+          // Desktop mounts the whole cascading peek (WINDOW_AHEAD deep).
+          // Mobile only ever needs the immediate neighbor on either side —
+          // one card mid-slide-out (-1), one card waiting to slide in
+          // (+1) — since its transition is driven by those two slots alone,
+          // not a stack.
+          if (isMobile && offset > 1) return null;
           const isFront = offset === 0;
-          const slot = slotFor(offset);
+          const slot = isMobile ? mobileSlotFor(offset) : slotFor(offset);
           return (
             <motion.div
               key={gist.gist_id}
               className="absolute inset-0 will-change-transform"
-              style={{ zIndex: slot.zIndex }}
+              style={{ zIndex: slot.zIndex, pointerEvents: isFront ? "auto" : "none" }}
               initial={false}
               animate={{
                 x: slot.x,
@@ -189,7 +212,11 @@ export function GistStack({
                 scale: slot.scale,
                 opacity: slot.opacity,
               }}
-              transition={{ type: "spring", stiffness: 260, damping: 30 }}
+              transition={
+                isMobile
+                  ? { type: "spring", stiffness: 230, damping: 27, mass: 0.9 }
+                  : { type: "spring", stiffness: 260, damping: 30 }
+              }
               drag={isFront ? "x" : false}
               dragElastic={0.5}
               dragConstraints={{ left: 0, right: 0 }}
@@ -206,7 +233,10 @@ export function GistStack({
                   onDeleted={onGistDeleted}
                   onEdited={onGistEdited}
                 />
-                {/* Swipe-peek tease: peeking cards (offset > 0) already sit
+                {/* Swipe-peek tease (desktop only — mobile's offset-1 card
+                    sits fully off to the side edge-on/invisible until its
+                    own flip-in animation, so there's no partial edge to
+                    peek from). Peeking cards (offset > 0) already sit
                     rotated/offset behind the front card, so a sliver of their
                     right edge sticks out during a drag. Painting the gist's
                     first media item right there means a person glimpses the
@@ -221,7 +251,7 @@ export function GistStack({
                     fail. */}
                 {(() => {
                   const first = gist.media?.[0];
-                  if (offset <= 0 || !first) return null;
+                  if (isMobile || offset <= 0 || !first) return null;
                   const isVideo = first.media_type?.toLowerCase().includes("video");
                   const previewSrc = isVideo ? first.thumbnail_url : first.media_url || first.thumbnail_url;
                   if (!previewSrc) return null;
