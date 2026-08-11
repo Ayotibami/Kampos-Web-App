@@ -145,12 +145,34 @@ export function GistStack({
     }
   }, []);
 
+  // Guards against a single real swipe getting counted twice — the
+  // horizontal drag (Framer's own pointer-based system) and the vertical
+  // overscroll pull (a separate touch-based one, see useOverscrollNav) are
+  // two independent gesture detectors watching the same touch. A real
+  // thumb flick is rarely perfectly straight, so an almost-vertical swipe
+  // can have just enough sideways drift to ALSO cross the horizontal
+  // drag's own threshold — both systems then independently call next()
+  // for what was physically one swipe, skipping two gists instead of one.
+  // Since any such double-fire lands within the same touch-release tick,
+  // a short cross-source debounce (much shorter than the per-gesture-type
+  // wheelLock below, which solves a different problem) absorbs the
+  // duplicate without adding any perceptible delay to genuinely separate,
+  // deliberate consecutive swipes.
+  const lastNavAtRef = useRef(0);
+  const NAV_DEBOUNCE_MS = 150;
+
   const next = useCallback(() => {
+    const now = Date.now();
+    if (now - lastNavAtRef.current < NAV_DEBOUNCE_MS) return;
+    lastNavAtRef.current = now;
     dismissHint();
     setIndex((i) => Math.min(i + 1, gists.length - 1));
   }, [gists.length, dismissHint]);
 
   const prev = useCallback(() => {
+    const now = Date.now();
+    if (now - lastNavAtRef.current < NAV_DEBOUNCE_MS) return;
+    lastNavAtRef.current = now;
     dismissHint();
     setIndex((i) => Math.max(i - 1, 0));
   }, [dismissHint]);
