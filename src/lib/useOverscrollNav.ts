@@ -35,18 +35,24 @@ const VELOCITY_COMMIT_PX_PER_MS = 0.5;
 const CLAIM_SLOP_PX = 8;
 
 /**
- * A vertical drag turns into a next/prev navigation gesture, driven by
- * where the touch actually started:
+ * A vertical drag turns into a next/prev navigation gesture, without ever
+ * competing with ordinary reading-scroll for the same touch:
  *  - Started on the header/footer chrome, or on content with nothing to
  *    scroll (a short hero card, bare media) — navigates right away. There's
  *    no reading-scroll to protect in either case, so the whole thing
  *    behaves like a big tap-adjacent swipe target.
  *  - Started on content that genuinely overflows (a long paragraph, an
- *    expanded caption) — this NEVER navigates, full stop, no matter how far
- *    it's scrolled. That area is pure-scroll-only by design: reaching the
- *    end doesn't switch gists either, only touching the header/footer does.
- *    Ordinary reading-scroll is never competed with, since this simply
- *    never claims a touch that started there.
+ *    expanded caption) — reads its real scroll position. While there's
+ *    still something left to scroll, this does nothing at all and native
+ *    scroll owns the touch completely. Reaching the actual top/bottom and
+ *    continuing to pull DOES still navigate, deliberately — reaching the
+ *    end of something you're reading and continuing is the expected "next"
+ *    gesture in reading-heavy apps (Kindle, Twitter threads), not an
+ *    accident to guard against. What prevents an ordinary vigorous
+ *    scroll-to-the-bottom (and its natural little native bounce) from
+ *    misfiring isn't disabling this — it's COMMIT_THRESHOLD_PX and
+ *    VELOCITY_COMMIT_PX_PER_MS below requiring a genuinely deliberate extra
+ *    pull, well beyond what a normal scroll's own momentum ever produces.
  *
  * When it does navigate: a little rubber-band as the drag builds, so it
  * reads as "one more pull and this'll move on," then firing onPrev (pulled
@@ -135,37 +141,30 @@ export function useOverscrollNav<T extends HTMLElement>({
     // itself needs the boundary gate below.
     let startedInContent = true;
 
-    // True only when the content element actually has more height than it
-    // can show — a real, scrollable overflow, not just "technically has a
-    // scrollRef." A short hero card or a caption that fits with room to
-    // spare has none, and should keep behaving like the header/footer (see
-    // below) — swiping it navigates immediately, since there's no reading
-    // left to protect. Only genuinely overflowing content gets the
-    // pure-scroll treatment.
-    const hasOverflow = () => {
-      const el = scrollRef.current;
-      return !!el && el.scrollHeight > el.clientHeight + 1;
-    };
-
     // Measured on the CONTENT element (scrollRef) — but only actually
     // consulted when the touch itself started there (see startedInContent
     // above). A touch starting on the header/footer chrome always reads as
-    // "at the edge" (nothing there to protect). A touch starting on
-    // genuinely overflowing content NEVER reads as "at the edge" — no
-    // matter how far it's scrolled, that content stays pure-scroll-only,
-    // per its own explicit request: reaching the end shouldn't switch
-    // gists either, only touching the header/footer should. Content with
-    // nothing to scroll falls through to "always at the edge," same as the
-    // chrome, since there's no scroll state worth protecting there.
+    // "at the edge" (nothing there to protect). A touch starting on the
+    // content itself reads its REAL scroll position — reaching the actual
+    // end and continuing to pull deliberately still advances (the
+    // Kindle/Twitter-thread expectation: "keep going" at the end of
+    // something you're reading IS the next action), same as it's always
+    // been. What keeps a normal vigorous scroll-to-the-bottom from
+    // accidentally firing this isn't disabling it here — it's
+    // COMMIT_THRESHOLD_PX/VELOCITY_COMMIT_PX_PER_MS below requiring a
+    // genuinely deliberate extra pull past the edge, well beyond what
+    // native scroll's own little bounce ever produces on its own. No
+    // content element at all (or one that's never been measured) reads as
+    // "no scroll room," same as any other no-overflow case.
     const atTop = () => {
       if (!startedInContent) return true;
-      if (hasOverflow()) return false;
-      return true;
+      const el = scrollRef.current;
+      return !el || el.scrollTop <= 0;
     };
     const atBottom = () => {
       if (!startedInContent) return true;
-      if (hasOverflow()) return false;
-      return true;
+      const el = scrollRef.current;
+      return !el || el.scrollTop >= el.scrollHeight - el.clientHeight - 1;
     };
 
     const onTouchStart = (e: TouchEvent) => {
