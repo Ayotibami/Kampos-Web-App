@@ -532,7 +532,19 @@ export function FeedContent() {
       <CreateGistSheet
         open={showCreate}
         onClose={() => setShowCreate(false)}
-        onPosted={(fresh) => setGists((prev) => [...prev, fresh])}
+        onPosted={(fresh) =>
+          setGists((prev) => {
+            // Land right after whatever gist is currently in view — not
+            // the end of a list that could be hundreds deep — so the very
+            // next swipe shows the gist just posted, purely a local
+            // insertion position (the backend's own ordering/pagination is
+            // untouched). Falls back to the front of the list on the rare
+            // chance nothing's currently in view (e.g. an empty feed).
+            const idx = current ? prev.findIndex((g) => g.gist_id === current.gist_id) : -1;
+            if (idx === -1) return [fresh, ...prev];
+            return [...prev.slice(0, idx + 1), fresh, ...prev.slice(idx + 1)];
+          })
+        }
         placeholder={composePlaceholder}
       />
       <CommentSheet
