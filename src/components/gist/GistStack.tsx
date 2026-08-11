@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, type PanInfo } from "framer-motion";
 import { GistCard } from "./GistCard";
-import { ChevronLeft, ChevronRight } from "@/components/ui/icons";
+import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from "@/components/ui/icons";
 import { useIsMobile } from "@/lib/useIsMobile";
 import type { Gist } from "@/types";
 
-const SWIPE_THRESHOLD = 90; // px of horizontal drag to advance
+const SWIPE_THRESHOLD = 90; // px of horizontal drag to advance — desktop only, see isMobile below
 const WINDOW_AHEAD = 3; // how many upcoming cards to keep mounted (the peek) — desktop only, see isMobile below
 const HINT_SEEN_KEY = "kampos-swipe-hint-seen";
 // On mobile the card is already at (near-)full screen width, so the stacked
@@ -213,6 +213,11 @@ export function GistStack({
     window.setTimeout(() => (wheelLock.current = false), 420);
   };
 
+  // Desktop-only — mobile drops horizontal drag entirely (see GistStackCard):
+  // it was fighting the vertical overscroll-pull gesture for the same touch,
+  // producing a visible shake as both tried to move the card at once. Wheel
+  // and keyboard aren't touch-based, so they don't have that conflict and
+  // stay exactly as they were, on both platforms.
   const handleDragEnd = (info: PanInfo) => {
     if (info.offset.x < -SWIPE_THRESHOLD || info.velocity.x < -500) next();
     else if (info.offset.x > SWIPE_THRESHOLD || info.velocity.x > 500) prev();
@@ -313,7 +318,14 @@ function GistStackCard({
           ? { type: "spring", stiffness: 230, damping: 27, mass: 0.9 }
           : { type: "spring", stiffness: 260, damping: 30 }
       }
-      drag={isFront ? "x" : false}
+      // Mobile drops horizontal drag entirely — it was independently
+      // watching the same touch as the vertical overscroll-pull gesture
+      // (see useOverscrollNav), and a real thumb flick is rarely perfectly
+      // straight, so both would sometimes try to move the card at once,
+      // reading as a shake/fight instead of one clean motion. Desktop has
+      // no such conflict (mouse drag, not touch) and keeps working exactly
+      // as before.
+      drag={isFront && !isMobile ? "x" : false}
       dragElastic={0.5}
       dragConstraints={{ left: 0, right: 0 }}
       whileDrag={{ cursor: "grabbing" }}
@@ -404,24 +416,41 @@ function SwipeHint() {
         }}
       />
 
-      <div className="relative flex items-center gap-6 px-6 sm:gap-10">
+      {/* Mobile: up/down, matching the vertical overscroll-pull gesture —
+          horizontal drag was dropped there (see GistStackCard) since it
+          fought the vertical one for the same touch, so left/right chevrons
+          would now be teaching a gesture that no longer does anything. */}
+      <div className="flex flex-col items-center gap-4 px-6 md:hidden">
+        <motion.div
+          animate={{ y: [0, -16, 0] }}
+          transition={{ duration: 1.3, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <ChevronUp className="h-12 w-12 text-white" />
+        </motion.div>
+        <span className="text-center font-nunito text-xl font-semibold text-white">Scroll to browse</span>
+        <motion.div
+          animate={{ y: [0, 16, 0] }}
+          transition={{ duration: 1.3, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <ChevronDown className="h-12 w-12 text-white" />
+        </motion.div>
+      </div>
+
+      {/* Desktop: unchanged — drag and wheel both still work here too, but
+          the keyboard is the one thing with no other visible affordance. */}
+      <div className="hidden items-center gap-10 px-6 md:flex">
         <motion.div
           animate={{ x: [0, -16, 0] }}
           transition={{ duration: 1.3, repeat: Infinity, ease: "easeInOut" }}
         >
-          <ChevronLeft className="h-12 w-12 text-white sm:h-16 sm:w-16" />
+          <ChevronLeft className="h-16 w-16 text-white" />
         </motion.div>
-
-        <span className="text-center font-nunito text-xl font-semibold text-white sm:text-3xl">
-          <span className="md:hidden">Swipe to browse</span>
-          <span className="hidden md:inline">Press ← → to browse</span>
-        </span>
-
+        <span className="text-center font-nunito text-3xl font-semibold text-white">Press ← → to browse</span>
         <motion.div
           animate={{ x: [0, 16, 0] }}
           transition={{ duration: 1.3, repeat: Infinity, ease: "easeInOut" }}
         >
-          <ChevronRight className="h-12 w-12 text-white sm:h-16 sm:w-16" />
+          <ChevronRight className="h-16 w-16 text-white" />
         </motion.div>
       </div>
     </motion.div>
