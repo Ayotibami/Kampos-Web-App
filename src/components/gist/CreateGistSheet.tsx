@@ -107,6 +107,9 @@ function CharCountRing({ length, max }: { length: number; max: number }) {
 }
 
 const DEFAULT_PLACEHOLDER = "Wetin dey your mind? Gist us na 😌";
+// Matches the old trigger-button typing speed (PROMPT_TYPE_SPEED_MS) from
+// before that animation lived in FeedContent.
+const PLACEHOLDER_TYPE_SPEED_MS = 50;
 
 /** Brand-color circular progress ring for a mid-upload media thumbnail —
  * same construction as CharCountRing above, swapped to a fixed brand blue
@@ -205,6 +208,36 @@ export function CreateGistSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editGist?.gist_id]);
 
+  // Types out the compose trigger's snapshotted prompt (see the `placeholder`
+  // prop doc above) into the textarea's own placeholder, once, each time the
+  // sheet opens — the "notice me" typing effect that used to run continuously
+  // in the background on the trigger button itself now happens here instead,
+  // aimed at whichever single prompt got picked at click time. Editing/quoting
+  // (no `placeholder` passed) just shows the static default, no animation —
+  // there's no freshly-picked prompt behind it to justify one.
+  const [typedPlaceholder, setTypedPlaceholder] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    if (!placeholder) {
+      setTypedPlaceholder(DEFAULT_PLACEHOLDER);
+      return;
+    }
+    setTypedPlaceholder("");
+    let cancelled = false;
+    let i = 0;
+    const tick = () => {
+      if (cancelled) return;
+      i++;
+      setTypedPlaceholder(placeholder.slice(0, i));
+      if (i < placeholder.length) timer = window.setTimeout(tick, PLACEHOLDER_TYPE_SPEED_MS);
+    };
+    let timer = window.setTimeout(tick, PLACEHOLDER_TYPE_SPEED_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, placeholder]);
+
   // Custom scroll-position indicator for the textarea, replacing the native
   // scrollbar (hidden via no-scrollbar) with something that matches the
   // app's own look. null while there's nothing to scroll.
@@ -246,12 +279,19 @@ export function CreateGistSheet({
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    if (!heroPreviewActive) {
-      // Leaving hero mode — clear the inline fontSize/height fitHeroTextarea
-      // left behind, since an inline style always beats the plain-mode
-      // Tailwind classes (h-full, text-[15px]) for the same property. Left
-      // uncleared, the textarea would keep rendering at its last hero-mode
-      // size after reverting.
+    if (!heroPreviewActive || text.length === 0) {
+      // Leaving hero mode, or nothing typed yet — clear the inline
+      // fontSize/height fitHeroTextarea left behind, since an inline style
+      // always beats the plain-mode Tailwind classes (h-full, text-[15px])
+      // for the same property. Left uncleared, the textarea would keep
+      // rendering at its last hero-mode size after reverting. The
+      // empty-text case matters specifically for the placeholder: at length
+      // 0, nominalHeroTextRem would hand back the MAX hero size (shortest
+      // "text" reads biggest), which the placeholder — sharing the same
+      // element's font-size — would inherit and render huge. Skipping the
+      // hero sizing entirely while empty keeps the placeholder at normal
+      // reading size; real hero scaling only kicks in once there's actual
+      // text to size for its own length.
       el.style.fontSize = "";
       el.style.height = "";
       return;
@@ -260,6 +300,18 @@ export function CreateGistSheet({
     if (!container) return;
     fitHeroTextarea(el, container, nominalHeroTextRem(text.length));
   }, [text, heroPreviewActive]);
+
+  // Picking a color swaps the textarea into the colored hero layout — jump
+  // focus into it right away so typing can continue without an extra tap,
+  // same as landing in the sheet itself does via the plain textarea's own
+  // autoFocus.
+  useEffect(() => {
+    if (!heroPreviewActive) return;
+    // Deferred a frame so this always wins even if the click that triggered
+    // it (or anything else mid-transition) grabs focus in the same tick.
+    const id = requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(id);
+  }, [heroPreviewActive]);
 
   // Existing media the user removed during this edit session — the actual
   // DELETE calls only fire on Save (matches how new picks only actually
@@ -584,7 +636,7 @@ export function CreateGistSheet({
                   value={text}
                   onChange={(e) => setText(stripInvisibleChars(e.target.value).slice(0, LIMITS.gist))}
                   onScroll={updateScrollThumb}
-                  placeholder={placeholder || DEFAULT_PLACEHOLDER}
+                  placeholder={typedPlaceholder}
                   className={
                     heroPreviewActive
                       ? "w-full resize-none overflow-hidden bg-transparent text-center font-nunito font-bold leading-snug text-white outline-none placeholder:text-white/60 no-scrollbar"
@@ -678,6 +730,14 @@ export function CreateGistSheet({
                   <button
                     key={key}
                     type="button"
+                    // Swatches are a toolbar action on the textarea, not a
+                    // destination of their own — stop the browser's default
+                    // focus-follows-click from ever moving focus onto the
+                    // button, so the caret just stays put in the textarea
+                    // (or lands there via the effect below) instead of a
+                    // race between the button grabbing it and us taking it
+                    // back.
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setPickedColor((c) => (c === key ? null : key))}
                     aria-label={`${key} background`}
                     aria-pressed={pickedColor === key}

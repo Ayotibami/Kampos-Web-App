@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
@@ -24,13 +24,11 @@ type Tab = "Gist" | "Amebo";
 
 // Compose-trigger animation timing. The "notice me" pulse used to run on its
 // own faster interval, independent of the prompt text changing — now it
-// fires exactly when the text does, once per PROMPT_ROTATE_MS, so the two
-// read as one event (new prompt landing) instead of two unrelated ones.
-const PROMPT_PULSE_MS = 550; // how long each flash lasts
-const PROMPT_ROTATE_MS = 60_000; // how often the prompt text changes (and the pulse fires)
-const PROMPT_FADE_MS = 250;
-const PROMPT_TYPE_SPEED_MS = 50;
-
+// A random one of these gets typed out as the compose sheet's own
+// placeholder (see CreateGistSheet) the moment it opens — picked fresh each
+// time, not rotated continuously in the background like before (nothing
+// was left on-screen to show that rotation once the trigger shrank down to
+// a bare plus button).
 const PROMPTS = [
   'Oya gist us',
   'Feel free to rant',
@@ -47,10 +45,19 @@ const PROMPTS = [
   'Oya banter anybody!'
 ];
 
+let lastPromptIndex = -1;
+function pickRandomPrompt(): string {
+  let idx = Math.floor(Math.random() * PROMPTS.length);
+  if (PROMPTS.length > 1) {
+    while (idx === lastPromptIndex) idx = Math.floor(Math.random() * PROMPTS.length);
+  }
+  lastPromptIndex = idx;
+  return PROMPTS[idx];
+}
+
 export function FeedContent() {
   const listGists = useGistStore((s) => s.list);
   const prefetchComments = useCommentStore((s) => s.prefetchBatch);
-  const avitag = useAuthStore((s) => s.avitag);
   const myImageUrl = useAuthStore(
     (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null
   );
@@ -82,21 +89,10 @@ export function FeedContent() {
   // that one still autofocuses. Tracked per-open rather than hardcoded on
   // CommentSheet since the same sheet now has two different doors in.
   const [commentSheetAutoFocus, setCommentSheetAutoFocus] = useState(true);
-  // Snapshotted at click time (not the live promptText) — the trigger's
-  // rotating prompt keeps typing/swapping in the background while the
-  // modal is open, so the placeholder has to freeze to whatever was showing
-  // the moment someone actually clicked, not keep changing under them.
+  // A fresh random prompt, picked the moment the compose button is
+  // clicked (see pickRandomPrompt) — CreateGistSheet does its own typing
+  // animation with it now, not this component.
   const [composePlaceholder, setComposePlaceholder] = useState("");
-  const [promptText, setPromptText] = useState("");
-  const [promptPulse, setPromptPulse] = useState(false);
-  const [promptFading, setPromptFading] = useState(false);
-  const [avatarPing, setAvatarPing] = useState(0);
-  const lastPromptIndex = useRef(-1);
-  // The full sentence the typing animation is currently working toward —
-  // kept separate from `promptText` (which is only ever the so-far-typed
-  // prefix) so a click mid-type can snapshot the complete prompt instead of
-  // whatever fragment happened to be on screen at that instant.
-  const currentFullPromptRef = useRef("");
   const [showComposeHint, setShowComposeHint] = useState(false);
 
   const dismissComposeHint = () => {
@@ -126,81 +122,6 @@ export function FeedContent() {
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  /**
-   * Prompt rotation + attention pulse — a single loop now, on purpose: the
-   * pulse (text flash + avatar ping) fires exactly when a new prompt lands,
-   * every PROMPT_ROTATE_MS, instead of on its own faster independent timer.
-   * Reads as one event ("a new prompt just arrived") rather than two
-   * unrelated animations that happened to overlap sometimes.
-   */
-  useEffect(() => {
-    let cancelled = false;
-    let typingTimers: number[] = [];
-    const afterTyping = (fn: () => void, ms: number) => {
-      const id = window.setTimeout(() => {
-        if (!cancelled) fn();
-      }, ms);
-      typingTimers.push(id);
-    };
-    const clearTypingTimers = () => {
-      typingTimers.forEach((id) => window.clearTimeout(id));
-      typingTimers = [];
-    };
-
-    const nextPrompt = (): string => {
-      let idx = Math.floor(Math.random() * PROMPTS.length);
-      if (PROMPTS.length > 1) {
-        while (idx === lastPromptIndex.current) {
-          idx = Math.floor(Math.random() * PROMPTS.length);
-        }
-      }
-      lastPromptIndex.current = idx;
-      return PROMPTS[idx];
-    };
-
-    const typeIn = (text: string, onDone: () => void) => {
-      currentFullPromptRef.current = text;
-      clearTypingTimers();
-      setPromptText("");
-      let i = 0;
-      const tick = () => {
-        if (cancelled) return;
-        i++;
-        setPromptText(text.slice(0, i));
-        if (i < text.length) afterTyping(tick, PROMPT_TYPE_SPEED_MS);
-        else onDone();
-      };
-      afterTyping(tick, PROMPT_TYPE_SPEED_MS);
-    };
-
-    // Only on an actual rotation (not the very first prompt on mount) — a
-    // fresh page load doesn't need a "notice me" flash for content that was
-    // never there a moment ago to change from.
-    const firePulse = () => {
-      setPromptPulse(true);
-      setAvatarPing((n) => n + 1);
-      afterTyping(() => setPromptPulse(false), PROMPT_PULSE_MS);
-    };
-
-    const swap = () => {
-      setPromptFading(true);
-      afterTyping(() => {
-        setPromptFading(false);
-        typeIn(nextPrompt(), () => {});
-        firePulse();
-      }, PROMPT_FADE_MS);
-    };
-
-    typeIn(nextPrompt(), () => {});
-    const rotateInterval = window.setInterval(swap, PROMPT_ROTATE_MS);
-
-    return () => {
-      cancelled = true;
-      clearTypingTimers();
-      window.clearInterval(rotateInterval);
-    };
-  }, [avitag]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -283,64 +204,42 @@ export function FeedContent() {
               I looking at" reads as content, not global nav), left-aligned
               so it has room to grow rightward as more filters get added. */}
           <header className="sticky top-0 z-10 w-full shrink-0 border-b border-line bg-surface/85 backdrop-blur-md">
-            <div className="mx-auto flex max-w-[740px] items-center gap-3 px-4 py-2 sm:px-6 md:py-2.5">
-              <Wordmark accentClassName="text-brand" className="shrink-0 text-lg sm:text-xl" />
+            <div className="mx-auto grid max-w-[740px] grid-cols-[1fr_auto_1fr] items-center px-4 py-2 sm:px-6 md:py-2.5">
+              {/* Profile avatar — the account entry point, anchored at the
+                  outer left edge (settings/theme toggle live on the profile
+                  page now, see below). Plus button balances it on the
+                  opposite edge instead of the two sharing one side, so the
+                  wordmark actually reads as centered between two anchors
+                  rather than centered against a dead spacer. */}
+              <Link
+                href="/profile"
+                aria-label="Your profile"
+                className="flex h-9 w-9 shrink-0 items-center justify-center justify-self-start overflow-hidden rounded-full ring-1 ring-line transition hover:ring-brand"
+              >
+                <Avatar src={myImageUrl} />
+              </Link>
+
+              <Wordmark accentClassName="text-brand" className="justify-self-center text-lg sm:text-xl" />
 
               {/* Compose trigger — squeezed onto the wordmark's row (which
                   had height to spare) instead of its own full row below.
                   One consistent condensed pill style at every breakpoint,
                   not the old mobile-pill/desktop-underline split, since
                   this slot is always a short single line now. */}
-              <div className="relative min-w-0 flex-1">
+              <div className="relative shrink-0 justify-self-end">
                 <button
                   type="button"
                   onClick={() => {
-                    setComposePlaceholder(currentFullPromptRef.current || promptText);
+                    setComposePlaceholder(pickRandomPrompt());
                     setShowCreate(true);
                     dismissComposeHint();
                   }}
-                  className="group flex w-full cursor-pointer items-center gap-2 rounded-full bg-surface-2 px-3 py-1.5 shadow-sm shadow-black/5 ring-1 ring-line/50 font-poppins text-sm font-medium text-faint transition hover:ring-brand/40 focus:outline-none"
+                  aria-label="Create a gist"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95"
                 >
-                  <motion.div
-                    className="flex min-w-0 flex-1 items-center gap-2"
-                    animate={{ scale: promptPulse ? 1.02 : 1 }}
-                    transition={{ type: "spring", stiffness: 300, damping: 18 }}
-                  >
-                    <div className="relative h-6 w-6 shrink-0">
-                      <div className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full bg-brand/5 ring-1 ring-line/50">
-                        <Avatar src={myImageUrl} />
-                      </div>
-                      {avatarPing > 0 && (
-                        <motion.span
-                          key={avatarPing}
-                          aria-hidden
-                          className="pointer-events-none absolute inset-0 rounded-full border-2 border-brand"
-                          initial={{ scale: 1, opacity: 0.6 }}
-                          animate={{ scale: 1.7, opacity: 0 }}
-                          transition={{ duration: 0.8, ease: "easeOut" }}
-                        />
-                      )}
-                    </div>
-                    <span className="flex min-w-0 flex-1 items-center overflow-hidden">
-                      <span
-                        aria-hidden
-                        className="mr-1 inline-block h-[1.1em] w-[2px] shrink-0 animate-pulse bg-brand"
-                      />
-                      <span
-                        className={`min-w-0 flex-1 truncate text-left text-sm transition duration-300 ${
-                          promptFading ? "opacity-0" : "opacity-100"
-                        } ${promptPulse ? "text-brand" : ""}`}
-                      >
-                        {promptText || ' '}
-                      </span>
-                    </span>
-                  </motion.div>
-                  <span className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand text-white transition">
-                    <Plus className="h-3 w-3" />
-                  </span>
+                  <Plus className="h-4 w-4" />
                 </button>
-
-                {/* One-time coach mark: teaches that this row is tappable. */}
+                {/* One-time coach mark: teaches that this button is tappable. */}
                 <AnimatePresence>
                   {showComposeHint && (
                     <motion.div
@@ -348,9 +247,9 @@ export function FeedContent() {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -6 }}
                       transition={{ duration: 0.25 }}
-                      className="absolute left-6 top-full z-20 mt-1.5 flex flex-col items-center"
+                      className="absolute right-0 top-full z-20 mt-1.5 flex flex-col items-end"
                     >
-                      <span aria-hidden className="h-2 w-2 rotate-45 bg-brand-ink" />
+                      <span aria-hidden className="mr-3 h-2 w-2 rotate-45 bg-brand-ink" />
                       <span className="-mt-1 whitespace-nowrap rounded-full bg-brand-ink px-3 py-1.5 font-poppins text-xs font-medium text-white shadow-lg">
                         Tap here make you gist!
                       </span>
@@ -360,21 +259,8 @@ export function FeedContent() {
               </div>
             </div>
 
-            <div className="mx-auto flex max-w-[740px] items-center justify-between gap-3 px-4 pb-2.5 pt-1 sm:px-6">
+            <div className="mx-auto flex max-w-[740px] items-center px-4 pb-2.5 pt-1 sm:px-6">
               <div className="inline-flex items-center gap-2 overflow-x-auto no-scrollbar">{tabButtons}</div>
-
-              {/* Settings + theme toggle moved off the header for now — they
-                  belong on the profile page instead. Just the avatar stays
-                  as the header's own entry point to it. */}
-              <div className="flex shrink-0 items-center justify-end">
-                <Link
-                  href="/profile"
-                  aria-label="Your profile"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-line transition hover:ring-brand"
-                >
-                  <Avatar src={myImageUrl} />
-                </Link>
-              </div>
             </div>
           </header>
 
