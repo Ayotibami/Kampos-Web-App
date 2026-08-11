@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence, type PanInfo } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import { useOverscrollNav } from "@/lib/useOverscrollNav";
 import {
   ChevronDown,
   VolumeIconFill,
@@ -264,7 +265,8 @@ export function GistMediaBackdrop({
   active = true,
   overlayOpen,
   onTileClick,
-  onSwipeUp,
+  onNext,
+  onPrev,
 }: {
   media: GistMediaType[];
   blurred?: boolean;
@@ -276,9 +278,13 @@ export function GistMediaBackdrop({
   overlayOpen?: boolean;
   /** Fires with the tapped tile's index — opens the bigger overlay view. */
   onTileClick?: (index: number) => void;
-  /** Fires when a tile is dragged up past the threshold — hands off to
-   * "text" mode, same as tapping the caption strip. */
-  onSwipeUp?: () => void;
+  /** Vertical drag past this (unscrollable) media — see useOverscrollNav —
+   * advances/goes back a gist, same gesture as the text cards use once
+   * they're scrolled to their own edge. Revealing the caption is tap-only
+   * now ("…more"/"Back to media" in GistMediaBodyPanel), so vertical drag
+   * on the media itself is free to mean this instead. */
+  onNext?: () => void;
+  onPrev?: () => void;
 }) {
   const items = media.slice(0, 2);
   const isDuo = items.length === 2;
@@ -306,10 +312,6 @@ export function GistMediaBackdrop({
     if (!active) setPlayingIndex(0);
   }
 
-  const onDragEnd = (_: unknown, info: PanInfo) => {
-    if (info.offset.y < -60) onSwipeUp?.();
-  };
-
   const tile = (item: GistMediaType, idx: number, className: string) => {
     const isVideo = item.media_type?.toLowerCase().includes("video");
     // Images: tapping the tile itself opens the overlay directly — there's
@@ -321,10 +323,6 @@ export function GistMediaBackdrop({
         key={item.media_id}
         className={className}
         onClick={interactive && !isVideo ? () => onTileClick?.(idx) : undefined}
-        drag={interactive ? "y" : false}
-        dragConstraints={{ top: 0, bottom: 0 }}
-        dragElastic={0.5}
-        onDragEnd={interactive ? onDragEnd : undefined}
       >
         <MediaFrame
           item={item}
@@ -340,8 +338,19 @@ export function GistMediaBackdrop({
     );
   };
 
+  // Nothing here ever scrolls (it's media, not text), so useOverscrollNav's
+  // "at top/bottom" check is trivially true from the very first pixel of
+  // drag — any vertical drag on the media immediately counts as a pull
+  // past the edge, exactly like a short hero-text card with nothing to
+  // scroll through either.
+  const { scrollRef, y } = useOverscrollNav<HTMLDivElement>({
+    onNext,
+    onPrev,
+    enabled: interactive,
+  });
+
   return (
-    <div className="absolute inset-0 z-0">
+    <motion.div ref={scrollRef} style={{ y }} className="absolute inset-0 z-0">
       {isDuo && isMobile ? (
         // Mobile: stacked top/bottom, even 50/50 split — both photos fully
         // visible at once (not a one-at-a-time carousel), and halving the
@@ -368,31 +377,46 @@ export function GistMediaBackdrop({
       {blurred && (
         <div aria-hidden className="pointer-events-none absolute inset-0 rounded-2xl bg-black/55" />
       )}
-    </div>
+    </motion.div>
   );
 }
 
 /**
  * The body slot's interaction layer — purely gesture + text, no visual media
  * of its own (that's the backdrop, already showing through underneath, in
- * both modes now). In "media" mode it's a drag surface with a plain caption
- * bar written directly on the media (WhatsApp-status style — no button
- * chrome), a preview of the gist text ending in an "…more" affordance when
- * truncated. Tapping it or swiping up hands off to "text" mode, which shows
- * the full gist text over the blurred backdrop, with a pill to swipe back
- * down to the (now sharp again) photo.
+ * both modes now). In "media" mode it's a plain caption bar written
+ * directly on the media (WhatsApp-status style — no button chrome), a
+ * preview of the gist text ending in an "…more" affordance when truncated.
+ * Tapping it — tap only, deliberately, not swipe — hands off to "text"
+ * mode, which shows the full gist text over the blurred backdrop, with a
+ * pill to tap back down to the (now sharp again) photo. Vertical drag past
+ * the edge of that full text still means next/prev gist, same as
+ * everywhere else (see useOverscrollNav below) — expand/collapse and
+ * page-navigation stay on two clearly different gestures instead of both
+ * trying to live on "swipe vertically."
  */
 export function GistMediaBodyPanel({
   mode,
   onModeChange,
   text,
+  onNext,
+  onPrev,
 }: {
   mode: "media" | "text";
   onModeChange: (mode: "media" | "text") => void;
   text: string;
+  /** Same next/prev-gist gesture as GistMediaBackdrop, applied to the
+   * expanded caption's own scrollable text once it's scrolled to its edge. */
+  onNext?: () => void;
+  onPrev?: () => void;
 }) {
   const previewChars = usePreviewChars();
   const { preview, truncated } = previewText(text, previewChars);
+  const { scrollRef, y } = useOverscrollNav<HTMLDivElement>({
+    onNext,
+    onPrev,
+    enabled: mode === "text",
+  });
 
   return (
     // pointer-events-none only while in "media" mode: a transparent div
@@ -441,11 +465,15 @@ export function GistMediaBodyPanel({
             exit={{ y: 70, opacity: 0 }}
             transition={{ type: "spring", stiffness: 320, damping: 30 }}
           >
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pr-3 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/30">
+            <motion.div
+              ref={scrollRef}
+              style={{ y }}
+              className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pr-3 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/30"
+            >
               <p className="w-full whitespace-pre-wrap break-words font-nunito text-[15px] leading-relaxed text-white text-justify">
                 {text}
               </p>
-            </div>
+            </motion.div>
             <button
               type="button"
               aria-label="Back to media"

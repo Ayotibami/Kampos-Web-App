@@ -18,6 +18,7 @@ import { useGistStore } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { requireAuth } from "@/lib/requireAuth";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { useOverscrollNav } from "@/lib/useOverscrollNav";
 import {
   ShareIconFill,
   FlagIconFill,
@@ -60,6 +61,8 @@ export const GistCard = memo(function GistCard({
   onOverlayOpenChange,
   onDeleted,
   onEdited,
+  onNext,
+  onPrev,
 }: {
   gist: Gist;
   isActive?: boolean;
@@ -74,6 +77,13 @@ export const GistCard = memo(function GistCard({
    * onDeleted, the parent's list is what actually needs updating, not this
    * card's own local props. */
   onEdited?: (gist: Gist) => void;
+  /** GistStack's own next()/prev() — only ever passed for the actual front
+   * card (see GistStack), and only ever fired by a vertical drag once
+   * whatever's being touched has nothing left to scroll (see
+   * useOverscrollNav) — same underlying navigation as the existing
+   * horizontal swipe, just a second way in. */
+  onNext?: () => void;
+  onPrev?: () => void;
 }) {
   const reactGist = useGistStore((s) => s.react);
   const unreactGist = useGistStore((s) => s.unreact);
@@ -101,6 +111,16 @@ export const GistCard = memo(function GistCard({
   const [deleteError, setDeleteError] = useState<string>();
   const [reactError, setReactError] = useState<string>();
   const actionsRef = useRef<HTMLDivElement>(null);
+
+  // Text-only body's own vertical-drag-past-the-edge → next/prev gist —
+  // see useOverscrollNav. Media gists get the equivalent inside
+  // GistMediaBackdrop/GistMediaBodyPanel instead, since their scrollable
+  // (or non-scrollable) surface lives there, not here.
+  const { scrollRef: textScrollRef, y: textY } = useOverscrollNav<HTMLDivElement>({
+    onNext,
+    onPrev,
+    enabled: isActive,
+  });
 
   // Double-tap-to-react (Instagram-style) — anywhere on a text-only card
   // (gists with media keep their tiles' own established single-tap meanings
@@ -407,12 +427,23 @@ export const GistCard = memo(function GistCard({
               active={isActive && !showEdit}
               overlayOpen={overlayIndex !== null}
               onTileClick={setOverlayIndex}
-              onSwipeUp={() => setMediaMode("text")}
+              onNext={onNext}
+              onPrev={onPrev}
             />
-            <GistMediaBodyPanel mode={mediaMode} onModeChange={setMediaMode} text={gist.gist_text} />
+            <GistMediaBodyPanel
+              mode={mediaMode}
+              onModeChange={setMediaMode}
+              text={gist.gist_text}
+              onNext={onNext}
+              onPrev={onPrev}
+            />
           </>
         ) : (
-          <div className="h-full overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20 pr-1">
+          <motion.div
+            ref={textScrollRef}
+            style={{ y: textY }}
+            className="h-full overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20 pr-1"
+          >
             {short ? (
               <ShortGist text={gist.gist_text} colorKey={gist.color_key} fallbackSeed={gist.gist_id} />
             ) : (
@@ -420,7 +451,7 @@ export const GistCard = memo(function GistCard({
                 {gist.gist_text}
               </p>
             )}
-          </div>
+          </motion.div>
         )}
 
         {/* Center-pop reaction burst — same animation/placement whether it

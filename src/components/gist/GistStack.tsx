@@ -244,6 +244,8 @@ export function GistStack({
                   onOverlayOpenChange={handleOverlayOpenChange}
                   onDeleted={onGistDeleted}
                   onEdited={onGistEdited}
+                  onNext={isFront ? next : undefined}
+                  onPrev={isFront ? prev : undefined}
                 />
                 {/* Swipe-peek tease (desktop only — mobile's offset-1 card
                     sits fully off to the side edge-on/invisible until its
