@@ -525,17 +525,17 @@ export const GistCard = memo(function GistCard({
           action lands separately later. */}
       <div className="relative z-10 mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-line/40 pt-1.5">
         <div className="flex items-center gap-3 text-faint">
-          <span className="font-nunito text-[10px]">{friendlyDateTime(gist.created_at)}</span>
-          <span className="flex items-center gap-1 font-nunito text-xs">
-            <ReactionIconFill size={14} weight="regular" />
+          <span className="font-nunito text-sm">{friendlyDateTime(gist.created_at)}</span>
+          <span className="flex items-center gap-1 font-nunito text-sm">
+            <ReactionIconFill size={16} weight="regular" />
             {compactNumber(gist.counts?.reactions_count)}
           </span>
-          <span className="flex items-center gap-1 font-nunito text-xs">
-            <ViewIconFill size={14} weight="regular" />
+          <span className="flex items-center gap-1 font-nunito text-sm">
+            <ViewIconFill size={16} weight="regular" />
             {compactNumber(gist.counts?.views_count)}
           </span>
-          <span className="flex items-center gap-1 font-nunito text-xs">
-            <ShareIconFill size={14} weight="regular" />
+          <span className="flex items-center gap-1 font-nunito text-sm">
+            <ShareIconFill size={16} weight="regular" />
             {compactNumber(gist.counts?.shares_count)}
           </span>
         </div>
