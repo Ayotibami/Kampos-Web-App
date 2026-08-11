@@ -59,8 +59,8 @@ export function LoginForm() {
       />
       <div className="flex flex-col gap-7">
         <header className="space-y-2 text-center">
-          <h1 className="font-poppins text-2xl font-extrabold text-ink">Log in</h1>
-          <p className="font-poppins text-sm text-muted">
+          <h1 className="font-nunito text-2xl font-extrabold text-ink">Log in</h1>
+          <p className="font-nunito text-sm text-muted">
             No waste time na—dive right into the rants, stories and happenings
             wey dey sup for your campus.
           </p>
@@ -88,7 +88,7 @@ export function LoginForm() {
           <button
             type="button"
             onClick={() => router.push("/forgot-password")}
-            className="ml-auto block font-poppins text-xs font-semibold text-brand"
+            className="ml-auto block font-nunito text-xs font-semibold text-brand"
           >
             Forgot Password?
           </button>

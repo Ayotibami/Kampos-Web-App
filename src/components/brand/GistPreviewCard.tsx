@@ -13,7 +13,7 @@ import type { ReactionType } from "@/types";
 
 // Matches GistCard's own TAG_BASE exactly (same pill shape/uppercase/tracking).
 const TAG_BASE =
-  "inline-block rounded-full bg-brand/10 px-2 py-0.5 font-poppins text-[10px] uppercase tracking-wide text-brand";
+  "inline-block rounded-full bg-brand/10 px-2 py-0.5 font-nunito text-[10px] uppercase tracking-wide text-brand";
 
 // Same threshold GistCard uses to decide short colored-hero vs plain-text
 // rendering — past this length real gists don't fit the bold colored block,
@@ -77,9 +77,9 @@ export function GistPreviewCard({
               on name/avitag (ellipsis) + shrink-0 on time keeps this to one
               line no matter how long the name is. */}
           <div className="flex min-w-0 flex-nowrap items-center gap-x-1 overflow-hidden">
-            <span className="min-w-0 truncate font-poppins text-sm font-bold text-ink">{name}</span>
-            <span className="min-w-0 truncate font-poppins text-xs text-faint">@{avitag}</span>
-            <span className="shrink-0 font-poppins text-xs text-faint">· {time}</span>
+            <span className="min-w-0 truncate font-nunito text-sm font-bold text-ink">{name}</span>
+            <span className="min-w-0 truncate font-nunito text-xs text-faint">@{avitag}</span>
+            <span className="shrink-0 font-nunito text-xs text-faint">· {time}</span>
           </div>
           <div className="mt-1 flex flex-nowrap items-center gap-1 overflow-hidden">
             <span className={`${TAG_BASE} shrink-0 font-bold`}>{campusTag}</span>
@@ -99,7 +99,7 @@ export function GistPreviewCard({
           <p className="font-nunito text-base font-extrabold leading-snug text-white sm:text-lg">{text}</p>
         </div>
       ) : (
-        <p className="mt-3 max-h-32 overflow-y-auto whitespace-pre-wrap pr-1 text-justify font-poppins text-xs leading-relaxed text-ink sm:text-sm [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20">
+        <p className="mt-3 max-h-32 overflow-y-auto whitespace-pre-wrap pr-1 text-justify font-nunito text-xs leading-relaxed text-ink sm:text-sm [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20">
           {text}
         </p>
       )}
@@ -109,19 +109,19 @@ export function GistPreviewCard({
           full-width feed, this preview doesn't. */}
       <div className="mt-3 flex flex-nowrap items-center justify-between gap-x-1.5 overflow-hidden border-t border-line/40 pt-2.5">
         <div className="flex shrink-0 items-center gap-1.5 text-faint">
-          <span className="flex items-center gap-0.5 font-poppins text-[10px]">
+          <span className="flex items-center gap-0.5 font-nunito text-[10px]">
             <CommentIconFill size={11} weight="regular" />
             {compactNumber(comments)}
           </span>
-          <span className="flex items-center gap-0.5 font-poppins text-[10px]">
+          <span className="flex items-center gap-0.5 font-nunito text-[10px]">
             <ReactionIconFill size={11} weight="regular" />
             {compactNumber(totalReactions)}
           </span>
-          <span className="flex items-center gap-0.5 font-poppins text-[10px]">
+          <span className="flex items-center gap-0.5 font-nunito text-[10px]">
             <ViewIconFill size={11} weight="regular" />
             {compactNumber(views)}
           </span>
-          <span className="flex items-center gap-0.5 font-poppins text-[10px]">
+          <span className="flex items-center gap-0.5 font-nunito text-[10px]">
             <ShareIconFill size={11} weight="regular" />
             {compactNumber(shares)}
           </span>

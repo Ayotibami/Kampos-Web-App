@@ -159,7 +159,7 @@ export function ReactionButton({
             />
             {count > 0 && (
               <span
-                className={`font-poppins text-[9px] font-semibold leading-none sm:text-[10px] ${
+                className={`font-nunito text-[9px] font-semibold leading-none sm:text-[10px] ${
                   isActive ? "text-brand" : "text-brand/80"
                 }`}
               >

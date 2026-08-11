@@ -252,7 +252,7 @@ export function GistMediaOverlay({
               <PlayIconFill className="h-4 w-4" weight="duotone" />
             )}
           </button>
-          <span className="shrink-0 font-poppins text-[11px] tabular-nums text-white/80">
+          <span className="shrink-0 font-nunito text-[11px] tabular-nums text-white/80">
             {formatTime(currentTime)}
           </span>
           <input
@@ -265,7 +265,7 @@ export function GistMediaOverlay({
             onChange={onSeek}
             className="h-1 flex-1 cursor-pointer accent-brand"
           />
-          <span className="shrink-0 font-poppins text-[11px] tabular-nums text-white/80">
+          <span className="shrink-0 font-nunito text-[11px] tabular-nums text-white/80">
             {formatTime(duration)}
           </span>
           <button

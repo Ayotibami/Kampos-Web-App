@@ -157,7 +157,7 @@ export function MobileReactionBadge({
                       actually catch the eye while you're choosing. */}
                   <Lottie animationData={REACTION_ANIMATIONS[type]} loop autoplay className="h-5 w-5" />
                   {count > 0 && (
-                    <span className="font-poppins text-[8px] font-semibold leading-none text-ink/70">
+                    <span className="font-nunito text-[8px] font-semibold leading-none text-ink/70">
                       {compactNumber(count)}
                     </span>
                   )}

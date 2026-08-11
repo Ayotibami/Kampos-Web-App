@@ -77,7 +77,7 @@ export function NameStep({ onNext, setController }: StepProps) {
             error={!!firstNameError}
           />
           {firstNameError && (
-            <p className="font-poppins text-sm font-medium text-danger">{firstNameError}</p>
+            <p className="font-nunito text-sm font-medium text-danger">{firstNameError}</p>
           )}
         </div>
         <div className="flex flex-col gap-1.5">
@@ -90,13 +90,13 @@ export function NameStep({ onNext, setController }: StepProps) {
             error={!!lastNameError}
           />
           {lastNameError && (
-            <p className="font-poppins text-sm font-medium text-danger">{lastNameError}</p>
+            <p className="font-nunito text-sm font-medium text-danger">{lastNameError}</p>
           )}
         </div>
         {/* Same reasoning other apps surface here — people are more careful
             (and trust the platform more) once they know *why* a real name
             is being asked for, not just told to provide one. */}
-        <p className="font-poppins text-xs leading-relaxed text-faint">
+        <p className="font-nunito text-xs leading-relaxed text-faint">
           We use your name so other students on Kampos can tell it&apos;s
           really you — it also helps if you ever need to verify your account.
           Your info stays safe with us, always.

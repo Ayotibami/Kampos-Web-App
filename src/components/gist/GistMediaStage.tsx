@@ -421,13 +421,13 @@ export function GistMediaBodyPanel({
               <button
                 type="button"
                 onClick={() => onModeChange("text")}
-                className="pointer-events-auto absolute inset-x-0 bottom-0 line-clamp-2 break-words bg-black/55 px-4 pb-2.5 pt-3 text-left font-poppins text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3"
+                className="pointer-events-auto absolute inset-x-0 bottom-0 line-clamp-2 break-words bg-black/55 px-4 pb-2.5 pt-3 text-left font-nunito text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3"
               >
                 {preview}
                 <span className="font-bold text-white"> …more</span>
               </button>
             ) : (
-              <p className="pointer-events-none absolute inset-x-0 bottom-0 line-clamp-2 break-words bg-black/55 px-4 pb-2.5 pt-3 text-left font-poppins text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3">
+              <p className="pointer-events-none absolute inset-x-0 bottom-0 line-clamp-2 break-words bg-black/55 px-4 pb-2.5 pt-3 text-left font-nunito text-sm font-medium leading-snug text-white sm:line-clamp-4 md:line-clamp-3">
                 {preview}
               </p>
             )}
@@ -442,7 +442,7 @@ export function GistMediaBodyPanel({
             transition={{ type: "spring", stiffness: 320, damping: 30 }}
           >
             <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pr-3 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/30">
-              <p className="w-full whitespace-pre-wrap break-words font-poppins text-[15px] leading-relaxed text-white text-justify">
+              <p className="w-full whitespace-pre-wrap break-words font-nunito text-[15px] leading-relaxed text-white text-justify">
                 {text}
               </p>
             </div>

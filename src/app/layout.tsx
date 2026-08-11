@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Poppins, Nunito } from "next/font/google";
+import { Nunito } from "next/font/google";
 import Script from "next/script";
 import { SessionWatcher } from "@/components/auth/SessionWatcher";
 import { AuthPromptModal } from "@/components/auth/AuthPromptModal";
@@ -7,18 +7,16 @@ import { ThemeRouteSync } from "@/components/theme/ThemeRouteSync";
 import { env } from "@/lib/env";
 import "./globals.css";
 
-// Ported from the mobile app: Poppins for UI, Nunito for gist card text.
-const poppins = Poppins({
-  variable: "--font-poppins",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800", "900"],
-  display: "swap",
-});
-
+// Ported from the mobile app — Nunito is now the app's only font (see
+// Wordmark.tsx for why: Poppins didn't read as intended, design called for
+// Nunito everywhere instead of the original Poppins-UI/Nunito-content split).
 const nunito = Nunito({
   variable: "--font-nunito",
   subsets: ["latin"],
-  weight: ["400", "600", "700"],
+  // Every font-weight utility actually used in the app (medium/semibold/
+  // bold/extrabold), plus 400 as the base — exact weights, not a wider
+  // range than what's really needed.
+  weight: ["400", "500", "600", "700", "800"],
   display: "swap",
 });
 
@@ -63,7 +61,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${poppins.variable} ${nunito.variable} h-full`}>
+    <html lang="en" className={`${nunito.variable} h-full`}>
       <body className="min-h-full antialiased">
         {/* Applies the saved theme before paint, so there's no flash — but
             defaults to light rather than following system preference, so a

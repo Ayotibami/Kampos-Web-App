@@ -98,7 +98,7 @@ export function WebcamCapture({
 
       <div className="flex flex-1 items-center justify-center overflow-hidden">
         {error ? (
-          <p className="px-8 text-center font-poppins text-sm text-white/80">{error}</p>
+          <p className="px-8 text-center font-nunito text-sm text-white/80">{error}</p>
         ) : (
           <video
             ref={videoRef}

@@ -16,10 +16,10 @@ export function AuthPromptModal() {
     <Modal open={open} onClose={close}>
       <div className="rounded-3xl bg-surface-2 p-6 text-center shadow-2xl">
         <Illustration name="Kappywithphone" className="mx-auto h-32 w-auto" />
-        <h2 className="mt-3 font-poppins text-lg font-extrabold text-ink">
+        <h2 className="mt-3 font-nunito text-lg font-extrabold text-ink">
           Oya, join Kampos first
         </h2>
-        <p className="mt-1.5 font-poppins text-sm text-muted">
+        <p className="mt-1.5 font-nunito text-sm text-muted">
           {action ? `Sign up to ${action} — free, takes a minute.` : "Sign up to continue — free, takes a minute."}
         </p>
         <div className="mt-5 space-y-2.5">

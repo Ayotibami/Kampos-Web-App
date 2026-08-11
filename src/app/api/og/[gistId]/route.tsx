@@ -47,8 +47,8 @@ let fontsPromise: Promise<{ bold: ArrayBuffer; extraBold: ArrayBuffer }> | null 
 function loadFonts(): Promise<{ bold: ArrayBuffer; extraBold: ArrayBuffer }> {
   if (!fontsPromise) {
     fontsPromise = Promise.all([
-      loadGoogleFont("Poppins", 700, FONT_CHARSET),
-      loadGoogleFont("Poppins", 800, FONT_CHARSET),
+      loadGoogleFont("Nunito", 700, FONT_CHARSET),
+      loadGoogleFont("Nunito", 800, FONT_CHARSET),
     ])
       .then(([bold, extraBold]) => ({ bold, extraBold }))
       .catch((err) => {
@@ -146,7 +146,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ gist
           alignItems: "center",
           justifyContent: "center",
           background: "linear-gradient(135deg, #eef3fc 0%, #dbe6fa 100%)",
-          fontFamily: "Poppins",
+          fontFamily: "Nunito",
         }}
       >
         <div
@@ -302,8 +302,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ gist
       width: WIDTH,
       height: HEIGHT,
       fonts: [
-        { name: "Poppins", data: fonts.bold, weight: 700, style: "normal" },
-        { name: "Poppins", data: fonts.extraBold, weight: 800, style: "normal" },
+        { name: "Nunito", data: fonts.bold, weight: 700, style: "normal" },
+        { name: "Nunito", data: fonts.extraBold, weight: 800, style: "normal" },
       ],
     },
   );

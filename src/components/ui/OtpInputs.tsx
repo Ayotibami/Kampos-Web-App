@@ -77,7 +77,7 @@ export function OtpInputs({ value, onChange, length = 6, error = false, shakeSig
           onChange={(e) => handleChange(i, e.target.value)}
           onKeyDown={(e) => handleKeyDown(i, e)}
           onPaste={handlePaste}
-          className={`h-12 w-11 rounded-xl border bg-white text-center font-poppins text-lg font-semibold text-ink outline-none transition focus:ring-2 focus:ring-brand/40 sm:h-14 sm:w-12 ${
+          className={`h-12 w-11 rounded-xl border bg-white text-center font-nunito text-lg font-semibold text-ink outline-none transition focus:ring-2 focus:ring-brand/40 sm:h-14 sm:w-12 ${
             error ? "border-danger" : "border-line focus:border-brand"
           }`}
         />

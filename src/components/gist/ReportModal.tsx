@@ -100,9 +100,9 @@ export function ReportModal({
         </button>
 
         {/* Header */}
-        <h2 className="shrink-0 pr-12 font-poppins text-2xl font-bold text-ink">Report this gist</h2>
+        <h2 className="shrink-0 pr-12 font-nunito text-2xl font-bold text-ink">Report this gist</h2>
 
-        <p className="mt-3 shrink-0 font-poppins text-sm leading-relaxed text-muted">
+        <p className="mt-3 shrink-0 font-nunito text-sm leading-relaxed text-muted">
           Kampos is a safe space — we work hard to keep your feed free of harmful content.
           If this gist breaks our{" "}
           <a
@@ -133,7 +133,7 @@ export function ReportModal({
                     key={reason}
                     type="button"
                     onClick={() => setSelected(reason)}
-                    className={`flex items-center gap-1.5 rounded-full border px-5 py-2.5 font-poppins text-sm font-medium transition ${
+                    className={`flex items-center gap-1.5 rounded-full border px-5 py-2.5 font-nunito text-sm font-medium transition ${
                       isSelected
                         ? "border-brand bg-brand text-white"
                         : "border-brand/60 bg-[#F3F6F9] text-brand hover:bg-brand/5"
@@ -154,7 +154,7 @@ export function ReportModal({
                 rows={4}
                 maxLength={300}
                 autoFocus
-                className="mt-6 w-full resize-none overflow-y-auto rounded-2xl border border-line bg-transparent px-5 py-4 font-poppins text-sm text-ink outline-none no-scrollbar placeholder:text-faint focus:border-brand"
+                className="mt-6 w-full resize-none overflow-y-auto rounded-2xl border border-line bg-transparent px-5 py-4 font-nunito text-sm text-ink outline-none no-scrollbar placeholder:text-faint focus:border-brand"
               />
             )}
           </div>

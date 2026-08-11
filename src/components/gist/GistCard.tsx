@@ -259,8 +259,8 @@ export function GistCard({
         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-danger/10 text-danger">
           <FlagIconFill size={24} weight="fill" />
         </div>
-        <p className="font-poppins text-sm font-semibold text-ink">This gist has been removed</p>
-        <p className="max-w-xs font-poppins text-xs text-muted">
+        <p className="font-nunito text-sm font-semibold text-ink">This gist has been removed</p>
+        <p className="max-w-xs font-nunito text-xs text-muted">
           It went against Kampos&apos; community guidelines.
         </p>
       </div>
@@ -279,18 +279,18 @@ export function GistCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 shrink truncate font-poppins text-[13px] font-bold text-ink md:text-sm">
+            <span className="min-w-0 shrink truncate font-nunito text-[13px] font-bold text-ink md:text-sm">
               {gist.first_name || gist.name || gist.avitag}
             </span>
             {isOwn && (
-              <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-poppins text-[10px] font-bold leading-none text-brand md:text-[11px]">
+              <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-brand md:text-[11px]">
                 You
               </span>
             )}
-            <span className="min-w-0 shrink truncate font-poppins text-[11px] text-faint md:text-xs">
+            <span className="min-w-0 shrink truncate font-nunito text-[11px] text-faint md:text-xs">
               {gist.avitag}
             </span>
-            <span className="shrink-0 font-poppins text-[11px] text-faint md:text-xs">
+            <span className="shrink-0 font-nunito text-[11px] text-faint md:text-xs">
               · {timeAgo(gist.created_at)}
             </span>
           </div>
@@ -405,7 +405,7 @@ export function GistCard({
             {short ? (
               <ShortGist text={gist.gist_text} colorKey={gist.color_key} fallbackSeed={gist.gist_id} />
             ) : (
-              <p className="w-full whitespace-pre-wrap break-words font-poppins text-[15px] leading-relaxed text-ink text-justify">
+              <p className="w-full whitespace-pre-wrap break-words font-nunito text-[15px] leading-relaxed text-ink text-justify">
                 {gist.gist_text}
               </p>
             )}
@@ -451,16 +451,16 @@ export function GistCard({
           action lands separately later. */}
       <div className="relative z-10 mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-line/40 pt-1.5">
         <div className="flex items-center gap-3 text-faint">
-          <span className="font-poppins text-[10px]">{friendlyDateTime(gist.created_at)}</span>
-          <span className="flex items-center gap-1 font-poppins text-xs">
+          <span className="font-nunito text-[10px]">{friendlyDateTime(gist.created_at)}</span>
+          <span className="flex items-center gap-1 font-nunito text-xs">
             <ReactionIconFill size={14} weight="regular" />
             {compactNumber(gist.counts?.reactions_count)}
           </span>
-          <span className="flex items-center gap-1 font-poppins text-xs">
+          <span className="flex items-center gap-1 font-nunito text-xs">
             <ViewIconFill size={14} weight="regular" />
             {compactNumber(gist.counts?.views_count)}
           </span>
-          <span className="flex items-center gap-1 font-poppins text-xs">
+          <span className="flex items-center gap-1 font-nunito text-xs">
             <ShareIconFill size={14} weight="regular" />
             {compactNumber(gist.counts?.shares_count)}
           </span>
@@ -607,7 +607,7 @@ function PopActionButton({
 // slightly (campus first, then major, then level) so the three ripple like a
 // little dance instead of blinking in unison.
 const TAG_BASE =
-  "inline-block rounded-full bg-brand/10 px-2 py-0.5 font-poppins uppercase tracking-wide text-brand";
+  "inline-block rounded-full bg-brand/10 px-2 py-0.5 font-nunito uppercase tracking-wide text-brand";
 
 const TAG_DANCE = {
   animate: { x: [0, -3, 3, 0], rotate: [0, -3, 3, 0] },

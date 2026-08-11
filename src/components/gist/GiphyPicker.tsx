@@ -17,7 +17,7 @@ const SEARCH_DEBOUNCE_MS = 400;
  * dropdown), matching the weight ReportModal already established for
  * anything with search + a grid of results. Multi-select up to
  * `maxSelectable` (the room left under the gist's media cap), Kampos brand
- * styling throughout (rounded pills, brand blue selection, Poppins).
+ * styling throughout (rounded pills, brand blue selection, Nunito).
  */
 export function GiphyPicker({
   open,
@@ -98,7 +98,7 @@ export function GiphyPicker({
       <div className="flex h-full flex-col rounded-3xl bg-surface-2 p-8 shadow-2xl">
         {/* Header */}
         <div className="flex shrink-0 items-center gap-3 pr-12">
-          <h2 className="font-poppins text-xl font-bold text-ink">GIFs &amp; Stickers</h2>
+          <h2 className="font-nunito text-xl font-bold text-ink">GIFs &amp; Stickers</h2>
           <button
             type="button"
             onClick={onClose}
@@ -112,7 +112,7 @@ export function GiphyPicker({
         {!configured ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
             <Illustration name="Kappywithwire" className="h-40 w-auto" />
-            <p className="font-poppins text-sm italic text-muted">
+            <p className="font-nunito text-sm italic text-muted">
               GIFs and stickers aren&apos;t set up yet — check back soon!
             </p>
           </div>
@@ -125,7 +125,7 @@ export function GiphyPicker({
                   key={k}
                   type="button"
                   onClick={() => setKind(k)}
-                  className={`rounded-full border px-5 py-2 font-poppins text-sm font-medium capitalize transition ${
+                  className={`rounded-full border px-5 py-2 font-nunito text-sm font-medium capitalize transition ${
                     kind === k
                       ? "border-brand bg-brand text-white"
                       : "border-brand/60 bg-[#F3F6F9] text-brand hover:bg-brand/5"
@@ -144,7 +144,7 @@ export function GiphyPicker({
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={`Search ${kind}...`}
                 maxLength={50}
-                className="w-full bg-transparent py-3 pl-2 font-poppins text-sm text-ink outline-none placeholder:text-faint"
+                className="w-full bg-transparent py-3 pl-2 font-nunito text-sm text-ink outline-none placeholder:text-faint"
               />
             </div>
 
@@ -153,7 +153,7 @@ export function GiphyPicker({
               {errored ? (
                 <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
                   <Illustration name="Kappywithwire" className="h-32 w-auto" />
-                  <p className="font-poppins text-xs italic text-muted">
+                  <p className="font-nunito text-xs italic text-muted">
                     Wire don cut o — I no fit fetch am. Abeg check your internet.
                   </p>
                 </div>
@@ -166,7 +166,7 @@ export function GiphyPicker({
               ) : items.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                   <Illustration name="Kappymagnifyingglass" className="h-32 w-auto" />
-                  <p className="font-poppins text-xs italic text-muted">
+                  <p className="font-nunito text-xs italic text-muted">
                     Omo, I no see wetin you dey find o!
                   </p>
                 </div>
@@ -202,7 +202,7 @@ export function GiphyPicker({
 
             {/* Footer */}
             <div className="mt-5 flex shrink-0 items-center justify-between gap-4">
-              <span className="font-poppins text-[11px] text-faint">Powered by GIPHY</span>
+              <span className="font-nunito text-[11px] text-faint">Powered by GIPHY</span>
               <Button
                 onClick={handleAttach}
                 disabled={!selected.length}

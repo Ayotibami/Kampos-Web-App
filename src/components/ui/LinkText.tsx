@@ -10,7 +10,7 @@ interface LinkTextProps {
 /** "Account already exists? Log in." — the mobile LinkText pattern. */
 export function LinkText({ normalText, linkText, onClick, disabled }: LinkTextProps) {
   return (
-    <p className="text-center font-poppins text-sm text-muted">
+    <p className="text-center font-nunito text-sm text-muted">
       {normalText}{" "}
       <button
         type="button"

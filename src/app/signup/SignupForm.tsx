@@ -37,7 +37,7 @@ function PasswordRuleRow({ label, met }: { label: string; met: boolean }) {
         />
       </span>
       <span
-        className={`font-poppins text-xs transition-colors duration-200 ${met ? "text-ink" : "text-muted"}`}
+        className={`font-nunito text-xs transition-colors duration-200 ${met ? "text-ink" : "text-muted"}`}
       >
         {label}
       </span>
@@ -113,8 +113,8 @@ export function SignupForm() {
       />
       <div className="flex flex-col gap-6">
         <header className="space-y-2 text-center">
-          <h1 className="font-poppins text-2xl font-extrabold text-ink">Sign-Up</h1>
-          <p className="font-poppins text-sm text-muted">
+          <h1 className="font-nunito text-2xl font-extrabold text-ink">Sign-Up</h1>
+          <p className="font-nunito text-sm text-muted">
             Oya join Kampos na — make you catch all the latest gists, events,
             updates and stories for your campus.
           </p>
@@ -141,7 +141,7 @@ export function SignupForm() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.15 }}
-                  className="mt-1.5 pl-1 font-poppins text-xs text-danger"
+                  className="mt-1.5 pl-1 font-nunito text-xs text-danger"
                 >
                   {emailError}
                 </motion.p>
@@ -196,7 +196,7 @@ export function SignupForm() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.15 }}
-                  className="mt-1.5 pl-1 font-poppins text-xs text-danger"
+                  className="mt-1.5 pl-1 font-nunito text-xs text-danger"
                 >
                   Passwords don&apos;t match.
                 </motion.p>
@@ -207,7 +207,7 @@ export function SignupForm() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.15 }}
-                  className="mt-1.5 flex items-center gap-1 pl-1 font-poppins text-xs text-brand"
+                  className="mt-1.5 flex items-center gap-1 pl-1 font-nunito text-xs text-brand"
                 >
                   <Check className="h-3 w-3" /> Passwords match
                 </motion.p>
@@ -222,7 +222,7 @@ export function SignupForm() {
               onChange={(e) => setAgree(e.target.checked)}
               className="mt-1 h-4 w-4 accent-[var(--color-brand)]"
             />
-            <span className="font-poppins text-xs leading-relaxed text-muted">
+            <span className="font-nunito text-xs leading-relaxed text-muted">
               By signing up, you agree to Kampos{" "}
               <a
                 href={env.TERMS_URL}

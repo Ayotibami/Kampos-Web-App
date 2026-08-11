@@ -132,15 +132,15 @@ function ResetPasswordInner() {
       {stage === "code" ? (
         <div className="flex flex-col gap-8">
           <div className="space-y-5 text-center">
-            <h1 className="font-poppins text-2xl font-extrabold text-ink">
+            <h1 className="font-nunito text-2xl font-extrabold text-ink">
               Reset Password
             </h1>
             <p
-              className={`font-poppins text-sm font-semibold ${wrong ? "text-danger" : "text-brand"}`}
+              className={`font-nunito text-sm font-semibold ${wrong ? "text-danger" : "text-brand"}`}
             >
               {heading}
             </p>
-            <p className="font-poppins text-sm text-muted">{helper}</p>
+            <p className="font-nunito text-sm text-muted">{helper}</p>
 
             <OtpInputs
               value={digits}
@@ -154,14 +154,14 @@ function ResetPasswordInner() {
             />
 
             <div className="space-y-1">
-              <p className="text-center font-poppins text-xs text-muted">
+              <p className="text-center font-nunito text-xs text-muted">
                 The code expires in 10 minutes.
               </p>
               <button
                 type="button"
                 onClick={handleResend}
                 disabled={resendIn > 0}
-                className="block w-full text-center font-poppins text-xs font-semibold text-brand disabled:text-muted"
+                className="block w-full text-center font-nunito text-xs font-semibold text-brand disabled:text-muted"
               >
                 {resendIn > 0
                   ? `Wanna resend code? wait ${resendIn}s`
@@ -189,13 +189,13 @@ function ResetPasswordInner() {
         <div className="flex flex-col gap-8">
           <div className="space-y-5">
             <div className="space-y-5 text-center">
-              <h1 className="font-poppins text-2xl font-extrabold text-ink">
+              <h1 className="font-nunito text-2xl font-extrabold text-ink">
                 Reset Password
               </h1>
-              <p className="font-poppins text-sm font-semibold text-brand">
+              <p className="font-nunito text-sm font-semibold text-brand">
                 Create a New Password
               </p>
-              <p className="font-poppins text-sm text-muted">
+              <p className="font-nunito text-sm text-muted">
                 Code confirmed — create your new password.
               </p>
             </div>

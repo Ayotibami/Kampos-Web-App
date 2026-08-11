@@ -7,7 +7,7 @@
 /*
   Kampos brand tokens — ported from the mobile app (constants/Colors.ts, Fonts.ts + inline values).
   Exposed to Tailwind v4 via @theme, so utilities like `bg-brand`, `text-brand-accent`,
-  `font-poppins`, `font-nunito` are available across the app.
+  `font-nunito` are available across the app.
 
   Surface/text/line tokens are indirected through --kp-* custom properties (below)
   so `:root` and `.dark` can each supply their own values — every component that
@@ -37,9 +37,8 @@
   --color-danger: #d41d0c;
 
   /* Fonts (wired from next/font in layout.tsx) */
-  --font-poppins: var(--font-poppins);
   --font-nunito: var(--font-nunito);
-  --font-sans: var(--font-poppins);
+  --font-sans: var(--font-nunito);
 
   /* Motion */
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
@@ -76,7 +75,7 @@ body {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-poppins), system-ui, sans-serif;
+  font-family: var(--font-nunito), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   transition: background-color 0.2s ease, color 0.2s ease;

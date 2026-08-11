@@ -208,7 +208,7 @@ export function AvitagStep({
           trailingIcon={trailingIcon}
         />
         {statusText && (
-          <p className={`font-poppins text-sm font-medium ${statusColor}`}>{statusText}</p>
+          <p className={`font-nunito text-sm font-medium ${statusColor}`}>{statusText}</p>
         )}
 
         {/* Only once it's actually confirmed free — not while still
@@ -225,9 +225,9 @@ export function AvitagStep({
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
                 {displayName && (
-                  <span className="min-w-0 truncate font-poppins text-sm font-bold text-ink">{displayName}</span>
+                  <span className="min-w-0 truncate font-nunito text-sm font-bold text-ink">{displayName}</span>
                 )}
-                <span className="min-w-0 truncate font-poppins text-xs text-faint">
+                <span className="min-w-0 truncate font-nunito text-xs text-faint">
                   @{normalizeAvitag(avitag)}
                 </span>
               </div>
@@ -236,7 +236,7 @@ export function AvitagStep({
                   {previewTags.map((t) => (
                     <span
                       key={t}
-                      className="inline-block rounded-full bg-brand/10 px-2 py-0.5 font-poppins text-[10px] font-semibold uppercase tracking-wide text-brand"
+                      className="inline-block rounded-full bg-brand/10 px-2 py-0.5 font-nunito text-[10px] font-semibold uppercase tracking-wide text-brand"
                     >
                       {t}
                     </span>
@@ -247,7 +247,7 @@ export function AvitagStep({
           </div>
         )}
 
-        <p className="font-poppins text-sm leading-relaxed text-muted">
+        <p className="font-nunito text-sm leading-relaxed text-muted">
           Just keep it respectful, or your account may be suspended.
         </p>
       </div>

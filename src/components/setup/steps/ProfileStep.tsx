@@ -118,11 +118,11 @@ export function ProfileStep({ onNext, setController }: StepProps) {
               onChange={(e) => onBioChange(e.target.value)}
               maxLength={LIMITS.bio}
               placeholder="Oya, yarn small about yourself na 😌"
-              className="w-full flex-1 resize-none bg-transparent font-poppins text-sm text-ink outline-none placeholder:text-faint"
+              className="w-full flex-1 resize-none bg-transparent font-nunito text-sm text-ink outline-none placeholder:text-faint"
             />
           </div>
           <p
-            className="mt-1 shrink-0 text-right font-poppins text-sm font-bold"
+            className="mt-1 shrink-0 text-right font-nunito text-sm font-bold"
             style={{ color: bioCountColor(bio.length) }}
           >
             {bio.length}/{LIMITS.bio}

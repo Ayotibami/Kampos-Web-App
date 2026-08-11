@@ -69,7 +69,7 @@ export function ShareModal({
   return (
     <Modal open={open} onClose={onClose}>
       <div className="rounded-3xl bg-surface-2 p-6 shadow-2xl">
-        <h2 className="mb-4 text-center font-poppins text-base font-bold text-ink">Share this gist</h2>
+        <h2 className="mb-4 text-center font-nunito text-base font-bold text-ink">Share this gist</h2>
         <div className="flex items-center justify-center gap-4">
           {targets.map((t) => (
             <a
@@ -85,14 +85,14 @@ export function ShareModal({
               >
                 {t.icon}
               </span>
-              <span className="font-poppins text-xs text-muted">{t.label}</span>
+              <span className="font-nunito text-xs text-muted">{t.label}</span>
             </a>
           ))}
         </div>
         <button
           type="button"
           onClick={copyLink}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-brand/[0.07] px-4 py-2.5 font-poppins text-sm font-semibold text-brand transition hover:bg-brand/[0.12]"
+          className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-brand/[0.07] px-4 py-2.5 font-nunito text-sm font-semibold text-brand transition hover:bg-brand/[0.12]"
         >
           {copied ? <Check className="h-4 w-4" /> : <LinkIconFill size={16} weight="fill" />}
           {copied ? "Copied!" : "Copy link"}

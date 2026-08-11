@@ -143,7 +143,7 @@ export function StepScaffold({
           (see below) since there isn't room for two separate header rows. */}
       <div className="relative z-10 mx-auto hidden w-full max-w-3xl shrink-0 items-center gap-3 px-10 pt-8 md:flex">
         {backButton}
-        <h1 className="font-poppins text-lg font-semibold text-ink">{heading}</h1>
+        <h1 className="font-nunito text-lg font-semibold text-ink">{heading}</h1>
       </div>
       <div className="relative z-10 flex shrink-0 items-center gap-3 px-6 pt-6 md:hidden">
         {backButton}
@@ -167,11 +167,11 @@ export function StepScaffold({
             className="flex min-h-0 flex-1 flex-col"
           >
             <header className="shrink-0 space-y-1.5 pt-4 md:pt-6">
-              <h1 className="font-poppins text-xl font-extrabold text-ink sm:text-2xl md:hidden">
+              <h1 className="font-nunito text-xl font-extrabold text-ink sm:text-2xl md:hidden">
                 {heading}
               </h1>
               {subheading && (
-                <p className="font-poppins text-sm text-muted md:text-base">{subheading}</p>
+                <p className="font-nunito text-sm text-muted md:text-base">{subheading}</p>
               )}
             </header>
 

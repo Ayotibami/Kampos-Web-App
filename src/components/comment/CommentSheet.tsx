@@ -51,7 +51,7 @@ export function CommentSheet({
         <div className="relative z-10 flex h-full w-full flex-col overflow-hidden">
           {/* Header */}
           <div className="relative flex shrink-0 items-center justify-center border-b border-line bg-brand/[0.04] px-5 py-4 backdrop-blur-sm dark:border-white/10 dark:bg-brand-ink/85">
-            <span className="font-poppins text-sm font-medium text-ink dark:text-white">
+            <span className="font-nunito text-sm font-medium text-ink dark:text-white">
               {items.length} {items.length === 1 ? "Comment" : "Comments"}
             </span>
             <button

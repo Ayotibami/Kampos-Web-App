@@ -100,15 +100,15 @@ export function VerifyOtpForm() {
       <ErrorModal open={showError} onClose={() => setShowError(false)} message={message} />
       <div className="flex flex-col gap-8">
         <div className="space-y-6 text-center">
-          <h1 className="font-poppins text-2xl font-extrabold text-ink">Verify OTP</h1>
+          <h1 className="font-nunito text-2xl font-extrabold text-ink">Verify OTP</h1>
           <p
-            className={`font-poppins text-sm font-semibold ${
+            className={`font-nunito text-sm font-semibold ${
               wrong || secondsLeft <= 0 ? "text-danger" : "text-brand"
             }`}
           >
             {heading}
           </p>
-          <p className="font-poppins text-sm text-muted">{helper}</p>
+          <p className="font-nunito text-sm text-muted">{helper}</p>
 
           <OtpInputs
             value={digits}
@@ -118,7 +118,7 @@ export function VerifyOtpForm() {
             length={LIMITS.otp}
           />
 
-          <p className="text-center font-poppins text-sm text-muted">
+          <p className="text-center font-nunito text-sm text-muted">
             {secondsLeft <= 0 ? "Oops, time up! Abeg resend code " : "The code expires in "}
             {secondsLeft > 0 && (
               <span
@@ -154,7 +154,7 @@ export function VerifyOtpForm() {
             // of "code expiry" vs. "resend cooldown." Explicit wording for
             // the same reason: a bare "20s" next to "4:52" is ambiguous
             // about which clock it even belongs to.
-            <p className="text-center font-poppins text-xs text-faint">
+            <p className="text-center font-nunito text-xs text-faint">
               Resend available in {secondsLeft - (OTP_TTL - 20)}s
             </p>
           )}

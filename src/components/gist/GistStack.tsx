@@ -315,7 +315,7 @@ function SwipeHint() {
           <ChevronLeft className="h-12 w-12 text-white sm:h-16 sm:w-16" />
         </motion.div>
 
-        <span className="text-center font-poppins text-xl font-semibold text-white sm:text-3xl">
+        <span className="text-center font-nunito text-xl font-semibold text-white sm:text-3xl">
           <span className="md:hidden">Swipe to browse</span>
           <span className="hidden md:inline">Press ← → to browse</span>
         </span>

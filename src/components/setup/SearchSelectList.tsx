@@ -77,7 +77,7 @@ export function SearchSelectList({
           onChange={(e) => onSearch(e.target.value)}
           placeholder={placeholder}
           maxLength={24}
-          className="w-full bg-transparent py-3 font-poppins text-sm text-ink outline-none placeholder:text-faint"
+          className="w-full bg-transparent py-3 font-nunito text-sm text-ink outline-none placeholder:text-faint"
         />
         {search ? (
           <button type="button" onClick={() => onSearch("")} aria-label="Clear">
@@ -93,7 +93,7 @@ export function SearchSelectList({
         {errored ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 py-6 text-center">
             <Illustration name="Kappywithwire" className="h-40 w-auto" />
-            <p className="font-poppins text-xs italic text-muted">
+            <p className="font-nunito text-xs italic text-muted">
               Wire don cut o — I no fit fetch the data. Abeg check your internet.
             </p>
             <div className="w-40">
@@ -105,7 +105,7 @@ export function SearchSelectList({
         ) : emptySearch ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 py-6 text-center">
             <Illustration name="Kappymagnifyingglass" className="h-40 w-auto" />
-            <p className="font-poppins text-xs italic text-muted">
+            <p className="font-nunito text-xs italic text-muted">
               Omo, I no see wetin you dey find o!
             </p>
           </div>
@@ -155,7 +155,7 @@ export function SearchSelectList({
                     }`}
                   >
                     <span
-                      className={`flex-1 font-poppins text-sm transition-colors ${
+                      className={`flex-1 font-nunito text-sm transition-colors ${
                         isSelected ? "font-semibold text-brand" : "text-ink"
                       }`}
                     >

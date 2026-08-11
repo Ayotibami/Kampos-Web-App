@@ -62,14 +62,14 @@ function CommentBody({ text }: { text: string }) {
   const shown = expanded || !isLong ? text : text.slice(0, COMMENT_TRUNCATE_LENGTH).trimEnd();
 
   return (
-    <p className="break-words font-poppins text-sm leading-relaxed text-ink/90 dark:text-white/90">
+    <p className="break-words font-nunito text-sm leading-relaxed text-ink/90 dark:text-white/90">
       {shown}
       {isLong && !expanded && "… "}
       {isLong && (
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="font-poppins text-sm font-semibold text-brand-accent hover:underline"
+          className="font-nunito text-sm font-semibold text-brand-accent hover:underline"
         >
           {expanded ? " less" : "more"}
         </button>
@@ -140,23 +140,23 @@ function CommentBubble({
               <Avatar src={c.image_url} />
             </div>
             <div className="flex flex-col">
-              <span className="flex items-center gap-1.5 font-poppins text-sm font-semibold">
+              <span className="flex items-center gap-1.5 font-nunito text-sm font-semibold">
                 {displayName ?? (c.avitag ? c.avitag.replace(/_?\d+$/, "") : "Fola_shade")}
                 {isOwn && (
-                  <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-poppins text-[10px] font-bold leading-none text-brand">
+                  <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-brand">
                     You
                   </span>
                 )}
               </span>
-              <span className="font-poppins text-xs text-muted dark:text-white/70">{c.avitag ?? "someone"}</span>
+              <span className="font-nunito text-xs text-muted dark:text-white/70">{c.avitag ?? "someone"}</span>
             </div>
           </div>
 
           {/* Right side: Time + Major Campus */}
           <div className="flex flex-col items-end">
-            <span className="font-poppins text-xs text-ink/80 dark:text-white/90">{timeAgo(c.commented_at)}</span>
+            <span className="font-nunito text-xs text-ink/80 dark:text-white/90">{timeAgo(c.commented_at)}</span>
             {schoolInfo && (
-              <span className="mt-1 font-poppins text-xs uppercase tracking-wide text-muted dark:text-white/70">
+              <span className="mt-1 font-nunito text-xs uppercase tracking-wide text-muted dark:text-white/70">
                 {schoolInfo}
               </span>
             )}
@@ -191,7 +191,7 @@ function CommentBubble({
           </motion.span>
           {!!c.reactions_count && (
             <span
-              className={`font-poppins text-[11px] ${
+              className={`font-nunito text-[11px] ${
                 reacted ? "text-brand" : "text-muted dark:text-white/60"
               }`}
             >
@@ -276,13 +276,13 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
       ) : hasError ? (
         <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
           <RefreshCw className="h-8 w-8 text-muted" />
-          <p className="font-poppins text-sm font-semibold text-muted dark:text-white/80">
+          <p className="font-nunito text-sm font-semibold text-muted dark:text-white/80">
             Abeg we no fit load comments — check your connection.
           </p>
           <button
             type="button"
             onClick={() => gist?.gist_id && listByGist(gist.gist_id, {}, { force: true })}
-            className="rounded-full bg-brand px-4 py-1.5 font-poppins text-sm font-semibold text-white transition hover:bg-brand-dark"
+            className="rounded-full bg-brand px-4 py-1.5 font-nunito text-sm font-semibold text-white transition hover:bg-brand-dark"
           >
             Try again
           </button>
@@ -290,7 +290,7 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
       ) : items.length === 0 ? (
         <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
           <Illustration name="Commentmodal" className="h-28 w-auto opacity-80" />
-          <p className="font-poppins text-sm font-semibold text-muted dark:text-white/80">
+          <p className="font-nunito text-sm font-semibold text-muted dark:text-white/80">
             Nobody don talk yet, Talk your own na!
           </p>
         </div>

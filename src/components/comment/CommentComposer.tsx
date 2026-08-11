@@ -116,7 +116,7 @@ export function CommentComposer({
           disabled={!gist}
           rows={1}
           style={{ maxHeight: COMPOSER_MAX_HEIGHT }}
-          className="w-full resize-none overflow-y-auto rounded-3xl border-0 bg-[#A9C9F85C] px-4 py-3 pr-14 font-poppins text-sm text-ink outline-none transition placeholder:text-ink/50 focus:ring-2 focus:ring-brand/40 disabled:opacity-50 no-scrollbar dark:bg-white/10 dark:text-white dark:placeholder:text-white/40 dark:focus:bg-white/[0.14] dark:focus:ring-white/20"
+          className="w-full resize-none overflow-y-auto rounded-3xl border-0 bg-[#A9C9F85C] px-4 py-3 pr-14 font-nunito text-sm text-ink outline-none transition placeholder:text-ink/50 focus:ring-2 focus:ring-brand/40 disabled:opacity-50 no-scrollbar dark:bg-white/10 dark:text-white dark:placeholder:text-white/40 dark:focus:bg-white/[0.14] dark:focus:ring-white/20"
         />
         {scrollThumb && (
           <div className="pointer-events-none absolute bottom-3 right-1.5 top-3 w-1 rounded-full bg-black/10 dark:bg-white/15">
@@ -128,7 +128,7 @@ export function CommentComposer({
         )}
         {LIMITS.comment - text.length <= COMMENT_WARN_THRESHOLD && (
           <span
-            className="pointer-events-none absolute bottom-2.5 right-4 font-poppins text-[11px] tabular-nums"
+            className="pointer-events-none absolute bottom-2.5 right-4 font-nunito text-[11px] tabular-nums"
             style={{ color: "var(--color-warning)" }}
           >
             {LIMITS.comment - text.length}

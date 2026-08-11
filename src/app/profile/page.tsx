@@ -16,8 +16,8 @@ export default async function ProfilePage() {
         <ProfileHeaderIcons />
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-16 text-center">
           <Illustration name="Kamill" className="h-40 w-auto" />
-          <h1 className="font-poppins text-xl font-extrabold text-ink">Your profile dey cook 👀</h1>
-          <p className="max-w-sm font-poppins text-sm text-muted">
+          <h1 className="font-nunito text-xl font-extrabold text-ink">Your profile dey cook 👀</h1>
+          <p className="max-w-sm font-nunito text-sm text-muted">
             Your gists, bio, and stats will show up here soon.
           </p>
         </div>

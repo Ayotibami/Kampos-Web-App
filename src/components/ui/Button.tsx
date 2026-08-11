@@ -54,7 +54,7 @@ export function Button({
       whileTap={{ scale: disabled || loading ? 1 : 0.97 }}
       transition={{ type: "spring", stiffness: 400, damping: 25 }}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center gap-2 rounded-full px-8 py-3.5 font-poppins text-sm font-semibold transition-colors disabled:cursor-not-allowed ${
+      className={`inline-flex items-center justify-center gap-2 rounded-full px-8 py-3.5 font-nunito text-sm font-semibold transition-colors disabled:cursor-not-allowed ${
         (invert ? INVERT_VARIANTS : VARIANTS)[variant]
       } ${fullWidth ? "w-full" : ""} ${className}`}
       {...props}

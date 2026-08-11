@@ -96,7 +96,7 @@ function CharCountRing({ length, max }: { length: number; max: number }) {
       </svg>
       {showNumber && (
         <span
-          className="absolute font-poppins text-[10px] font-semibold tabular-nums"
+          className="absolute font-nunito text-[10px] font-semibold tabular-nums"
           style={{ color }}
         >
           {remaining}
@@ -640,7 +640,7 @@ export function CreateGistSheet({
                   className={
                     heroPreviewActive
                       ? "w-full resize-none overflow-hidden bg-transparent text-center font-nunito font-bold leading-snug text-white outline-none placeholder:text-white/60 no-scrollbar"
-                      : "h-full w-full resize-none overflow-y-auto bg-transparent py-2 pr-3 font-poppins text-[15px] leading-relaxed text-ink outline-none placeholder:text-faint no-scrollbar md:h-40"
+                      : "h-full w-full resize-none overflow-y-auto bg-transparent py-2 pr-3 font-nunito text-[15px] leading-relaxed text-ink outline-none placeholder:text-faint no-scrollbar md:h-40"
                   }
                 />
                 {/* A sleeker stand-in for the native scrollbar (hidden via
@@ -666,7 +666,7 @@ export function CreateGistSheet({
                 otherwise nothing tells you the limit exists until you've
                 already hit it. */}
             {media.length === 0 && (
-              <p className="mt-3 font-poppins text-xs text-faint">
+              <p className="mt-3 font-nunito text-xs text-faint">
                 You can attach up to {LIMITS.maxMediaPerGist} photos or videos.
               </p>
             )}

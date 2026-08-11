@@ -37,12 +37,12 @@ export default async function WelcomePage() {
         {/* Copy + controls half */}
         <div className="flex shrink-0 flex-col px-6 pb-6 pt-4 sm:pb-8 md:flex-1 md:justify-center md:px-16 md:py-12">
           <header className="text-center md:text-left">
-            <h1 className="font-poppins text-xl font-extrabold text-white sm:text-2xl md:text-4xl">
+            <h1 className="font-nunito text-xl font-extrabold text-white sm:text-2xl md:text-4xl">
               Welcome to <span className="text-brand-accent">Kampos</span>
             </h1>
           </header>
 
-          <p className="mt-3 text-center font-poppins text-xs leading-relaxed text-white/85 sm:mt-4 sm:text-sm md:mt-8 md:max-w-md md:text-base">
+          <p className="mt-3 text-center font-nunito text-xs leading-relaxed text-white/85 sm:mt-4 sm:text-sm md:mt-8 md:max-w-md md:text-base">
             Oya, enough talk — it&apos;s time to dive in and experience Kampos
             for yourself. Tap in, let&apos;s make some crazy memories together fr
             fr. 🚀

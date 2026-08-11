@@ -30,7 +30,7 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
   return (
     <label className="block w-full">
       {label && (
-        <span className="mb-1.5 block font-poppins text-sm text-muted">{label}</span>
+        <span className="mb-1.5 block font-nunito text-sm text-muted">{label}</span>
       )}
       <div
         className={`flex items-center rounded-2xl border bg-white px-4 transition focus-within:ring-2 focus-within:ring-brand/40 ${
@@ -42,7 +42,7 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
           type={resolvedType}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className={`w-full bg-transparent py-3.5 font-poppins text-sm text-ink outline-none placeholder:text-faint ${className}`}
+          className={`w-full bg-transparent py-3.5 font-nunito text-sm text-ink outline-none placeholder:text-faint ${className}`}
           {...props}
         />
         {isPassword && (

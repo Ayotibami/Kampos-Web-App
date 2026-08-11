@@ -57,7 +57,7 @@ export function AcademicsStep({ onNext, setController }: StepProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <div className="flex min-h-0 flex-1 flex-col gap-2">
-        <span className="font-poppins text-sm text-muted">Major</span>
+        <span className="font-nunito text-sm text-muted">Major</span>
         <SearchSelectList
           layout="chips"
           options={majors.map((m) => ({ id: m.major_tag, label: m.major_name }))}
@@ -86,7 +86,7 @@ export function AcademicsStep({ onNext, setController }: StepProps) {
             exit={{ opacity: 0, y: 24 }}
             transition={{ type: "spring", stiffness: 340, damping: 30 }}
           >
-            <span className="font-poppins text-sm text-muted">Level</span>
+            <span className="font-nunito text-sm text-muted">Level</span>
             <div className="flex flex-wrap gap-2">
               {LEVELS.map((lvl) => (
                 <Chip key={lvl} selected={level === lvl} onClick={() => onSelectLevel(lvl)}>

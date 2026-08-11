@@ -80,7 +80,7 @@ export function GistShareView({ context }: { context: GistContext }) {
         <div className="hidden h-full w-[360px] shrink-0 md:block">
           {currentRemoved ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 border-l border-line px-6 text-center">
-              <p className="font-poppins text-sm font-semibold text-muted">
+              <p className="font-nunito text-sm font-semibold text-muted">
                 Comments aren&apos;t available on a removed gist.
               </p>
             </div>

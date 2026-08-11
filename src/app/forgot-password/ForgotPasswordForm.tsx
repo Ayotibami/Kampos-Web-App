@@ -40,8 +40,8 @@ export function ForgotPasswordForm() {
       <ErrorModal open={showError} onClose={() => setShowError(false)} message={message} />
       <div className="flex flex-col gap-8">
         <header className="space-y-3 text-center">
-          <h1 className="font-poppins text-2xl font-extrabold text-ink">Forgot Password</h1>
-          <p className="font-poppins text-sm text-muted">
+          <h1 className="font-nunito text-2xl font-extrabold text-ink">Forgot Password</h1>
+          <p className="font-nunito text-sm text-muted">
             Enter your registered email address to recover your password.
           </p>
         </header>

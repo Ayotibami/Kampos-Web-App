@@ -173,10 +173,10 @@ export function OnboardingCarousel() {
                 transition={{ duration: 0.25 }}
                 className="space-y-4"
               >
-                <h1 className="font-poppins text-xl font-extrabold text-ink sm:text-2xl md:text-3xl">
+                <h1 className="font-nunito text-xl font-extrabold text-ink sm:text-2xl md:text-3xl">
                   {slide.header}
                 </h1>
-                <p className="mx-auto max-w-sm font-poppins text-sm leading-relaxed text-muted md:mx-0 md:max-w-sm md:text-base">
+                <p className="mx-auto max-w-sm font-nunito text-sm leading-relaxed text-muted md:mx-0 md:max-w-sm md:text-base">
                   {slide.body}
                 </p>
               </motion.div>

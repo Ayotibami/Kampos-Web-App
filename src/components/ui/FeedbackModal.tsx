@@ -27,19 +27,19 @@ export function ErrorModal({
         </div>
         {hasList ? (
           <>
-            <p className="mb-2 font-poppins text-sm font-semibold text-ink">
+            <p className="mb-2 font-nunito text-sm font-semibold text-ink">
               Fix these first:
             </p>
             <ul className="mb-5 space-y-1 text-left">
               {passwordErrors!.map((e, i) => (
-                <li key={i} className="font-poppins text-xs text-muted">
+                <li key={i} className="font-nunito text-xs text-muted">
                   • {e}
                 </li>
               ))}
             </ul>
           </>
         ) : (
-          <p className="mb-5 font-poppins text-sm text-muted">{message}</p>
+          <p className="mb-5 font-nunito text-sm text-muted">{message}</p>
         )}
         <Button variant="primary" onClick={onClose}>
           Okay
@@ -75,8 +75,8 @@ export function ConfirmModal({
         <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-danger/10 text-2xl">
           ⚠️
         </div>
-        <p className="mb-1.5 font-poppins text-sm font-semibold text-ink">{title}</p>
-        <p className="mb-5 font-poppins text-sm text-muted">{message}</p>
+        <p className="mb-1.5 font-nunito text-sm font-semibold text-ink">{title}</p>
+        <p className="mb-5 font-nunito text-sm text-muted">{message}</p>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={onClose} disabled={loading} className="flex-1">
             Cancel
@@ -117,7 +117,7 @@ export function SuccessModal({
         <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-success/20 text-2xl">
           🎉
         </div>
-        <p className="mb-5 font-poppins text-sm text-muted">{message}</p>
+        <p className="mb-5 font-nunito text-sm text-muted">{message}</p>
         <Button variant="primary" onClick={onConfirm ?? onClose}>
           {confirmLabel}
         </Button>

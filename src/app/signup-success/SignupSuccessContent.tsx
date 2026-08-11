@@ -12,13 +12,13 @@ export function SignupSuccessContent() {
     <AppShell>
       <div className="flex flex-1 flex-col items-center justify-between gap-6 px-6 py-10 text-center md:px-8">
         <div className="flex flex-col items-center gap-4">
-          <h1 className="font-poppins text-2xl font-extrabold text-ink">
+          <h1 className="font-nunito text-2xl font-extrabold text-ink">
             Sharppp, You Don Land!
           </h1>
-          <p className="font-poppins text-sm font-semibold text-brand">
+          <p className="font-nunito text-sm font-semibold text-brand">
             Registration Complete!
           </p>
-          <p className="max-w-sm font-poppins text-sm leading-relaxed text-muted">
+          <p className="max-w-sm font-nunito text-sm leading-relaxed text-muted">
             Wow! You don create your Kampos account! Oya collect hot pepper soup.
             Now run go set up your profile make we package your space well-well.
           </p>

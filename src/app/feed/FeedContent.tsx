@@ -183,7 +183,7 @@ export function FeedContent() {
         key={t}
         type="button"
         onClick={() => setTab(t)}
-        className={`shrink-0 rounded-full px-4 py-1.5 font-poppins text-[14px] transition ${
+        className={`shrink-0 rounded-full px-4 py-1.5 font-nunito text-[14px] transition ${
           isActive
             ? "bg-brand text-white font-semibold shadow-sm shadow-brand/30"
             : "bg-brand/[0.06] text-faint font-medium hover:bg-brand/10 hover:text-brand"
@@ -250,7 +250,7 @@ export function FeedContent() {
                       className="absolute right-0 top-full z-20 mt-1.5 flex flex-col items-end"
                     >
                       <span aria-hidden className="mr-3 h-2 w-2 rotate-45 bg-brand-ink" />
-                      <span className="-mt-1 whitespace-nowrap rounded-full bg-brand-ink px-3 py-1.5 font-poppins text-xs font-medium text-white shadow-lg">
+                      <span className="-mt-1 whitespace-nowrap rounded-full bg-brand-ink px-3 py-1.5 font-nunito text-xs font-medium text-white shadow-lg">
                         Tap here make you gist!
                       </span>
                     </motion.div>
@@ -342,7 +342,7 @@ export function FeedContent() {
                       setCommentSheetAutoFocus(true);
                       setShowCommentSheet(true);
                     }}
-                    className="block flex-1 rounded-3xl border-0 bg-[#A9C9F85C] px-4 py-4 text-left font-poppins text-sm text-ink/50"
+                    className="block flex-1 rounded-3xl border-0 bg-[#A9C9F85C] px-4 py-4 text-left font-nunito text-sm text-ink/50"
                   >
                     Talk your own...
                   </button>
@@ -361,7 +361,7 @@ export function FeedContent() {
                     className="flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full bg-brand text-white shadow-sm shadow-brand/30"
                   >
                     <CommentIconFill className="h-4 w-4" weight="fill" />
-                    <span className="font-poppins text-[9px] font-medium leading-none tabular-nums">
+                    <span className="font-nunito text-[9px] font-medium leading-none tabular-nums">
                       {compactNumber(current?.counts?.comments_count)}
                     </span>
                   </button>
@@ -370,13 +370,13 @@ export function FeedContent() {
             ) : loadError ? (
               <div className="relative z-10 flex flex-1 w-full flex-col items-center justify-center gap-3 text-center px-6">
                 <RefreshCw className="h-10 w-10 text-muted" />
-                <p className="font-poppins text-sm text-muted">
+                <p className="font-nunito text-sm text-muted">
                   Abeg we no fit load the gists — check your connection.
                 </p>
                 <button
                   type="button"
                   onClick={load}
-                  className="rounded-full bg-brand px-4 py-2 font-poppins text-sm font-semibold text-white transition hover:bg-brand-dark"
+                  className="rounded-full bg-brand px-4 py-2 font-nunito text-sm font-semibold text-white transition hover:bg-brand-dark"
                 >
                   Try again
                 </button>
@@ -384,7 +384,7 @@ export function FeedContent() {
             ) : (
               <div className="relative z-10 flex flex-1 w-full flex-col items-center justify-center gap-3 text-center">
                 <Illustration name="Kappymagnifyingglass" className="h-40 w-auto" />
-                <p className="font-poppins text-sm text-muted">
+                <p className="font-nunito text-sm text-muted">
                   No gist dey here yet. Be the first to gist!
                 </p>
               </div>
