@@ -6,23 +6,20 @@
 
 // Muted dark backgrounds used for short, text-only gists (mobile Gist.tsx
 // GistCard). One recipe, fixed 36% saturation / 25% lightness — only hue
-// changes swatch to swatch — retuned so each one actually reads as its
-// common name (a layman color wheel: red/orange/yellow/.../pink) instead of
-// design-jargon like "olive" or "indigo" for names a lot of people won't
-// immediately place.
+// changes swatch to swatch. Trimmed from an earlier 12-hue set down to 8:
+// an even spread around the wheel, each instantly recognizable by name,
+// with the near-duplicates dropped (lime/cyan/indigo sat too close to
+// yellow/teal/blue-purple to read as genuinely different picks) along with
+// neutral gray, which isn't really a "color" choice.
 export const GIST_CARD_PALETTE = [
   "#572929", // red
   "#574029", // orange
   "#575329", // yellow
-  "#3c5729", // lime
   "#295730", // green
   "#29574b", // teal
-  "#294f57", // cyan
   "#293857", // blue
-  "#2f2957", // indigo
   "#442957", // purple
   "#572940", // pink
-  "#292929", // neutral
 ] as const;
 
 /**
@@ -45,8 +42,7 @@ export function gistColorFor(key: string): string {
 // since that's a separate repo/language — keep both in sync if this list
 // ever changes.
 export const GIST_COLOR_KEYS = [
-  "red", "orange", "yellow", "lime", "green", "teal",
-  "cyan", "blue", "indigo", "purple", "pink", "neutral",
+  "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink",
 ] as const;
 export type GistColorKey = (typeof GIST_COLOR_KEYS)[number];
 
