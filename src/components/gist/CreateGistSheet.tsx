@@ -107,6 +107,46 @@ function CharCountRing({ length, max }: { length: number; max: number }) {
 
 const DEFAULT_PLACEHOLDER = "Wetin dey your mind? Gist us na 😌";
 
+/** Brand-color circular progress ring for a mid-upload media thumbnail —
+ * same construction as CharCountRing above, swapped to a fixed brand blue
+ * since upload progress has no "getting risky" states to color-code. */
+function UploadProgressRing({ percent }: { percent: number }) {
+  const size = 32;
+  const stroke = 2.5;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const progress = Math.min(Math.max(percent, 0) / 100, 1);
+
+  return (
+    <div className="relative flex h-8 w-8 shrink-0 items-center justify-center">
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={stroke}
+          className="text-white/25"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - progress)}
+          className="text-brand-accent"
+          style={{ transition: "stroke-dashoffset 0.15s ease" }}
+        />
+      </svg>
+    </div>
+  );
+}
+
 export function CreateGistSheet({
   open,
   onClose,
@@ -525,8 +565,8 @@ export function CreateGistSheet({
                         no existingId/remoteUrl since those skip the upload
                         step entirely, and not yet 100%). */}
                     {posting && !m.existingId && !m.remoteUrl && (uploadProgress[m.id] ?? 0) < 100 && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/50 font-poppins text-xs font-bold text-white">
-                        {uploadProgress[m.id] ?? 0}%
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                        <UploadProgressRing percent={uploadProgress[m.id] ?? 0} />
                       </div>
                     )}
                     <button
