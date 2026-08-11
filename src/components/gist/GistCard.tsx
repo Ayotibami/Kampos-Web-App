@@ -29,22 +29,14 @@ import {
 } from "@/components/ui/icons";
 import type { Gist, ReactionType } from "@/types";
 import { gistColorForGist } from "@/lib/brand";
+import { HERO_TEXT_MAX_REM, fitHeroBlock, nominalHeroTextRem } from "@/lib/heroText";
 import { timeAgo, friendlyDateTime, compactNumber } from "@/lib/format";
 
 const SHORT_TEXT = 200;
 
-// Hero statement block sizing — was first a ladder of fixed Tailwind size
-// tiers (any two gists in the same length range looked identical), then a
-// clamp()/character-count formula (a guess at how much room text would
-// need, which doesn't actually know the box's real size or how the words
-// happen to wrap — same length can overflow for a run of long words and
-// look tiny for a run of short ones). ShortGist below instead measures the
-// real rendered box, the same way WhatsApp's status composer does: start
-// big, shrink in steps until it actually fits, so short text stays big,
-// long text shrinks exactly as much as it needs to and never overflows.
-const HERO_TEXT_MIN_REM = 1; // ~16px — smallest a hero statement should ever render, any device
-const HERO_TEXT_MAX_REM = 3; // one-word gist ceiling — the old 4rem read too big once it was actually hit
-const HERO_TEXT_STEP_REM = 0.0625; // 1px steps at the default root size — fine enough not to visibly jump
+// Hero statement block sizing lives in lib/heroText.ts — shared with the
+// compose sheet's live preview, so composing genuinely shows what posting
+// will look like instead of two independently-tuned approximations.
 
 /**
  * A single gist's content: profile header, engagement metrics, then either a
@@ -401,7 +393,7 @@ export function GistCard({
             <GistMediaBackdrop
               media={gist.media!}
               blurred={mediaMode === "text"}
-              active={isActive}
+              active={isActive && !showEdit}
               overlayOpen={overlayIndex !== null}
               onTileClick={setOverlayIndex}
               onSwipeUp={() => setMediaMode("text")}
@@ -678,29 +670,14 @@ function ShortGist({
   const [fontSizeRem, setFontSizeRem] = useState(HERO_TEXT_MAX_REM);
 
   // Runs synchronously after layout but before paint, so there's no visible
-  // flash of the wrong size — measure at the max size, then actually shrink
-  // in steps (not guess from length) until the text's own box stops
-  // overflowing its fixed-size container in either dimension.
+  // flash of the wrong size — starts from the length-driven nominal size,
+  // then shrinks further only if that still overflows this particular box.
   useLayoutEffect(() => {
     const container = containerRef.current;
     const el = textRef.current;
     if (!container || !el) return;
 
-    const fit = () => {
-      let size = HERO_TEXT_MAX_REM;
-      el.style.fontSize = `${size}rem`;
-      let guard = 0;
-      while (
-        (el.scrollHeight > container.clientHeight || el.scrollWidth > container.clientWidth) &&
-        size > HERO_TEXT_MIN_REM &&
-        guard < 80
-      ) {
-        size = Math.max(HERO_TEXT_MIN_REM, size - HERO_TEXT_STEP_REM);
-        el.style.fontSize = `${size}rem`;
-        guard += 1;
-      }
-      setFontSizeRem(size);
-    };
+    const fit = () => setFontSizeRem(fitHeroBlock(el, container, nominalHeroTextRem(text.length)));
 
     fit();
     // Covers device rotation / the card resizing under it — a static
