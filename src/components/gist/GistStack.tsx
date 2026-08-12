@@ -320,9 +320,17 @@ function GistStackCard({
         scale: slot.scale,
         opacity: slot.opacity,
       }}
+      // Mobile deliberately underdamped (damping well below critical for
+      // this stiffness/mass) so the incoming card overshoots its resting
+      // spot slightly and springs back — a small elastic "thump" on
+      // landing instead of a dead stop. Kept in sync with
+      // useOverscrollNav's own snap-back spring, which plays at the same
+      // moment on the pull gesture's inner offset — mismatched springs
+      // there used to visibly change speed partway through the same
+      // motion (see that file's own comment).
       transition={
         isMobile
-          ? { type: "spring", stiffness: 230, damping: 27, mass: 0.9 }
+          ? { type: "spring", stiffness: 280, damping: 18, mass: 0.9 }
           : { type: "spring", stiffness: 260, damping: 30 }
       }
       // Mobile drops horizontal drag entirely — it was independently

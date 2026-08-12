@@ -226,13 +226,14 @@ export function useOverscrollNav<T extends HTMLElement>({
       committed = false;
       velocity = 0;
       // Matches the stack's own mobile fly-off spring (GistStack's
-      // mobileSlotFor transition) exactly, not just "something snappy" —
+      // GistStackCard transition) exactly, not just "something snappy" —
       // when this fires, the outer card is ALSO mid-transition into its
-      // new slot on that same spring; a stiffer, faster spring here used
+      // new slot on that same spring, deliberately underdamped for a
+      // small elastic overshoot on landing. A mismatched spring here used
       // to finish resetting this inner offset well before the outer one
       // settled, so the last bit of the transition visibly changed speed
       // partway through instead of reading as one continuous motion.
-      animate(y, 0, { type: "spring", stiffness: 230, damping: 27, mass: 0.9 });
+      animate(y, 0, { type: "spring", stiffness: 280, damping: 18, mass: 0.9 });
     };
 
     surface.addEventListener("touchstart", onTouchStart, { passive: true });
