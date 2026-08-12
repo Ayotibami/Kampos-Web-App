@@ -513,46 +513,59 @@ export const GistCard = memo(function GistCard({
           a total, so this is the one place a total reaction count is
           actually visible. Share is display-only for now — the actual share
           action lands separately later. */}
-      <div className="relative z-10 mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-line/40 pt-1.5">
-        <div className="flex items-center gap-3 text-faint">
-          <span className="font-nunito text-xs md:text-[13px]">{friendlyDateTime(gist.created_at)}</span>
-          <span className="flex items-center gap-1 font-nunito text-xs md:text-[13px]">
+      {/* flex-nowrap (not flex-wrap) + the metrics group's own overflow-x-auto
+          below is deliberate: on the narrowest real phones (~320-360px) the
+          four metrics didn't fit next to the reaction badge, and flex-wrap
+          silently dropped the badge onto its own line underneath instead —
+          reads as broken, not responsive. Letting the metrics scroll
+          horizontally in that rare case keeps the badge exactly where it
+          belongs (same row, pinned right) on every width, rather than the
+          layout itself shifting depending on how much space happens to be
+          available. */}
+      <div className="relative z-10 mt-1.5 flex flex-nowrap items-center justify-between gap-x-3 gap-y-1 border-t border-line/40 pt-1.5">
+        <div className="no-scrollbar flex min-w-0 items-center gap-3 overflow-x-auto text-faint">
+          <span className="shrink-0 font-nunito text-xs md:text-[13px]">{friendlyDateTime(gist.created_at)}</span>
+          <span className="flex shrink-0 items-center gap-1 font-nunito text-xs md:text-[13px]">
             <ReactionIconFill size={14} weight="regular" />
             {compactNumber(gist.counts?.reactions_count)}
           </span>
-          <span className="flex items-center gap-1 font-nunito text-xs md:text-[13px]">
+          <span className="flex shrink-0 items-center gap-1 font-nunito text-xs md:text-[13px]">
             <ViewIconFill size={14} weight="regular" />
             {compactNumber(gist.counts?.views_count)}
           </span>
-          <span className="flex items-center gap-1 font-nunito text-xs md:text-[13px]">
+          <span className="flex shrink-0 items-center gap-1 font-nunito text-xs md:text-[13px]">
             <ShareIconFill size={14} weight="regular" />
             {compactNumber(gist.counts?.shares_count)}
           </span>
         </div>
         {/* Mobile: hero + orbit badge — tap opens the vertical picker tray.
             Desktop keeps the classic always-visible row. Double-tap-to-react
-            on the card body drives whichever one is actually mounted. */}
-        {isMobile ? (
-          <MobileReactionBadge
-            onReact={handleReact}
-            onUnreact={handleUnreact}
-            counts={gist.counts?.reactions_by_type}
-            initialActive={gist.my_reaction}
-            externalTrigger={reactTrigger}
-            onReacted={(type) => setCenterBurst({ id: Date.now(), type })}
-            guardClick={() => requireAuth("react to gists")}
-          />
-        ) : (
-          <ReactionButton
-            onReact={handleReact}
-            onUnreact={handleUnreact}
-            counts={gist.counts?.reactions_by_type}
-            initialActive={gist.my_reaction}
-            externalTrigger={reactTrigger}
-            onReacted={(type) => setCenterBurst({ id: Date.now(), type })}
-            guardClick={() => requireAuth("react to gists")}
-          />
-        )}
+            on the card body drives whichever one is actually mounted.
+            shrink-0: this is the one thing in the row that must never lose
+            width to the metrics group above squeezing against it. */}
+        <div className="shrink-0">
+          {isMobile ? (
+            <MobileReactionBadge
+              onReact={handleReact}
+              onUnreact={handleUnreact}
+              counts={gist.counts?.reactions_by_type}
+              initialActive={gist.my_reaction}
+              externalTrigger={reactTrigger}
+              onReacted={(type) => setCenterBurst({ id: Date.now(), type })}
+              guardClick={() => requireAuth("react to gists")}
+            />
+          ) : (
+            <ReactionButton
+              onReact={handleReact}
+              onUnreact={handleUnreact}
+              counts={gist.counts?.reactions_by_type}
+              initialActive={gist.my_reaction}
+              externalTrigger={reactTrigger}
+              onReacted={(type) => setCenterBurst({ id: Date.now(), type })}
+              guardClick={() => requireAuth("react to gists")}
+            />
+          )}
+        </div>
       </div>
 
       <CreateGistSheet

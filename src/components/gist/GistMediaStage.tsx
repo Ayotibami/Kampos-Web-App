@@ -21,27 +21,38 @@ import { useIsMobile } from "@/lib/useIsMobile";
 // by the line-clamp before it ever gets shown. Mobile is deliberately capped
 // at 2 lines (a small char budget) so the caption stays short enough to
 // leave the media beneath it tappable, instead of covering most of the card.
-const PREVIEW_CHARS_BY_BREAKPOINT = { mobile: 80, sm: 160, md: 110 } as const;
+// `narrow` exists because `mobile`'s own 80 chars, measured against real
+// caption text, only actually fits 2 lines from ~375px up — on genuinely
+// narrow phones (iPhone SE-class, many budget Android, 320-360px) it wraps
+// to 3 and the line-clamp silently cuts "…more" off entirely, which read as
+// the caption just ending mid-sentence with no way to read the rest.
+const PREVIEW_CHARS_BY_BREAKPOINT = { narrow: 50, mobile: 80, sm: 160, md: 110 } as const;
 
-/** Tracks which Tailwind breakpoint we're at (sm: 640px, md: 768px) via
- * matchMedia, so the preview length can respond to real viewport width. */
+/** Tracks which breakpoint we're at — Tailwind's own sm (640px) / md
+ * (768px), plus one narrower than either (374px, see PREVIEW_CHARS_BY_BREAKPOINT's
+ * own comment on `narrow`) — via matchMedia, so the preview length responds
+ * to the real viewport width instead of assuming "mobile" is one size. */
 function usePreviewChars(): number {
   const [chars, setChars] = useState<number>(PREVIEW_CHARS_BY_BREAKPOINT.mobile);
 
   useEffect(() => {
     const mdQuery = window.matchMedia("(min-width: 768px)");
     const smQuery = window.matchMedia("(min-width: 640px)");
+    const narrowQuery = window.matchMedia("(max-width: 374px)");
     const update = () => {
       if (mdQuery.matches) setChars(PREVIEW_CHARS_BY_BREAKPOINT.md);
       else if (smQuery.matches) setChars(PREVIEW_CHARS_BY_BREAKPOINT.sm);
+      else if (narrowQuery.matches) setChars(PREVIEW_CHARS_BY_BREAKPOINT.narrow);
       else setChars(PREVIEW_CHARS_BY_BREAKPOINT.mobile);
     };
     update();
     mdQuery.addEventListener("change", update);
     smQuery.addEventListener("change", update);
+    narrowQuery.addEventListener("change", update);
     return () => {
       mdQuery.removeEventListener("change", update);
       smQuery.removeEventListener("change", update);
+      narrowQuery.removeEventListener("change", update);
     };
   }, []);
 
