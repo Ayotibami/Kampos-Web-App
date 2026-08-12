@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motion, useMotionValue, useTransform, type PanInfo } from "framer-motion";
+import { motion, useMotionValue, useTransform, type MotionValue, type PanInfo } from "framer-motion";
 import { GistCard } from "./GistCard";
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from "@/components/ui/icons";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -102,6 +102,14 @@ export function GistStack({
 }) {
   const [index, setIndex] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(gists.length - 1, 0)));
   const isMobile = useIsMobile();
+  // ONE shared value for the whole stack, not per-card — every currently
+  // mounted GistStackCard needs to read the SAME live drag state to shift
+  // together in real time (the front card exiting, its neighbor arriving,
+  // simultaneously). Owning it here and passing it down is what makes that
+  // possible; it must not be created inside GistStackCard itself, since
+  // that runs once per card and would give each one its own disconnected
+  // value that never receives the others' touch events.
+  const dragProgress = useMotionValue(0);
 
   // The gist list is owned by the parent (feed page) and can shrink out from
   // under the stack (a delete) — clamped during render (not an effect,
@@ -252,6 +260,7 @@ export function GistStack({
               next={next}
               prev={prev}
               handleDragEnd={handleDragEnd}
+              dragProgress={dragProgress}
             />
           );
         })}
@@ -296,6 +305,7 @@ function GistStackCard({
   next,
   prev,
   handleDragEnd,
+  dragProgress,
 }: {
   gist: Gist;
   offset: number;
@@ -307,13 +317,13 @@ function GistStackCard({
   next: () => void;
   prev: () => void;
   handleDragEnd: (info: PanInfo) => void;
+  /** GistStack's ONE shared value, passed down — not created here. See
+   * GistStack's own comment on why this can't be a per-card useMotionValue:
+   * every mounted card needs to react to the SAME live drag, not just
+   * whichever one the touch actually started on. */
+  dragProgress: MotionValue<number>;
 }) {
   const isFront = offset === 0;
-  // Called unconditionally regardless of isMobile (which can itself change
-  // live on a resize crossing the breakpoint — see useIsMobile) so every
-  // hook below runs in the same order every render; which VALUES actually
-  // get used is decided further down, after all hooks have run.
-  const dragProgress = useMotionValue(0);
   // Where the vertical-overscroll gesture's touch listeners actually
   // attach — the WHOLE card frame below (header, body, footer, all of
   // it), not just the scrollable content inside it, so the gesture works
