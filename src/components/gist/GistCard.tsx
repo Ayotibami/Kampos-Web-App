@@ -339,7 +339,7 @@ export const GistCard = memo(function GistCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 shrink truncate font-nunito text-[13px] font-bold text-ink md:text-sm">
+            <span className="min-w-0 shrink truncate font-nunito text-sm font-bold text-ink md:text-[15px]">
               {gist.first_name || gist.name || gist.avitag}
             </span>
             {isOwn && (
@@ -347,10 +347,10 @@ export const GistCard = memo(function GistCard({
                 You
               </span>
             )}
-            <span className="min-w-0 shrink truncate font-nunito text-[11px] text-faint md:text-xs">
+            <span className="min-w-0 shrink truncate font-nunito text-xs text-faint md:text-[13px]">
               {gist.avitag}
             </span>
-            <span className="shrink-0 font-nunito text-[11px] text-faint md:text-xs">
+            <span className="shrink-0 font-nunito text-xs text-faint md:text-[13px]">
               · {timeAgo(gist.created_at)}
             </span>
           </div>
@@ -525,17 +525,17 @@ export const GistCard = memo(function GistCard({
           action lands separately later. */}
       <div className="relative z-10 mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-line/40 pt-1.5">
         <div className="flex items-center gap-3 text-faint">
-          <span className="font-nunito text-sm">{friendlyDateTime(gist.created_at)}</span>
-          <span className="flex items-center gap-1 font-nunito text-sm">
-            <ReactionIconFill size={16} weight="regular" />
+          <span className="font-nunito text-xs md:text-[13px]">{friendlyDateTime(gist.created_at)}</span>
+          <span className="flex items-center gap-1 font-nunito text-xs md:text-[13px]">
+            <ReactionIconFill size={14} weight="regular" />
             {compactNumber(gist.counts?.reactions_count)}
           </span>
-          <span className="flex items-center gap-1 font-nunito text-sm">
-            <ViewIconFill size={16} weight="regular" />
+          <span className="flex items-center gap-1 font-nunito text-xs md:text-[13px]">
+            <ViewIconFill size={14} weight="regular" />
             {compactNumber(gist.counts?.views_count)}
           </span>
-          <span className="flex items-center gap-1 font-nunito text-sm">
-            <ShareIconFill size={16} weight="regular" />
+          <span className="flex items-center gap-1 font-nunito text-xs md:text-[13px]">
+            <ShareIconFill size={14} weight="regular" />
             {compactNumber(gist.counts?.shares_count)}
           </span>
         </div>
