@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motion, useMotionValue, type PanInfo } from "framer-motion";
+import { motion, useMotionValue, useTransform, type PanInfo } from "framer-motion";
 import { GistCard } from "./GistCard";
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from "@/components/ui/icons";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -34,19 +34,20 @@ function slotFor(offset: number) {
   return { ...s, zIndex: 40 - offset };
 }
 
-// Mobile's transition — matching the reference in Kampos-frontend's
+// Mobile's RESTING pose only — matching the reference in Kampos-frontend's
 // AnimatedGist: no 3D flip, no hinge, just a full-card-width slide plus a
-// light, consistent 20° tilt in the direction of travel. The outgoing card
-// slides one full width to the left while tilting to -20°; the incoming
-// card (mounted one offset ahead, off to the right at the mirror-image
-// +20°) slides the opposite full width back to 0 while untilting to 0° —
-// both driven by the same two numbers, meeting in the middle. Purely
-// translateX + a small rotate, nothing fancier.
-// zIndex is deliberately NOT graded by direction (unlike desktop's stack) —
-// whichever card is becoming front needs to paint on top of whichever is
-// leaving in BOTH directions, or the tilt's wider bounding box lets the
-// leaving card's edge visibly sit on top of the arriving one instead of
-// disappearing behind it.
+// light, consistent 20° tilt in the direction of travel. Purely translateX
+// + a small rotate, nothing fancier. The actual LIVE motion (both while
+// dragging and mid-release-spring) is computed in GistStackCard instead,
+// driven continuously by dragProgress — this function is what that live
+// system settles into at dragProgress = 0 (and the fallback for any
+// offset outside the {-1, 0, 1} range the live formulas actually cover,
+// which desktop's own offsets can reach but mobile's never do). zIndex
+// here is intentionally the SAME for both waiting neighbors (20) since,
+// at rest, neither is "becoming front" — GistStackCard's own live zIndex
+// is what grades by direction once a drag is actually in progress,
+// whichever neighbor is being approached painting above the current front
+// while they cross paths.
 function mobileSlotFor(offset: number) {
   if (offset < 0) return { x: "-100%", y: 0, rotate: -20, scale: 1, opacity: 1, zIndex: 20 };
   if (offset === 0) return { x: 0, y: 0, rotate: 0, scale: 1, opacity: 1, zIndex: 50 };
@@ -263,16 +264,26 @@ export function GistStack({
 
 /**
  * A single card's slot in the stack — split out from GistStack's own render
- * specifically so it can own its own `pullY` motion value (a hook call
- * inside a raw `.map()` isn't legal; a proper per-item component, keyed the
- * same way the map already was, is). `pullY` is the vertical-overscroll
- * gesture's shared value for this one card — GistCard and its media
- * sub-components only ever read/write it (see useOverscrollNav), but it's
- * rendered as an actual transform right here, on the same wrapper that
- * already carries the horizontal swipe's transform. That's deliberate: the
- * whole card (header, footer, shadow, everything) needs to move together
- * for the vertical gesture, exactly like it already does for the
- * horizontal one — not just whatever content happens to be inside it.
+ * specifically so it can own its own `dragProgress` motion value (a hook
+ * call inside a raw `.map()` isn't legal; a proper per-item component,
+ * keyed the same way the map already was, is).
+ *
+ * `dragProgress` is the vertical-overscroll gesture's shared value for this
+ * one card — GistCard and its media sub-components only ever read/write it
+ * (see useOverscrollNav), but this component is what actually turns it into
+ * a visible transform. It's a normalized progress from -1 to 1 (0 = at
+ * rest, ±1 = fully transitioned), NOT a pixel offset, and it drives the
+ * card's position LIVE, every frame, while the gesture is happening — not
+ * just after it ends. That's deliberate: it's what makes the whole
+ * horizontal fly-off animate in real time as a vertical finger-drag
+ * happens, instead of the drag itself being invisible and a completely
+ * separate animation only starting once you let go (which used to read as
+ * two stitched-together motions instead of one).
+ *
+ * Desktop is untouched by any of this — it keeps its original, simpler
+ * discrete-slot system (mouse drag directly manipulates the same x/rotate
+ * targets Framer's own `animate` prop uses, so it was already continuous by
+ * construction; only the newer vertical-touch gesture needed this).
  */
 function GistStackCard({
   gist,
@@ -298,8 +309,11 @@ function GistStackCard({
   handleDragEnd: (info: PanInfo) => void;
 }) {
   const isFront = offset === 0;
-  const slot = isMobile ? mobileSlotFor(offset) : slotFor(offset);
-  const pullY = useMotionValue(0);
+  // Called unconditionally regardless of isMobile (which can itself change
+  // live on a resize crossing the breakpoint — see useIsMobile) so every
+  // hook below runs in the same order every render; which VALUES actually
+  // get used is decided further down, after all hooks have run.
+  const dragProgress = useMotionValue(0);
   // Where the vertical-overscroll gesture's touch listeners actually
   // attach — the WHOLE card frame below (header, body, footer, all of
   // it), not just the scrollable content inside it, so the gesture works
@@ -308,55 +322,61 @@ function GistStackCard({
   // position.
   const touchSurfaceRef = useRef<HTMLDivElement>(null);
 
-  return (
-    <motion.div
-      className="absolute inset-0 will-change-transform"
-      style={{ zIndex: slot.zIndex, pointerEvents: isFront ? "auto" : "none" }}
-      initial={false}
-      animate={{
-        x: slot.x,
-        y: slot.y,
-        rotate: slot.rotate,
-        scale: slot.scale,
-        opacity: slot.opacity,
-      }}
-      // Mobile deliberately underdamped (damping well below critical for
-      // this stiffness/mass) so the incoming card overshoots its resting
-      // spot slightly and springs back — a small elastic "thump" on
-      // landing instead of a dead stop. Kept in sync with
-      // useOverscrollNav's own snap-back spring, which plays at the same
-      // moment on the pull gesture's inner offset — mismatched springs
-      // there used to visibly change speed partway through the same
-      // motion (see that file's own comment).
-      transition={
-        isMobile
-          ? { type: "spring", stiffness: 280, damping: 18, mass: 0.9 }
-          : { type: "spring", stiffness: 260, damping: 30 }
-      }
-      // Mobile drops horizontal drag entirely — it was independently
-      // watching the same touch as the vertical overscroll-pull gesture
-      // (see useOverscrollNav), and a real thumb flick is rarely perfectly
-      // straight, so both would sometimes try to move the card at once,
-      // reading as a shake/fight instead of one clean motion. Desktop has
-      // no such conflict (mouse drag, not touch) and keeps working exactly
-      // as before.
-      drag={isFront && !isMobile ? "x" : false}
-      dragElastic={0.5}
-      dragConstraints={{ left: 0, right: 0 }}
-      whileDrag={{ cursor: "grabbing" }}
-      onDragEnd={(_, info) => handleDragEnd(info)}
-    >
-      {/* Carries ONLY the vertical-overscroll pull, layered on top of the
-          parent's horizontal/stack transform above — CSS transforms on
-          nested elements compose, so this adds to (never fights) the
-          parent's own x/rotate/scale/spring animation. Always present,
-          never conditional on isFront, so toggling front/peeking never
-          remounts anything below (which would reset GistCard's own local
-          state, restart video elements, etc.) — it just never receives a
-          nonzero pullY unless it's actually the front card, since only the
-          front card's content ever enables the touch listeners that drive
-          it (see GistCard's isActive-gated useOverscrollNav call). */}
-      <motion.div style={{ y: pullY }} className="h-full w-full">
+  // Desktop's own discrete resting slot — computed unconditionally
+  // (cheap), only actually used in the desktop branch below.
+  const desktopSlot = slotFor(offset);
+
+  // Mobile's live position — three cards ever mount there (offset -1, 0,
+  // 1; see the render loop above), and only ONE of them ever reacts to a
+  // given drag direction at a time:
+  //  - offset 0 (front): interpolates toward whichever exit pose matches
+  //    the drag's sign (negative = toward "next", left; positive = toward
+  //    "prev", right) — the only card that always moves.
+  //  - offset 1 (waiting at the right): only interpolates toward center
+  //    while dragProgress is negative (a "next" pull) — clamped, so a
+  //    "prev" pull (positive) leaves it untouched at its resting x:"100%".
+  //  - offset -1 (waiting at the left): the mirror image — only reacts to
+  //    positive (a "prev" pull), clamped still at x:"-100%" otherwise.
+  // At dragProgress = 0 (rest), all three formulas below already evaluate
+  // to exactly mobileSlotFor's own resting values — this isn't a
+  // coincidence, it's what lets the live system fully replace the old
+  // discrete one instead of needing to hand off between them.
+  const liveX = useTransform(dragProgress, (p) => {
+    if (offset === 0) return `${p * 100}%`;
+    if (offset === 1) return `${100 + Math.min(0, p) * 100}%`;
+    if (offset === -1) return `${-100 + Math.max(0, p) * 100}%`;
+    return mobileSlotFor(offset).x;
+  });
+  const liveRotate = useTransform(dragProgress, (p) => {
+    if (offset === 0) return p * 20;
+    if (offset === 1) return 20 + Math.min(0, p) * 20;
+    if (offset === -1) return -20 + Math.max(0, p) * 20;
+    return mobileSlotFor(offset).rotate;
+  });
+  // z-index needs the card being actively dragged TOWARD to paint above
+  // the current front while they cross paths mid-drag — unlike the old
+  // discrete system (which only ever swapped position at the instant of
+  // commit, never showing a live overlap), the two cards now visibly slide
+  // past each other, so getting this backwards would show the leaving card
+  // on top of the arriving one during the crossover.
+  const liveZIndex = useTransform(dragProgress, (p) => {
+    if (offset === 0) return 40;
+    if (offset === 1) return p < 0 ? 60 : 20;
+    if (offset === -1) return p > 0 ? 60 : 20;
+    return mobileSlotFor(offset).zIndex;
+  });
+
+  if (isMobile) {
+    return (
+      <motion.div
+        className="absolute inset-0 will-change-transform"
+        style={{
+          zIndex: liveZIndex,
+          x: liveX,
+          rotate: liveRotate,
+          pointerEvents: isFront ? "auto" : "none",
+        }}
+      >
         <div
           ref={touchSurfaceRef}
           className="relative h-full w-full overflow-hidden rounded-[32px] shadow-[0_24px_60px_-24px_rgba(9,30,66,0.55)] ring-1 ring-black/5"
@@ -370,40 +390,75 @@ function GistStackCard({
             onNext={isFront ? next : undefined}
             onPrev={isFront ? prev : undefined}
             touchSurfaceRef={touchSurfaceRef}
-            pullY={pullY}
+            dragProgress={dragProgress}
           />
-          {/* Swipe-peek tease (desktop only — mobile's offset-1 card
-              sits fully off to the side edge-on/invisible until its
-              own flip-in animation, so there's no partial edge to
-              peek from). Peeking cards (offset > 0) already sit
-              rotated/offset behind the front card, so a sliver of their
-              right edge sticks out during a drag. Painting the gist's
-              first media item right there means a person glimpses the
-              actual photo/video while swiping past — before they've
-              even arrived at the card — only possible because of this
-              horizontal stack, not a bolt-on UI affordance.
-
-              An <img> can't render a video file, so a video item only
-              gets a peek when it actually has a thumbnail_url (a real
-              poster frame) — if not, skip the peek entirely rather
-              than try to load the raw .mp4 as an image and silently
-              fail. */}
-          {(() => {
-            const first = gist.media?.[0];
-            if (isMobile || offset <= 0 || !first) return null;
-            const isVideo = first.media_type?.toLowerCase().includes("video");
-            const previewSrc = isVideo ? first.thumbnail_url : first.media_url || first.thumbnail_url;
-            if (!previewSrc) return null;
-            return (
-              <div className="pointer-events-none absolute inset-y-0 right-0 w-16 overflow-hidden sm:w-20">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={previewSrc} alt="" className="h-full w-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-r from-surface-2 via-surface-2/30 to-transparent" />
-              </div>
-            );
-          })()}
         </div>
       </motion.div>
+    );
+  }
+
+  return (
+    <motion.div
+      className="absolute inset-0 will-change-transform"
+      style={{ zIndex: desktopSlot.zIndex, pointerEvents: isFront ? "auto" : "none" }}
+      initial={false}
+      animate={{
+        x: desktopSlot.x,
+        y: desktopSlot.y,
+        rotate: desktopSlot.rotate,
+        scale: desktopSlot.scale,
+        opacity: desktopSlot.opacity,
+      }}
+      transition={{ type: "spring", stiffness: 260, damping: 30 }}
+      drag={isFront ? "x" : false}
+      dragElastic={0.5}
+      dragConstraints={{ left: 0, right: 0 }}
+      whileDrag={{ cursor: "grabbing" }}
+      onDragEnd={(_, info) => handleDragEnd(info)}
+    >
+      <div
+        ref={touchSurfaceRef}
+        className="relative h-full w-full overflow-hidden rounded-[32px] shadow-[0_24px_60px_-24px_rgba(9,30,66,0.55)] ring-1 ring-black/5"
+      >
+        <GistCard
+          gist={gist}
+          isActive={isFront && !mediaPaused}
+          onOverlayOpenChange={handleOverlayOpenChange}
+          onDeleted={onGistDeleted}
+          onEdited={onGistEdited}
+          onNext={isFront ? next : undefined}
+          onPrev={isFront ? prev : undefined}
+          touchSurfaceRef={touchSurfaceRef}
+          dragProgress={dragProgress}
+        />
+        {/* Swipe-peek tease (desktop only). Peeking cards (offset > 0)
+            already sit rotated/offset behind the front card, so a sliver
+            of their right edge sticks out during a drag. Painting the
+            gist's first media item right there means a person glimpses
+            the actual photo/video while swiping past — before they've
+            even arrived at the card — only possible because of this
+            horizontal stack, not a bolt-on UI affordance.
+
+            An <img> can't render a video file, so a video item only
+            gets a peek when it actually has a thumbnail_url (a real
+            poster frame) — if not, skip the peek entirely rather
+            than try to load the raw .mp4 as an image and silently
+            fail. */}
+        {(() => {
+          const first = gist.media?.[0];
+          if (offset <= 0 || !first) return null;
+          const isVideo = first.media_type?.toLowerCase().includes("video");
+          const previewSrc = isVideo ? first.thumbnail_url : first.media_url || first.thumbnail_url;
+          if (!previewSrc) return null;
+          return (
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-16 overflow-hidden sm:w-20">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={previewSrc} alt="" className="h-full w-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-r from-surface-2 via-surface-2/30 to-transparent" />
+            </div>
+          );
+        })()}
+      </div>
     </motion.div>
   );
 }

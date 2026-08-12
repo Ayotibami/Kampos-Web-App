@@ -280,7 +280,7 @@ export function GistMediaBackdrop({
   onTileClick,
   onNext,
   onPrev,
-  pullY,
+  dragProgress,
   touchSurfaceRef,
 }: {
   media: GistMediaType[];
@@ -300,10 +300,10 @@ export function GistMediaBackdrop({
    * on the media itself is free to mean this instead. */
   onNext?: () => void;
   onPrev?: () => void;
-  /** GistCard's shared pull motion value, passed straight through from
-   * GistStack — this only reads/writes it for the boundary gesture;
+  /** GistCard's shared drag-progress motion value, passed straight through
+   * from GistStack — this only reads/writes it for the boundary gesture;
    * GistStack is what actually renders it as the whole card's transform. */
-  pullY: MotionValue<number>;
+  dragProgress: MotionValue<number>;
   /** Same shared touch surface (the whole card frame) as GistCard's own
    * call — see useOverscrollNav's docs. */
   touchSurfaceRef: RefObject<HTMLElement | null>;
@@ -367,7 +367,7 @@ export function GistMediaBackdrop({
   // scroll through either.
   const { scrollRef } = useOverscrollNav<HTMLDivElement>({
     surfaceRef: touchSurfaceRef,
-    y: pullY,
+    y: dragProgress,
     onNext,
     onPrev,
     enabled: interactive,
@@ -425,7 +425,7 @@ export function GistMediaBodyPanel({
   text,
   onNext,
   onPrev,
-  pullY,
+  dragProgress,
   touchSurfaceRef,
 }: {
   mode: "media" | "text";
@@ -435,8 +435,8 @@ export function GistMediaBodyPanel({
    * expanded caption's own scrollable text once it's scrolled to its edge. */
   onNext?: () => void;
   onPrev?: () => void;
-  /** Same shared pull motion value as GistMediaBackdrop — see its docs. */
-  pullY: MotionValue<number>;
+  /** Same shared drag-progress motion value as GistMediaBackdrop — see its docs. */
+  dragProgress: MotionValue<number>;
   /** Same shared touch surface (the whole card frame) as GistMediaBackdrop's
    * own call — see useOverscrollNav's docs. */
   touchSurfaceRef: RefObject<HTMLElement | null>;
@@ -445,7 +445,7 @@ export function GistMediaBodyPanel({
   const { preview, truncated } = previewText(text, previewChars);
   const { scrollRef } = useOverscrollNav<HTMLDivElement>({
     surfaceRef: touchSurfaceRef,
-    y: pullY,
+    y: dragProgress,
     onNext,
     onPrev,
     enabled: mode === "text",

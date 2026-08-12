@@ -203,7 +203,16 @@ export function FeedContent() {
               feed tabs get their own row underneath (X-style: "which feed am
               I looking at" reads as content, not global nav), left-aligned
               so it has room to grow rightward as more filters get added. */}
-          <header className="sticky top-0 z-10 w-full shrink-0 border-b border-line bg-surface/85 backdrop-blur-md">
+          {/* z-20, not z-10: the gist stack below sits in its own z-10
+              wrapper (see the "relative z-10" container around GistStack),
+              which caps every card inside it — even the exiting one at
+              zIndex 60 — to that z-10 slot when compared against siblings.
+              A pulled/dragged card's visual position can reach up into this
+              header's screen area even though its layout box never left the
+              feed body, so the header needs to be numerically above that
+              z-10 sibling slot, not above the individual card z-indices
+              (which never matter here — they're internal to that slot). */}
+          <header className="sticky top-0 z-20 w-full shrink-0 border-b border-line bg-surface/85 backdrop-blur-md">
             <div className="mx-auto grid max-w-[740px] grid-cols-[1fr_auto_1fr] items-center px-4 py-2 sm:px-6 md:py-2.5">
               {/* Profile avatar — the account entry point, anchored at the
                   outer left edge (settings/theme toggle live on the profile

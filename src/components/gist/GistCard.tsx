@@ -63,7 +63,7 @@ export const GistCard = memo(function GistCard({
   onEdited,
   onNext,
   onPrev,
-  pullY,
+  dragProgress,
   touchSurfaceRef,
 }: {
   gist: Gist;
@@ -86,12 +86,12 @@ export const GistCard = memo(function GistCard({
    * horizontal swipe, just a second way in. */
   onNext?: () => void;
   onPrev?: () => void;
-  /** GistStack's shared pull motion value — this card's own scrollable
-   * content (or bare media) only ever reads/writes it for the boundary
-   * gesture above; GistStack itself is what actually renders it as the
-   * whole card's transform, so the entire card frame moves as one piece,
-   * not just whatever's inside it. */
-  pullY: MotionValue<number>;
+  /** GistStack's shared drag-progress motion value (-1 to 1, 0 = at rest)
+   * — this card's own scrollable content (or bare media) only ever
+   * reads/writes it for the boundary gesture above; GistStack itself is
+   * what actually turns it into the whole card's live transform, so the
+   * entire card frame moves as one piece, not just whatever's inside it. */
+  dragProgress: MotionValue<number>;
   /** Where the vertical-overscroll gesture's touch listeners actually
    * attach — the whole card frame (header, body, footer), not just
    * whatever's scrollable, so the gesture works no matter where on the
@@ -144,7 +144,7 @@ export const GistCard = memo(function GistCard({
   // (or non-scrollable) surface lives there, not here.
   const { scrollRef: textScrollRef } = useOverscrollNav<HTMLDivElement>({
     surfaceRef: touchSurfaceRef,
-    y: pullY,
+    y: dragProgress,
     onNext,
     onPrev,
     enabled: isActive && !hasMedia,
@@ -458,7 +458,7 @@ export const GistCard = memo(function GistCard({
               onTileClick={setOverlayIndex}
               onNext={onNext}
               onPrev={onPrev}
-              pullY={pullY}
+              dragProgress={dragProgress}
               touchSurfaceRef={touchSurfaceRef}
             />
             <GistMediaBodyPanel
@@ -467,7 +467,7 @@ export const GistCard = memo(function GistCard({
               text={gist.gist_text}
               onNext={onNext}
               onPrev={onPrev}
-              pullY={pullY}
+              dragProgress={dragProgress}
               touchSurfaceRef={touchSurfaceRef}
             />
           </>
