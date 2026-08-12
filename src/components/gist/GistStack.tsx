@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motion, useMotionValue, useTransform, type MotionValue, type PanInfo } from "framer-motion";
+import { motion, AnimatePresence, type PanInfo } from "framer-motion";
 import { GistCard } from "./GistCard";
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from "@/components/ui/icons";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -10,17 +10,13 @@ import type { Gist } from "@/types";
 const SWIPE_THRESHOLD = 90; // px of horizontal drag to advance — desktop only, see isMobile below
 const WINDOW_AHEAD = 3; // how many upcoming cards to keep mounted (the peek) — desktop only, see isMobile below
 const HINT_SEEN_KEY = "kampos-swipe-hint-seen";
-// Mobile only — the z-index a waiting neighbor jumps to while it's the one
-// actively being dragged toward, so it paints above the current front as
-// the two cross paths mid-drag. Always above mobileSlotFor's own front
-// z-index (50).
-const ACTIVE_NEIGHBOR_Z = 60;
 // On mobile the card is already at (near-)full screen width, so the stacked
 // peek behind it reads as cramped/broken rather than a tease — the split
 // with the mobile-only comment input below the card (see FeedContent)
-// shrinks the card's own height too, which made the peek's rotation/offset
-// spill past the card's own bounds. Desktop, with room to spare on both
-// axes, keeps the peek.
+// shrinks the card's own height too. Desktop, with room to spare on both
+// axes, keeps the peek. Mobile only ever mounts the one front card (see
+// GistStack's render below) — no neighbor sits behind it to peek at — but
+// see fallRiseVariants for the transition that plays when it changes.
 
 /** Resting transform for a card at a given stack offset from the front (0). */
 function slotFor(offset: number) {
@@ -39,25 +35,26 @@ function slotFor(offset: number) {
   return { ...s, zIndex: 40 - offset };
 }
 
-// Mobile's RESTING pose only — matching the reference in Kampos-frontend's
-// AnimatedGist: no 3D flip, no hinge, just a full-card-width slide plus a
-// light, consistent 20° tilt in the direction of travel. Purely translateX
-// + a small rotate, nothing fancier. The actual LIVE motion (both while
-// dragging and mid-release-spring) is computed in GistStackCard instead,
-// driven continuously by dragProgress — this function is what that live
-// system settles into at dragProgress = 0 (and the fallback for any
-// offset outside the {-1, 0, 1} range the live formulas actually cover,
-// which desktop's own offsets can reach but mobile's never do). zIndex
-// here is intentionally the SAME for both waiting neighbors (20) since,
-// at rest, neither is "becoming front" — GistStackCard's own live zIndex
-// is what grades by direction once a drag is actually in progress,
-// whichever neighbor is being approached painting above the current front
-// while they cross paths.
-function mobileSlotFor(offset: number) {
-  if (offset < 0) return { x: "-100%", rotate: -20, zIndex: 20 };
-  if (offset === 0) return { x: "0%", rotate: 0, zIndex: 50 };
-  return { x: "100%", rotate: 20, zIndex: 20 };
-}
+/**
+ * Mobile's whole transition, in three fixed poses — no live tracking, no
+ * shared value between cards. `direction` (+1 for "next", -1 for "prev") is
+ * fed in via each element's own `custom` prop; Framer runs the outgoing
+ * card's `exit` pose and the incoming card's `enter`→`center` transition
+ * at the same instant, entirely on its own — see GistStack's use of
+ * AnimatePresence below.
+ *  - "next": the outgoing card topples left (falling), the incoming card
+ *    rises in from the right, straightening as it settles.
+ *  - "prev": the mirror image — outgoing topples right, incoming rises
+ *    in from the left.
+ */
+const fallRiseVariants = {
+  enter: (direction: number) => ({ x: `${direction * 130}%`, rotate: direction * 20 }),
+  center: { x: "0%", rotate: 0 },
+  exit: (direction: number) => ({ x: `${direction * -130}%`, rotate: direction * -20 }),
+};
+// Deliberately quick — a fast, repeated swipe should always feel like it's
+// keeping up, not queuing up a backlog of slow transitions.
+const FALL_RISE_TRANSITION = { duration: 0.22, ease: "easeOut" as const };
 
 /**
  * The signature Kampos feed: a horizontal card stack. The front gist can be
@@ -107,14 +104,6 @@ export function GistStack({
 }) {
   const [index, setIndex] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(gists.length - 1, 0)));
   const isMobile = useIsMobile();
-  // ONE shared value for the whole stack, not per-card — every currently
-  // mounted GistStackCard needs to read the SAME live drag state to shift
-  // together in real time (the front card exiting, its neighbor arriving,
-  // simultaneously). Owning it here and passing it down is what makes that
-  // possible; it must not be created inside GistStackCard itself, since
-  // that runs once per card and would give each one its own disconnected
-  // value that never receives the others' touch events.
-  const dragProgress = useMotionValue(0);
 
   // The gist list is owned by the parent (feed page) and can shrink out from
   // under the stack (a delete) — clamped during render (not an effect,
@@ -183,11 +172,19 @@ export function GistStack({
   const lastNavAtRef = useRef(0);
   const NAV_DEBOUNCE_MS = 150;
 
+  // Mobile-only: which way the fall/rise transition should play (see
+  // fallRiseVariants) — +1 for next, -1 for prev. Set in the same event
+  // handler as setIndex, so React 18's automatic batching applies both in
+  // the same render — the render that shows the new gist always sees the
+  // direction that produced it.
+  const [direction, setDirection] = useState(1);
+
   const next = useCallback(() => {
     const now = Date.now();
     if (!isMobile && now - lastNavAtRef.current < NAV_DEBOUNCE_MS) return;
     lastNavAtRef.current = now;
     dismissHint();
+    setDirection(1);
     setIndex((i) => Math.min(i + 1, gists.length - 1));
   }, [gists.length, dismissHint, isMobile]);
 
@@ -196,6 +193,7 @@ export function GistStack({
     if (!isMobile && now - lastNavAtRef.current < NAV_DEBOUNCE_MS) return;
     lastNavAtRef.current = now;
     dismissHint();
+    setDirection(-1);
     setIndex((i) => Math.max(i - 1, 0));
   }, [dismissHint, isMobile]);
 
@@ -251,32 +249,53 @@ export function GistStack({
       onWheel={onWheel}
     >
       <div className="relative h-full w-full max-w-[620px] md:max-w-[740px]">
-        {gists.map((gist, i) => {
-          const offset = i - index;
-          if (offset < -1 || offset > WINDOW_AHEAD) return null;
-          // Desktop mounts the whole cascading peek (WINDOW_AHEAD deep).
-          // Mobile only ever needs the immediate neighbor on either side —
-          // one card mid-slide-out (-1), one card waiting to slide in
-          // (+1) — since its transition is driven by those two slots alone,
-          // not a stack.
-          if (isMobile && offset > 1) return null;
-          return (
-            <GistStackCard
-              key={gist.gist_id}
-              gist={gist}
-              offset={offset}
-              isMobile={isMobile}
-              mediaPaused={mediaPaused}
-              handleOverlayOpenChange={handleOverlayOpenChange}
-              onGistDeleted={onGistDeleted}
-              onGistEdited={onGistEdited}
-              next={next}
-              prev={prev}
-              handleDragEnd={handleDragEnd}
-              dragProgress={dragProgress}
-            />
-          );
-        })}
+        {isMobile ? (
+          // Mobile: exactly one card, wrapped in AnimatePresence so the
+          // outgoing gist (removed from the tree the instant `index`
+          // changes) still gets to play its own exit pose instead of just
+          // vanishing, while the incoming one mounts and animates in at
+          // the same time — see fallRiseVariants.
+          <AnimatePresence initial={false} custom={direction}>
+            {gists[index] && (
+              <GistStackCard
+                key={gists[index].gist_id}
+                gist={gists[index]}
+                offset={0}
+                isMobile
+                direction={direction}
+                mediaPaused={mediaPaused}
+                handleOverlayOpenChange={handleOverlayOpenChange}
+                onGistDeleted={onGistDeleted}
+                onGistEdited={onGistEdited}
+                next={next}
+                prev={prev}
+                handleDragEnd={handleDragEnd}
+              />
+            )}
+          </AnimatePresence>
+        ) : (
+          // Desktop: unchanged — the whole cascading peek (WINDOW_AHEAD deep).
+          gists.map((gist, i) => {
+            const offset = i - index;
+            if (offset < -1 || offset > WINDOW_AHEAD) return null;
+            return (
+              <GistStackCard
+                key={gist.gist_id}
+                gist={gist}
+                offset={offset}
+                isMobile={false}
+                direction={1}
+                mediaPaused={mediaPaused}
+                handleOverlayOpenChange={handleOverlayOpenChange}
+                onGistDeleted={onGistDeleted}
+                onGistEdited={onGistEdited}
+                next={next}
+                prev={prev}
+                handleDragEnd={handleDragEnd}
+              />
+            );
+          })
+        )}
 
         {showHint && <SwipeHint />}
       </div>
@@ -285,32 +304,18 @@ export function GistStack({
 }
 
 /**
- * A single card's slot in the stack — split out from GistStack's own render
- * specifically so it can own its own `dragProgress` motion value (a hook
- * call inside a raw `.map()` isn't legal; a proper per-item component,
- * keyed the same way the map already was, is).
- *
- * `dragProgress` is the vertical-overscroll gesture's shared value for this
- * one card — GistCard and its media sub-components only ever read/write it
- * (see useOverscrollNav), but this component is what actually turns it into
- * a visible transform. It's a normalized progress from -1 to 1 (0 = at
- * rest, ±1 = fully transitioned), NOT a pixel offset, and it drives the
- * card's position LIVE, every frame, while the gesture is happening — not
- * just after it ends. That's deliberate: it's what makes the whole
- * horizontal fly-off animate in real time as a vertical finger-drag
- * happens, instead of the drag itself being invisible and a completely
- * separate animation only starting once you let go (which used to read as
- * two stitched-together motions instead of one).
- *
- * Desktop is untouched by any of this — it keeps its original, simpler
- * discrete-slot system (mouse drag directly manipulates the same x/rotate
- * targets Framer's own `animate` prop uses, so it was already continuous by
- * construction; only the newer vertical-touch gesture needed this).
+ * A single card's slot in the stack. Desktop: the signature dragged/rotated
+ * peek-stack (unchanged — see slotFor). Mobile: only the front card is ever
+ * mounted here (see GistStack's own render), wrapped in AnimatePresence —
+ * this is what plays the fall/rise transition (see fallRiseVariants) when
+ * `gist` changes, both cards animating in parallel, on their own, with no
+ * shared value between them.
  */
 function GistStackCard({
   gist,
   offset,
   isMobile,
+  direction,
   mediaPaused,
   handleOverlayOpenChange,
   onGistDeleted,
@@ -318,11 +323,13 @@ function GistStackCard({
   next,
   prev,
   handleDragEnd,
-  dragProgress,
 }: {
   gist: Gist;
   offset: number;
   isMobile: boolean;
+  /** Mobile only — which way the fall/rise transition plays. See
+   * fallRiseVariants and GistStack's own direction state. Unused on desktop. */
+  direction: number;
   mediaPaused: boolean;
   handleOverlayOpenChange: (open: boolean) => void;
   onGistDeleted?: (gistId: string) => void;
@@ -330,11 +337,6 @@ function GistStackCard({
   next: () => void;
   prev: () => void;
   handleDragEnd: (info: PanInfo) => void;
-  /** GistStack's ONE shared value, passed down — not created here. See
-   * GistStack's own comment on why this can't be a per-card useMotionValue:
-   * every mounted card needs to react to the SAME live drag, not just
-   * whichever one the touch actually started on. */
-  dragProgress: MotionValue<number>;
 }) {
   const isFront = offset === 0;
   // Where the vertical-overscroll gesture's touch listeners actually
@@ -349,60 +351,18 @@ function GistStackCard({
   // (cheap), only actually used in the desktop branch below.
   const desktopSlot = slotFor(offset);
 
-  // --- Mobile's live position ---
-  //
-  // Exactly one card is ever "the front," and at most one neighbor is ever
-  // "being approached" by the current drag (whichever side matches its
-  // sign) — everyone else just sits at their own resting pose, full stop.
-  // `rest` is that resting pose, and it's the ONLY place those numbers are
-  // defined — every live formula below either animates smoothly away from
-  // it or collapses back to it exactly, by construction. At p = 0 every
-  // formula below evaluates to exactly `rest`'s own numbers — this is
-  // guaranteed, not incidental, and it's what makes the system safe for a
-  // freshly-mounted card: useOverscrollNav only ever flips the index while
-  // the shared value is sitting completely still at 0 (see its own
-  // top-of-file doc comment for why), so a card that's never seen a
-  // gesture of its own always renders correctly from the very first frame
-  // it exists, with no special-casing needed here at all.
-  const rest = mobileSlotFor(offset);
-
-  const liveX = useTransform(dragProgress, (p) => {
-    // offset 0 (front): always moves, toward whichever side matches the
-    // drag's sign. offset 1 (waiting at the right): only interpolates
-    // toward center while p is negative (a "next" pull) — clamped, so a
-    // "prev" pull (positive) leaves it untouched at rest. offset -1: the
-    // mirror image, only reacting to positive p.
-    if (offset === 0) return `${p * 100}%`;
-    if (offset === 1) return `${100 + Math.min(0, p) * 100}%`;
-    if (offset === -1) return `${-100 + Math.max(0, p) * 100}%`;
-    return rest.x;
-  });
-  const liveRotate = useTransform(dragProgress, (p) => {
-    if (offset === 0) return p * 20;
-    if (offset === 1) return 20 + Math.min(0, p) * 20;
-    if (offset === -1) return -20 + Math.max(0, p) * 20;
-    return rest.rotate;
-  });
-  // The card being actively dragged TOWARD needs to paint above the
-  // current front while they cross paths mid-drag, or the leaving card's
-  // edge would visibly sit on top of the arriving one instead of
-  // disappearing behind it.
-  const liveZIndex = useTransform(dragProgress, (p) => {
-    if (offset === 1) return p < 0 ? ACTIVE_NEIGHBOR_Z : rest.zIndex;
-    if (offset === -1) return p > 0 ? ACTIVE_NEIGHBOR_Z : rest.zIndex;
-    return rest.zIndex;
-  });
-
   if (isMobile) {
+    // Always the front card — GistStack's render loop never mounts any
+    // other offset on mobile — so there's nothing to key this on.
     return (
       <motion.div
         className="absolute inset-0 will-change-transform"
-        style={{
-          zIndex: liveZIndex,
-          x: liveX,
-          rotate: liveRotate,
-          pointerEvents: isFront ? "auto" : "none",
-        }}
+        custom={direction}
+        variants={fallRiseVariants}
+        initial="enter"
+        animate="center"
+        exit="exit"
+        transition={FALL_RISE_TRANSITION}
       >
         <div
           ref={touchSurfaceRef}
@@ -410,14 +370,13 @@ function GistStackCard({
         >
           <GistCard
             gist={gist}
-            isActive={isFront && !mediaPaused}
+            isActive={!mediaPaused}
             onOverlayOpenChange={handleOverlayOpenChange}
             onDeleted={onGistDeleted}
             onEdited={onGistEdited}
-            onNext={isFront ? next : undefined}
-            onPrev={isFront ? prev : undefined}
+            onNext={next}
+            onPrev={prev}
             touchSurfaceRef={touchSurfaceRef}
-            dragProgress={dragProgress}
           />
         </div>
       </motion.div>
@@ -456,7 +415,6 @@ function GistStackCard({
           onNext={isFront ? next : undefined}
           onPrev={isFront ? prev : undefined}
           touchSurfaceRef={touchSurfaceRef}
-          dragProgress={dragProgress}
         />
         {/* Swipe-peek tease (desktop only). Peeking cards (offset > 0)
             already sit rotated/offset behind the front card, so a sliver
