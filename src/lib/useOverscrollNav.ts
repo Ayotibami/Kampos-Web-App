@@ -8,13 +8,8 @@ import { animate, type MotionValue } from "framer-motion";
 // bounce) rather than a bare 1:1 drag, but only lightly.
 const PULL_RESISTANCE = 0.7;
 // Raw (already-damped) pull distance, in px, that counts as a FULLY
-// completed transition (dragProgress = ±1) — i.e. how far a finger has to
-// travel before the card is visually all the way into its exit pose. Bigger
-// than COMMIT_THRESHOLD_PX on purpose: reaching the threshold only means
-// "this release counts as a commit," not "the card already finished flying
-// off" — there's still a short remaining distance for the release spring to
-// cover, which is what makes the release read as a continuation of the
-// same motion instead of a fresh one starting from zero.
+// completed transition (progress = ±1) — how far a finger has to travel
+// before the card is visually all the way into its exit pose.
 const FULL_PROGRESS_PX = 120;
 // How far (already-damped) that pull has to travel before release actually
 // commits to navigating, rather than just snapping back — big enough that
@@ -29,20 +24,16 @@ const COMMIT_THRESHOLD_PX = 42;
 // that existing feel so both gestures need roughly the same effort.
 const VELOCITY_COMMIT_PX_PER_MS = 0.5;
 // Raw finger movement (before any resistance) required before this even
-// CLAIMS a touch as a pull attempt, regardless of boundary state. Matters
-// most now that the touch surface spans the whole card frame, not just
-// scrollable content: on a short/no-scroll gist, atTop()/atBottom() are
-// true from the very first pixel, so without this, the tiniest incidental
-// jitter during an ordinary tap on a header/footer button (the avatar, the
-// "…" menu, a reaction) would claim the touch and preventDefault() it,
-// silently eating the tap. A small slop distance — the same idea every
-// native touch gesture system uses to tell "tap" from "drag" apart — fixes
-// that without meaningfully delaying a genuine pull.
+// CLAIMS a touch as a pull attempt, regardless of boundary state. On a
+// short/no-scroll gist, atTop()/atBottom() are true from the very first
+// pixel, so without this, the tiniest incidental jitter during an ordinary
+// tap on a header/footer button (the avatar, the "…" menu, a reaction)
+// would claim the touch and preventDefault() it, silently eating the tap.
 const CLAIM_SLOP_PX = 8;
-// The release spring that finishes a committed transition, and the spring
-// that cancels an uncommitted one — kept identical to GistStackCard's own
-// mobile fly-off spring (see that file) so the live-dragged portion and the
-// release-finishing portion read as one continuous motion, not two.
+// The spring for both the commit-finishing motion and the cancel snap-back
+// — kept identical to GistStackCard's own mobile fly-off spring (see that
+// file) so this and the stack's own transition read as one continuous
+// motion, not two.
 const RELEASE_SPRING = { type: "spring" as const, stiffness: 280, damping: 18, mass: 0.9 };
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
@@ -64,8 +55,8 @@ const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(ma
  *    accident to guard against. What prevents an ordinary vigorous
  *    scroll-to-the-bottom (and its natural little native bounce) from
  *    misfiring isn't disabling this — it's COMMIT_THRESHOLD_PX and
- *    VELOCITY_COMMIT_PX_PER_MS below requiring a genuinely deliberate extra
- *    pull, well beyond what a normal scroll's own momentum ever produces.
+ *    VELOCITY_COMMIT_PX_PER_MS requiring a genuinely deliberate extra pull,
+ *    well beyond what a normal scroll's own momentum ever produces.
  *
  * The value this writes into (`y`, despite the name — see below) isn't a
  * pixel offset, it's a normalized PROGRESS from -1 to 1: 0 is at rest, ±1
@@ -75,22 +66,39 @@ const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(ma
  * directly from this value in real time, so the whole stack visibly shifts
  * as the drag happens, not just after it ends.
  *
- * On release, a commit fires onNext/onPrev IMMEDIATELY — not gated on any
- * animation finishing. It used to wait for a finishing spring to settle
- * first, which meant a new touch arriving during that window could
- * interrupt (and silently cancel) the pending navigation: the swipe looked
- * like it happened but never actually registered. Instead, the same tick
- * that fires the index change also re-expresses the current live progress
- * in the NEW card arrangement's own coordinate frame (shifted by exactly
- * the one full unit just committed), which makes every mounted card's
- * on-screen position mathematically IDENTICAL immediately before and after
- * — verified algebraically, holds at any point in the drag, not just a
- * fully-completed one. Nothing needs to animate across the flip because
- * nothing actually moves at that instant. What's left is a short, purely
- * cosmetic spring settling that carried value back to a clean 0 baseline
- * (inheriting live velocity so it reads as a continuation) — since the
- * index is already correct by then, interrupting THAT with a new touch is
- * completely harmless.
+ * THE ONE RULE THIS WHOLE FILE IS BUILT AROUND, and the thing every past
+ * version of this got wrong in one direction or another: the actual index
+ * change (onNext/onPrev — which is what makes every mounted card's offset
+ * shift by one) must only ever happen at an instant where this progress
+ * value is sitting COMPLETELY STILL, either freshly settled at its ±1
+ * endpoint or freshly reset to 0 — never while it's actively mid-animation.
+ * React (which owns the index) and this motion value (which updates every
+ * frame, entirely outside React) run on two different clocks with no
+ * guaranteed alignment between them. A static value combined with either
+ * the old or the new offset renders IDENTICALLY (proven: at rest, every
+ * card's formula in GistStackCard evaluates to the same number whichever
+ * side of an index change it's asked from) — so as long as the value isn't
+ * actively changing at the moment offset does, it is completely impossible
+ * for the two clocks' misalignment to ever produce a visibly torn frame.
+ * The moment this value keeps moving (animating) WHILE offset is also in
+ * the middle of changing, that guarantee breaks and a glitch becomes
+ * possible depending on exactly how the two clocks happen to line up.
+ *
+ * Two consequences of that rule, both handled below:
+ *  1. On commit, onNext/onPrev only fires once the finishing spring has
+ *     NATURALLY settled (via animate()'s onComplete) — not immediately.
+ *  2. A new touch starting while a previous commit is still settling would,
+ *     if left alone, just call `.set()` on this shared value directly —
+ *     which silently stops the in-flight spring, so its onComplete (and
+ *     therefore its onNext/onPrev) would simply never fire, dropping that
+ *     swipe entirely. So instead: if a commit is still pending when a new
+ *     touch begins, it's force-finished right then — fires its
+ *     onNext/onPrev and resets to 0 immediately, synchronously, before the
+ *     new gesture starts tracking. This can end that specific settle
+ *     animation a little early (a rare case — only when swiping again
+ *     faster than the ~150–300ms settle takes), but it never leaves the
+ *     value moving at the same instant offset changes, so the one rule
+ *     above still holds even here.
  *
  * Two different elements are involved on purpose, and they're not the same
  * thing:
@@ -166,6 +174,12 @@ export function useOverscrollNav<T extends HTMLElement>({
     // happens to be scrolled to. Only a touch that starts ON the content
     // itself needs the boundary gate below.
     let startedInContent = true;
+    // Set while a commit's finishing spring is still settling — holds the
+    // function that finishes it (fires onNext/onPrev, resets y to 0). See
+    // the file-level doc comment for why a NEW touch starting during that
+    // window must force this to run immediately rather than let its own
+    // `.set()` calls silently interrupt (and drop) it.
+    let pendingResolve: (() => void) | null = null;
 
     const atTop = () => {
       if (!startedInContent) return true;
@@ -179,6 +193,11 @@ export function useOverscrollNav<T extends HTMLElement>({
     };
 
     const onTouchStart = (e: TouchEvent) => {
+      // A previous commit hasn't finished settling yet — finish it right
+      // now, before this new touch does anything, so it's never silently
+      // dropped by this touch's own upcoming .set() calls.
+      if (pendingResolve) pendingResolve();
+
       startY = e.touches[0].clientY;
       pulling = false;
       committed = false;
@@ -229,46 +248,34 @@ export function useOverscrollNav<T extends HTMLElement>({
       const shouldCommit = pulling && (committed || fastFlick);
       pulling = false;
       committed = false;
+      velocity = 0;
 
-      if (shouldCommit) {
-        // A fast flick trusts velocity's sign (the most instantaneous,
-        // accurate signal for a quick gesture); a slower pull that
-        // committed on distance alone trusts the current progress's sign
-        // instead — either way, positive means "pulled down past the top."
-        const dir = fastFlick ? Math.sign(velocity) : Math.sign(y.get()) || 1;
-        // Fire the index change RIGHT NOW — not gated on any animation
-        // completing. Waiting for a finishing spring to settle before
-        // bumping the index used to mean a new touch starting during that
-        // window would interrupt (and silently cancel) the pending
-        // navigation — the swipe would visually happen but never actually
-        // register, which is exactly the "doesn't work the first time"
-        // bug this replaced.
-        //
-        // Re-express the current live progress in the NEW offset
-        // arrangement's own coordinate frame — shift it by exactly the one
-        // full unit just committed — in the SAME tick as the index change,
-        // so every mounted card's on-screen position is mathematically
-        // IDENTICAL immediately before and after. Verified algebraically
-        // for both directions and for a commit at any point in the drag
-        // (not just a fully-completed one) — there's nothing left to
-        // animate across the flip because nothing actually needs to move.
-        const carried = y.get() - dir;
+      if (!shouldCommit) {
+        animate(y, 0, RELEASE_SPRING);
+        return;
+      }
+
+      // A fast flick trusts velocity's sign (the most instantaneous,
+      // accurate signal for a quick gesture); a slower pull that committed
+      // on distance alone trusts the current progress's sign instead —
+      // either way, positive means "pulled down past the top."
+      const dir = fastFlick ? Math.sign(velocity) : Math.sign(y.get()) || 1;
+      // Carries the live drag's actual speed into the finishing spring
+      // (converted from raw px/ms to progress-units/second) so it reads as
+      // a continuation of the same motion, not a fresh start.
+      const releaseVelocity = ((velocity * 1000) / FULL_PROGRESS_PX) * PULL_RESISTANCE;
+
+      const resolve = () => {
+        pendingResolve = null;
         if (dir > 0) onPrev?.();
         else onNext?.();
-        y.set(carried);
-        // What's left is purely cosmetic — settling that carried remainder
-        // back to a clean 0 baseline for the next gesture — so interrupting
-        // it (a new touch arriving before it finishes) is completely
-        // harmless; the index is already correct by the time that could
-        // even happen. Still inherits the live drag's actual speed
-        // (converted from raw px/ms to progress-units/second) so it reads
-        // as a continuation, not a fresh start.
-        const releaseVelocity = ((velocity * 1000) / FULL_PROGRESS_PX) * PULL_RESISTANCE;
-        animate(y, 0, { ...RELEASE_SPRING, velocity: releaseVelocity });
-      } else {
-        animate(y, 0, RELEASE_SPRING);
-      }
-      velocity = 0;
+        // Only ever reached with y already sitting still at `dir` (either
+        // naturally, via the spring settling, or forced) — never mid-swing
+        // — which is the whole guarantee this file is built around.
+        y.set(0);
+      };
+      pendingResolve = resolve;
+      animate(y, dir, { ...RELEASE_SPRING, velocity: releaseVelocity, onComplete: resolve });
     };
 
     surface.addEventListener("touchstart", onTouchStart, { passive: true });

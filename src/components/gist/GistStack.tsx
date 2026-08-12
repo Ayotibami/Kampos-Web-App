@@ -172,24 +172,32 @@ export function GistStack({
   // wheelLock below, which solves a different problem) absorbs the
   // duplicate without adding any perceptible delay to genuinely separate,
   // deliberate consecutive swipes.
+  //
+  // Mobile-only exemption: mobile never mounts Framer's horizontal `drag`
+  // (see GistStackCard's isMobile branch) — the overscroll-pull touch
+  // listener is the ONLY gesture detector watching a mobile touch, so
+  // there's no second detector for it to ever double-fire against. Without
+  // this exemption, two genuinely separate, deliberate fast swipes on
+  // mobile could have the second one silently dropped by a debounce that's
+  // solving a desktop-only problem.
   const lastNavAtRef = useRef(0);
   const NAV_DEBOUNCE_MS = 150;
 
   const next = useCallback(() => {
     const now = Date.now();
-    if (now - lastNavAtRef.current < NAV_DEBOUNCE_MS) return;
+    if (!isMobile && now - lastNavAtRef.current < NAV_DEBOUNCE_MS) return;
     lastNavAtRef.current = now;
     dismissHint();
     setIndex((i) => Math.min(i + 1, gists.length - 1));
-  }, [gists.length, dismissHint]);
+  }, [gists.length, dismissHint, isMobile]);
 
   const prev = useCallback(() => {
     const now = Date.now();
-    if (now - lastNavAtRef.current < NAV_DEBOUNCE_MS) return;
+    if (!isMobile && now - lastNavAtRef.current < NAV_DEBOUNCE_MS) return;
     lastNavAtRef.current = now;
     dismissHint();
     setIndex((i) => Math.max(i - 1, 0));
-  }, [dismissHint]);
+  }, [dismissHint, isMobile]);
 
   useEffect(() => {
     onCurrentChange?.(gists[index]);
@@ -348,66 +356,42 @@ function GistStackCard({
   // sign) — everyone else just sits at their own resting pose, full stop.
   // `rest` is that resting pose, and it's the ONLY place those numbers are
   // defined — every live formula below either animates smoothly away from
-  // it or collapses back to it exactly, by construction.
+  // it or collapses back to it exactly, by construction. At p = 0 every
+  // formula below evaluates to exactly `rest`'s own numbers — this is
+  // guaranteed, not incidental, and it's what makes the system safe for a
+  // freshly-mounted card: useOverscrollNav only ever flips the index while
+  // the shared value is sitting completely still at 0 (see its own
+  // top-of-file doc comment for why), so a card that's never seen a
+  // gesture of its own always renders correctly from the very first frame
+  // it exists, with no special-casing needed here at all.
   const rest = mobileSlotFor(offset);
 
-  // A commit reveals a brand-new card in a newly-opened slot (see
-  // GistStack's render loop) at the exact same moment the JUST-committed
-  // gesture's own leftover value is still mid-flight, settling back to 0
-  // (see useOverscrollNav's onTouchEnd). dragProgress is shared across the
-  // whole stack, so without this guard, that new arrival would immediately
-  // react to a value that has nothing to do with it — flickering/sliding
-  // into view as if it were part of a drag it never participated in.
-  // Snapshotting "was the shared value already non-zero the moment I first
-  // rendered" and ignoring it until it naturally returns to 0 means a
-  // freshly revealed card always just quietly exists at `rest` — exactly
-  // like it always used to, before any of this live-drag system existed.
-  const foreignGesture = useRef(dragProgress.get() !== 0);
-
-  // Resolves one live property: `rest`'s own value whenever this card
-  // isn't actually a participant in whatever's currently happening
-  // (either because dragProgress is genuinely at rest, or because of
-  // foreignGesture above), otherwise the true live value.
-  function liveOrRest<T>(p: number, atRest: T, whileLive: () => T): T {
-    if (foreignGesture.current) {
-      if (p === 0) foreignGesture.current = false;
-      else return atRest;
-    }
-    return p === 0 ? atRest : whileLive();
-  }
-
-  const liveX = useTransform(dragProgress, (p) =>
-    liveOrRest(p, rest.x, () => {
-      // offset 0 (front): always moves, toward whichever side matches the
-      // drag's sign. offset 1 (waiting at the right): only interpolates
-      // toward center while p is negative (a "next" pull) — clamped, so a
-      // "prev" pull (positive) leaves it untouched at rest. offset -1: the
-      // mirror image, only reacting to positive p.
-      if (offset === 0) return `${p * 100}%`;
-      if (offset === 1) return `${100 + Math.min(0, p) * 100}%`;
-      if (offset === -1) return `${-100 + Math.max(0, p) * 100}%`;
-      return rest.x;
-    }),
-  );
-  const liveRotate = useTransform(dragProgress, (p) =>
-    liveOrRest(p, rest.rotate, () => {
-      if (offset === 0) return p * 20;
-      if (offset === 1) return 20 + Math.min(0, p) * 20;
-      if (offset === -1) return -20 + Math.max(0, p) * 20;
-      return rest.rotate;
-    }),
-  );
+  const liveX = useTransform(dragProgress, (p) => {
+    // offset 0 (front): always moves, toward whichever side matches the
+    // drag's sign. offset 1 (waiting at the right): only interpolates
+    // toward center while p is negative (a "next" pull) — clamped, so a
+    // "prev" pull (positive) leaves it untouched at rest. offset -1: the
+    // mirror image, only reacting to positive p.
+    if (offset === 0) return `${p * 100}%`;
+    if (offset === 1) return `${100 + Math.min(0, p) * 100}%`;
+    if (offset === -1) return `${-100 + Math.max(0, p) * 100}%`;
+    return rest.x;
+  });
+  const liveRotate = useTransform(dragProgress, (p) => {
+    if (offset === 0) return p * 20;
+    if (offset === 1) return 20 + Math.min(0, p) * 20;
+    if (offset === -1) return -20 + Math.max(0, p) * 20;
+    return rest.rotate;
+  });
   // The card being actively dragged TOWARD needs to paint above the
   // current front while they cross paths mid-drag, or the leaving card's
   // edge would visibly sit on top of the arriving one instead of
   // disappearing behind it.
-  const liveZIndex = useTransform(dragProgress, (p) =>
-    liveOrRest(p, rest.zIndex, () => {
-      if (offset === 1) return p < 0 ? ACTIVE_NEIGHBOR_Z : rest.zIndex;
-      if (offset === -1) return p > 0 ? ACTIVE_NEIGHBOR_Z : rest.zIndex;
-      return rest.zIndex;
-    }),
-  );
+  const liveZIndex = useTransform(dragProgress, (p) => {
+    if (offset === 1) return p < 0 ? ACTIVE_NEIGHBOR_Z : rest.zIndex;
+    if (offset === -1) return p > 0 ? ACTIVE_NEIGHBOR_Z : rest.zIndex;
+    return rest.zIndex;
+  });
 
   if (isMobile) {
     return (
