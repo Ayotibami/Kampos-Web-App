@@ -73,15 +73,24 @@ const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(ma
  * same reason the visual fly-off shouldn't wait for release — the caller
  * (GistStackCard) derives every visible card's actual on-screen position
  * directly from this value in real time, so the whole stack visibly shifts
- * as the drag happens, not just after it ends. Release then either
- * continues the SAME progress value the rest of the way to ±1 (a commit —
- * short remaining distance, since most of it already played out live,
- * inheriting the live velocity so it doesn't feel like a restart) or springs
- * it back to 0 (not a commit). The commit's actual onNext/onPrev only fires
- * once that finishing spring completes, specifically so the index change
- * (which snaps every card's resting position over by one) lands at the
- * exact instant the live-driven position already matches it — see
- * GistStackCard for why that produces no visible jump.
+ * as the drag happens, not just after it ends.
+ *
+ * On release, a commit fires onNext/onPrev IMMEDIATELY — not gated on any
+ * animation finishing. It used to wait for a finishing spring to settle
+ * first, which meant a new touch arriving during that window could
+ * interrupt (and silently cancel) the pending navigation: the swipe looked
+ * like it happened but never actually registered. Instead, the same tick
+ * that fires the index change also re-expresses the current live progress
+ * in the NEW card arrangement's own coordinate frame (shifted by exactly
+ * the one full unit just committed), which makes every mounted card's
+ * on-screen position mathematically IDENTICAL immediately before and after
+ * — verified algebraically, holds at any point in the drag, not just a
+ * fully-completed one. Nothing needs to animate across the flip because
+ * nothing actually moves at that instant. What's left is a short, purely
+ * cosmetic spring settling that carried value back to a clean 0 baseline
+ * (inheriting live velocity so it reads as a continuation) — since the
+ * index is already correct by then, interrupting THAT with a new touch is
+ * completely harmless.
  *
  * Two different elements are involved on purpose, and they're not the same
  * thing:
@@ -227,23 +236,35 @@ export function useOverscrollNav<T extends HTMLElement>({
         // committed on distance alone trusts the current progress's sign
         // instead — either way, positive means "pulled down past the top."
         const dir = fastFlick ? Math.sign(velocity) : Math.sign(y.get()) || 1;
-        // Carries the live drag's actual speed into the finishing spring
-        // (converted from raw px/ms to progress-units/second) so release
-        // continues the same motion instead of restarting cold — a fast
-        // flick keeps accelerating away, not stuttering to a fresh start.
+        // Fire the index change RIGHT NOW — not gated on any animation
+        // completing. Waiting for a finishing spring to settle before
+        // bumping the index used to mean a new touch starting during that
+        // window would interrupt (and silently cancel) the pending
+        // navigation — the swipe would visually happen but never actually
+        // register, which is exactly the "doesn't work the first time"
+        // bug this replaced.
+        //
+        // Re-express the current live progress in the NEW offset
+        // arrangement's own coordinate frame — shift it by exactly the one
+        // full unit just committed — in the SAME tick as the index change,
+        // so every mounted card's on-screen position is mathematically
+        // IDENTICAL immediately before and after. Verified algebraically
+        // for both directions and for a commit at any point in the drag
+        // (not just a fully-completed one) — there's nothing left to
+        // animate across the flip because nothing actually needs to move.
+        const carried = y.get() - dir;
+        if (dir > 0) onPrev?.();
+        else onNext?.();
+        y.set(carried);
+        // What's left is purely cosmetic — settling that carried remainder
+        // back to a clean 0 baseline for the next gesture — so interrupting
+        // it (a new touch arriving before it finishes) is completely
+        // harmless; the index is already correct by the time that could
+        // even happen. Still inherits the live drag's actual speed
+        // (converted from raw px/ms to progress-units/second) so it reads
+        // as a continuation, not a fresh start.
         const releaseVelocity = ((velocity * 1000) / FULL_PROGRESS_PX) * PULL_RESISTANCE;
-        animate(y, dir, {
-          ...RELEASE_SPRING,
-          velocity: releaseVelocity,
-          onComplete: () => {
-            if (dir > 0) onPrev?.();
-            else onNext?.();
-            // Reset happens the instant the index change is fired, not
-            // after — see GistStackCard for why 0 at the NEW offsets
-            // exactly matches ±1 at the OLD ones, so this never jumps.
-            y.set(0);
-          },
-        });
+        animate(y, 0, { ...RELEASE_SPRING, velocity: releaseVelocity });
       } else {
         animate(y, 0, RELEASE_SPRING);
       }
