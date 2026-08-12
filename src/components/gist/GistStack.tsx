@@ -10,6 +10,11 @@ import type { Gist } from "@/types";
 const SWIPE_THRESHOLD = 90; // px of horizontal drag to advance — desktop only, see isMobile below
 const WINDOW_AHEAD = 3; // how many upcoming cards to keep mounted (the peek) — desktop only, see isMobile below
 const HINT_SEEN_KEY = "kampos-swipe-hint-seen";
+// Mobile only — the z-index a waiting neighbor jumps to while it's the one
+// actively being dragged toward, so it paints above the current front as
+// the two cross paths mid-drag. Always above mobileSlotFor's own front
+// z-index (50).
+const ACTIVE_NEIGHBOR_Z = 60;
 // On mobile the card is already at (near-)full screen width, so the stacked
 // peek behind it reads as cramped/broken rather than a tease — the split
 // with the mobile-only comment input below the card (see FeedContent)
@@ -49,9 +54,9 @@ function slotFor(offset: number) {
 // whichever neighbor is being approached painting above the current front
 // while they cross paths.
 function mobileSlotFor(offset: number) {
-  if (offset < 0) return { x: "-100%", y: 0, rotate: -20, scale: 1, opacity: 1, zIndex: 20 };
-  if (offset === 0) return { x: 0, y: 0, rotate: 0, scale: 1, opacity: 1, zIndex: 50 };
-  return { x: "100%", y: 0, rotate: 20, scale: 1, opacity: 1, zIndex: 20 };
+  if (offset < 0) return { x: "-100%", rotate: -20, zIndex: 20 };
+  if (offset === 0) return { x: "0%", rotate: 0, zIndex: 50 };
+  return { x: "100%", rotate: 20, zIndex: 20 };
 }
 
 /**
@@ -336,45 +341,73 @@ function GistStackCard({
   // (cheap), only actually used in the desktop branch below.
   const desktopSlot = slotFor(offset);
 
-  // Mobile's live position — three cards ever mount there (offset -1, 0,
-  // 1; see the render loop above), and only ONE of them ever reacts to a
-  // given drag direction at a time:
-  //  - offset 0 (front): interpolates toward whichever exit pose matches
-  //    the drag's sign (negative = toward "next", left; positive = toward
-  //    "prev", right) — the only card that always moves.
-  //  - offset 1 (waiting at the right): only interpolates toward center
-  //    while dragProgress is negative (a "next" pull) — clamped, so a
-  //    "prev" pull (positive) leaves it untouched at its resting x:"100%".
-  //  - offset -1 (waiting at the left): the mirror image — only reacts to
-  //    positive (a "prev" pull), clamped still at x:"-100%" otherwise.
-  // At dragProgress = 0 (rest), all three formulas below already evaluate
-  // to exactly mobileSlotFor's own resting values — this isn't a
-  // coincidence, it's what lets the live system fully replace the old
-  // discrete one instead of needing to hand off between them.
-  const liveX = useTransform(dragProgress, (p) => {
-    if (offset === 0) return `${p * 100}%`;
-    if (offset === 1) return `${100 + Math.min(0, p) * 100}%`;
-    if (offset === -1) return `${-100 + Math.max(0, p) * 100}%`;
-    return mobileSlotFor(offset).x;
-  });
-  const liveRotate = useTransform(dragProgress, (p) => {
-    if (offset === 0) return p * 20;
-    if (offset === 1) return 20 + Math.min(0, p) * 20;
-    if (offset === -1) return -20 + Math.max(0, p) * 20;
-    return mobileSlotFor(offset).rotate;
-  });
-  // z-index needs the card being actively dragged TOWARD to paint above
-  // the current front while they cross paths mid-drag — unlike the old
-  // discrete system (which only ever swapped position at the instant of
-  // commit, never showing a live overlap), the two cards now visibly slide
-  // past each other, so getting this backwards would show the leaving card
-  // on top of the arriving one during the crossover.
-  const liveZIndex = useTransform(dragProgress, (p) => {
-    if (offset === 0) return 40;
-    if (offset === 1) return p < 0 ? 60 : 20;
-    if (offset === -1) return p > 0 ? 60 : 20;
-    return mobileSlotFor(offset).zIndex;
-  });
+  // --- Mobile's live position ---
+  //
+  // Exactly one card is ever "the front," and at most one neighbor is ever
+  // "being approached" by the current drag (whichever side matches its
+  // sign) — everyone else just sits at their own resting pose, full stop.
+  // `rest` is that resting pose, and it's the ONLY place those numbers are
+  // defined — every live formula below either animates smoothly away from
+  // it or collapses back to it exactly, by construction.
+  const rest = mobileSlotFor(offset);
+
+  // A commit reveals a brand-new card in a newly-opened slot (see
+  // GistStack's render loop) at the exact same moment the JUST-committed
+  // gesture's own leftover value is still mid-flight, settling back to 0
+  // (see useOverscrollNav's onTouchEnd). dragProgress is shared across the
+  // whole stack, so without this guard, that new arrival would immediately
+  // react to a value that has nothing to do with it — flickering/sliding
+  // into view as if it were part of a drag it never participated in.
+  // Snapshotting "was the shared value already non-zero the moment I first
+  // rendered" and ignoring it until it naturally returns to 0 means a
+  // freshly revealed card always just quietly exists at `rest` — exactly
+  // like it always used to, before any of this live-drag system existed.
+  const foreignGesture = useRef(dragProgress.get() !== 0);
+
+  // Resolves one live property: `rest`'s own value whenever this card
+  // isn't actually a participant in whatever's currently happening
+  // (either because dragProgress is genuinely at rest, or because of
+  // foreignGesture above), otherwise the true live value.
+  function liveOrRest<T>(p: number, atRest: T, whileLive: () => T): T {
+    if (foreignGesture.current) {
+      if (p === 0) foreignGesture.current = false;
+      else return atRest;
+    }
+    return p === 0 ? atRest : whileLive();
+  }
+
+  const liveX = useTransform(dragProgress, (p) =>
+    liveOrRest(p, rest.x, () => {
+      // offset 0 (front): always moves, toward whichever side matches the
+      // drag's sign. offset 1 (waiting at the right): only interpolates
+      // toward center while p is negative (a "next" pull) — clamped, so a
+      // "prev" pull (positive) leaves it untouched at rest. offset -1: the
+      // mirror image, only reacting to positive p.
+      if (offset === 0) return `${p * 100}%`;
+      if (offset === 1) return `${100 + Math.min(0, p) * 100}%`;
+      if (offset === -1) return `${-100 + Math.max(0, p) * 100}%`;
+      return rest.x;
+    }),
+  );
+  const liveRotate = useTransform(dragProgress, (p) =>
+    liveOrRest(p, rest.rotate, () => {
+      if (offset === 0) return p * 20;
+      if (offset === 1) return 20 + Math.min(0, p) * 20;
+      if (offset === -1) return -20 + Math.max(0, p) * 20;
+      return rest.rotate;
+    }),
+  );
+  // The card being actively dragged TOWARD needs to paint above the
+  // current front while they cross paths mid-drag, or the leaving card's
+  // edge would visibly sit on top of the arriving one instead of
+  // disappearing behind it.
+  const liveZIndex = useTransform(dragProgress, (p) =>
+    liveOrRest(p, rest.zIndex, () => {
+      if (offset === 1) return p < 0 ? ACTIVE_NEIGHBOR_Z : rest.zIndex;
+      if (offset === -1) return p > 0 ? ACTIVE_NEIGHBOR_Z : rest.zIndex;
+      return rest.zIndex;
+    }),
+  );
 
   if (isMobile) {
     return (
