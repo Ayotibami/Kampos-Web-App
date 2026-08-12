@@ -54,7 +54,7 @@ const fallRiseVariants = {
 };
 // Deliberately quick — a fast, repeated swipe should always feel like it's
 // keeping up, not queuing up a backlog of slow transitions.
-const FALL_RISE_TRANSITION = { duration: 0.22, ease: "easeOut" as const };
+const FALL_RISE_TRANSITION = { duration: 0.12, ease: "easeOut" as const };
 
 /**
  * The signature Kampos feed: a horizontal card stack. The front gist can be
