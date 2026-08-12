@@ -53,8 +53,10 @@ const fallRiseVariants = {
   exit: (direction: number) => ({ x: `${direction * -130}%`, rotate: direction * -20 }),
 };
 // Deliberately quick — a fast, repeated swipe should always feel like it's
-// keeping up, not queuing up a backlog of slow transitions.
-const FALL_RISE_TRANSITION = { duration: 0.12, ease: "easeOut" as const };
+// keeping up, not queuing up a backlog of slow transitions — but not so
+// quick the rotate+translate stops reading as motion at all (tried as low
+// as 100ms; below ~150ms it starts reading as a snap, not a fall/rise).
+const FALL_RISE_TRANSITION = { duration: 0.18, ease: "easeOut" as const };
 
 /**
  * The signature Kampos feed: a horizontal card stack. The front gist can be
