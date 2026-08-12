@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { SendIconFill } from "@/components/ui/icons";
 import { useCommentStore } from "@/stores/commentStore";
 import { requireAuth } from "@/lib/requireAuth";
@@ -144,13 +144,55 @@ export function CommentComposer({
           !sending && (!text.trim() || !gist) ? "opacity-40" : ""
         }`}
       >
-        <motion.span
-          className="flex"
-          animate={sending ? { x: [0, 4, 0], y: [0, -2, 0] } : { x: 0, y: 0 }}
-          transition={sending ? { duration: 0.6, repeat: Infinity, ease: "easeInOut" } : { duration: 0.15 }}
-        >
-          <SendIconFill className="h-5 w-5" weight="duotone" />
-        </motion.span>
+        {/* Two-stage moment, not a static swap: the icon actually launches
+            away (like it's just been sent, diagonally up-right, the
+            direction the glyph already points) and a spinning ring pops in
+            right behind it to cover the wait. On completion the spinner
+            shrinks back out and the icon springs back in with a little
+            bounce — landing, not just reappearing. */}
+        <span className="relative flex h-5 w-5 items-center justify-center">
+          <AnimatePresence initial={false}>
+            {sending ? (
+              <motion.span
+                key="spinner"
+                className="absolute inset-0 flex items-center justify-center"
+                initial={{ opacity: 0, scale: 0.3, rotate: -90 }}
+                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                exit={{ opacity: 0, scale: 0.4 }}
+                transition={{ type: "spring", stiffness: 420, damping: 24 }}
+              >
+                <motion.svg
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5"
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, ease: "linear", duration: 0.7 }}
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="9"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeDasharray="34 100"
+                  />
+                </motion.svg>
+              </motion.span>
+            ) : (
+              <motion.span
+                key="icon"
+                className="absolute inset-0 flex items-center justify-center"
+                initial={{ opacity: 0, scale: 0.4, x: -10, y: 10, rotate: -20 }}
+                animate={{ opacity: 1, scale: 1, x: 0, y: 0, rotate: 0 }}
+                exit={{ opacity: 0, scale: 0.5, x: 14, y: -14, rotate: 20 }}
+                transition={{ type: "spring", stiffness: 420, damping: 22 }}
+              >
+                <SendIconFill className="h-5 w-5" weight="duotone" />
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </span>
       </button>
     </div>
   );
