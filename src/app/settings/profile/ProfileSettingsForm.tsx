@@ -206,7 +206,7 @@ export function ProfileSettingsForm() {
                 aria-label={imageUrl ? "Change photo" : "Choose photo"}
                 className="relative rounded-full transition-transform active:scale-95"
               >
-                <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-brand p-1.5">
+                <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-brand p-0.5">
                   <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-brand/10">
                     {imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
