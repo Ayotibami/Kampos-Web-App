@@ -1,12 +1,10 @@
-perfect mobile ui
-
 PAW
+
+splash screen
 
 error and success custom modals and little modals after creation, deleting , editing,reporting ,sharing
 
-error and empty ui for gist and comment
-
-sharing fuctionality
+error and empty ui for gist and comment and eevrywhere it is needed ...
 
 Amebo, level, major, school , poular schools
 
@@ -18,10 +16,9 @@ notifications
 
 display errros user friendly not backend response
 
-edit and delete functioanlity
-
 kreators and admins gist card ui
 
-put the links to tc and pp and commuity guidelines
+omo perfect the emails
 
-optimize site ,seo and images size
+logout button
+delete account button

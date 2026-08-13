@@ -26,6 +26,7 @@ export {
   EyeOff,
   LogOut,
   Sticker,
+  Lock,
 } from "lucide-react";
 
 // Phosphor, fill-weight — bolder/playfuller than lucide's thin stroke. This
@@ -58,4 +59,17 @@ export {
   PencilSimple as EditIconFill,
   TrashSimple as DeleteIconFill,
   Palette as PaletteIconFill,
+  UserGear as ProfileIconFill,
+  LockKey as AccountIconFill,
+  ShieldCheck as LegalIconFill,
+  FileText as TermsIconFill,
+  Star as SupportIconFill,
+  Bug as BugIconFill,
+  Lightbulb as FeatureIconFill,
+  Phone as PhoneIconFill,
+  ClockCounterClockwise as SupportCentreIconFill,
+  CaretDown as CaretDownIconFill,
+  InstagramLogo as InstagramLogoFill,
+  ArrowUpRight as ExternalLinkIconFill,
+  UsersThree as CommunityIconFill,
 } from "@phosphor-icons/react";

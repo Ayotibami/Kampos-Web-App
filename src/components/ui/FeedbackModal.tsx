@@ -21,7 +21,7 @@ export function ErrorModal({
   const hasList = passwordErrors && passwordErrors.length > 0;
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="rounded-3xl bg-white p-6 text-center shadow-2xl">
+      <div className="rounded-3xl bg-surface-2 p-6 text-center shadow-2xl">
         <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-danger/10 text-2xl">
           😕
         </div>
@@ -71,7 +71,7 @@ export function ConfirmModal({
 }) {
   return (
     <Modal open={open} onClose={loading ? () => {} : onClose}>
-      <div className="rounded-3xl bg-white p-6 text-center shadow-2xl">
+      <div className="rounded-3xl bg-surface-2 p-6 text-center shadow-2xl">
         <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-danger/10 text-2xl">
           ⚠️
         </div>
@@ -113,7 +113,7 @@ export function SuccessModal({
 }) {
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="rounded-3xl bg-white p-6 text-center shadow-2xl">
+      <div className="rounded-3xl bg-surface-2 p-6 text-center shadow-2xl">
         <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-success/20 text-2xl">
           🎉
         </div>

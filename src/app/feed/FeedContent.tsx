@@ -295,9 +295,22 @@ export function FeedContent() {
             />
 
             {loading ? (
-              <div className="relative z-10 flex min-h-0 flex-1 w-full justify-center px-4">
-                <div className="h-full w-full max-w-[620px] md:max-w-[740px]">
-                  <GistCardSkeleton />
+              <div className="relative z-10 flex min-h-0 flex-1 w-full flex-col">
+                <div className="flex min-h-0 w-full flex-1 justify-center px-4">
+                  <div className="h-full w-full max-w-[620px] md:max-w-[740px]">
+                    <GistCardSkeleton />
+                  </div>
+                </div>
+                {/* Same shape as the real mobile comment bar below (pill +
+                    circular button) — without this, that bar simply didn't
+                    exist yet during loading, so it popped into existence
+                    the instant the gists arrived instead of already being
+                    part of what the skeleton previewed. */}
+                <div className="flex w-full shrink-0 animate-pulse items-center gap-3 bg-surface px-4 py-3 dark:bg-brand-ink md:hidden">
+                  <div className="flex-1 rounded-3xl bg-[#A9C9F85C]/50 px-4 py-4">
+                    <div className="h-4 w-24 rounded-full bg-white/30 dark:bg-white/15" />
+                  </div>
+                  <div className="h-11 w-11 shrink-0 rounded-full bg-line/50" />
                 </div>
               </div>
             ) : gists.length ? (

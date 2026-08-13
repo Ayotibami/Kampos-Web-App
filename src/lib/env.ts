@@ -69,6 +69,18 @@ export const env = {
   get COMMUNITY_GUIDELINES_URL() {
     return `${this.KAMPOS_WEBSITE_URL}/community-guidelines`;
   },
+  /** Same marketing site — its contact form, bug-report and feature-request
+   * pages are the only place these flows exist (the backend has no
+   * support/feedback endpoints of its own). */
+  get CONTACT_URL() {
+    return `${this.KAMPOS_WEBSITE_URL}/contactPage`;
+  },
+  get REPORT_BUG_URL() {
+    return `${this.KAMPOS_WEBSITE_URL}/report-bug`;
+  },
+  get REQUEST_FEATURE_URL() {
+    return `${this.KAMPOS_WEBSITE_URL}/request-feature`;
+  },
   /** GIPHY API key for the GIF/sticker picker — free from
    * https://developers.giphy.com. Empty until set; GiphyPicker shows
    * a "not configured yet" state rather than failing requests with an

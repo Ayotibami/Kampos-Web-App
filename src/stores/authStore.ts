@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { AxiosRequestConfig } from "axios";
 import { api, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
-import type { Account, ProfileType } from "@/types";
+import { normalizeProfileType, type Account, type ProfileType } from "@/types";
 
 /**
  * The four states the whole app cares about. Computed server-side (from
@@ -66,6 +66,15 @@ interface AuthState {
    * new-password fields, same as verify-otp already does for signup. */
   verifyResetCode: (input: { email: string; code: string }) => Promise<void>;
   resetPassword: (input: { email: string; code: string; newPassword: string }) => Promise<void>;
+  /** Authenticated change-password (Account Management) — distinct from the
+   * OTP-based forgotPassword/resetPassword flow above, which is for a
+   * signed-out visitor who doesn't know their current password at all. */
+  changePassword: (input: { currentPassword: string; newPassword: string }) => Promise<void>;
+  /** DELETE /account/delete — a soft delete server-side (account_status
+   * flips to DELETED; the session itself isn't invalidated by the backend),
+   * so this also clears local session state the same way logout does —
+   * what the UI calls "Deactivate Account". */
+  deactivateAccount: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -83,7 +92,7 @@ export const useAuthStore = create<AuthState>()(
       setProfileMeta: (meta) =>
         set({
           avitag: meta.avitag ?? null,
-          profileType: meta.profileType ?? null,
+          profileType: normalizeProfileType(meta.profileType),
         }),
 
       hydrateFromServer: ({ state, account, profiles }) =>
@@ -129,7 +138,7 @@ export const useAuthStore = create<AuthState>()(
           const account = res.data?.data?.account ?? null;
           const profiles = res.data?.data?.profiles ?? [];
           let avitag = res.data?.data?.avitag ?? null;
-          let profileType = res.data?.data?.profileType ?? null;
+          let profileType = normalizeProfileType(res.data?.data?.profileType);
           let authState: AuthGateState;
           if (!account) authState = "guest";
           else if (!account.is_otp_verified) authState = "needs-otp";
@@ -152,7 +161,7 @@ export const useAuthStore = create<AuthState>()(
                 { avitag: profiles[0].avitag },
               );
               avitag = switchRes.data?.data?.avitag ?? null;
-              profileType = switchRes.data?.data?.profileType ?? null;
+              profileType = normalizeProfileType(switchRes.data?.data?.profileType);
             } catch {
               // Leave avitag null — this resolve will just retry next time.
             }
@@ -231,6 +240,44 @@ export const useAuthStore = create<AuthState>()(
           set({ error: apiErrorMessage(err, "Failed to reset password"), loading: false });
           throw err;
         }
+      },
+
+      changePassword: async ({ currentPassword, newPassword }) => {
+        set({ loading: true, error: null });
+        try {
+          await api.patch("/account/change-password", { currentPassword, newPassword });
+          set({ loading: false });
+        } catch (err) {
+          set({ error: apiErrorMessage(err, "Failed to change password"), loading: false });
+          throw err;
+        }
+      },
+
+      deactivateAccount: async () => {
+        set({ loading: true, error: null });
+        try {
+          await api.delete("/account/delete");
+        } catch (err) {
+          set({ error: apiErrorMessage(err, "Failed to deactivate account"), loading: false });
+          throw err;
+        }
+        // Best-effort, same as logout() below — the account row is already
+        // flagged server-side by this point regardless of whether this call
+        // itself succeeds.
+        try {
+          await api.post("/auth/logout");
+        } catch {
+          /* best-effort */
+        }
+        set({
+          user: null,
+          profiles: [],
+          authState: "guest",
+          avitag: null,
+          profileType: null,
+          loading: false,
+          error: null,
+        });
       },
 
       logout: async () => {

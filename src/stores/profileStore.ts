@@ -8,6 +8,15 @@ interface SwitchResult {
   profileType: ProfileType | null;
 }
 
+/** The subset of a student profile Settings actually edits. */
+export interface StudentProfileUpdate {
+  first_name?: string;
+  last_name?: string;
+  level?: number;
+  bio?: string;
+  image_url?: string;
+}
+
 interface ProfileState {
   loading: boolean;
   error: string | null;
@@ -16,6 +25,12 @@ interface ProfileState {
     payload: StudentProfilePayload,
     imageUrl?: string | null,
   ) => Promise<Profile | undefined>;
+  /** GET /profiles/students/:avitag — public, no auth required, but only
+   * ever called here for the signed-in user's own avitag (Profile Settings). */
+  getStudentProfile: (avitag: string) => Promise<Profile | undefined>;
+  /** PUT /profiles/students/:avitag — partial update, only the provided
+   * keys are written. Ownership is enforced server-side (403 otherwise). */
+  updateStudentProfile: (avitag: string, patch: StudentProfileUpdate) => Promise<Profile | undefined>;
 }
 
 /** Append scalar/array fields to FormData the same way mobile does. */
@@ -80,6 +95,30 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
       return created;
     } catch (err) {
       set({ error: apiErrorMessage(err, "Create student profile failed"), loading: false });
+      throw err;
+    }
+  },
+
+  getStudentProfile: async (avitag) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await api.get<ApiEnvelope<Profile>>(`/profiles/students/${avitag}`);
+      set({ loading: false });
+      return res.data?.data;
+    } catch (err) {
+      set({ error: apiErrorMessage(err, "Failed to load profile"), loading: false });
+      throw err;
+    }
+  },
+
+  updateStudentProfile: async (avitag, patch) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await api.put<ApiEnvelope<Profile>>(`/profiles/students/${avitag}`, patch);
+      set({ loading: false });
+      return res.data?.data;
+    } catch (err) {
+      set({ error: apiErrorMessage(err, "Failed to update profile"), loading: false });
       throw err;
     }
   },

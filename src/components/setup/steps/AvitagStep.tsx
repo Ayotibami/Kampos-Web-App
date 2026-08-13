@@ -218,7 +218,7 @@ export function AvitagStep({
             gist card uses, so picking an avitag feels like seeing your
             actual profile rather than filling out one more form field. */}
         {availability === "available" && (
-          <div className="flex items-center gap-2.5 rounded-2xl border border-line bg-white p-3">
+          <div className="flex items-center gap-2.5 rounded-2xl border border-line bg-surface-2 p-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-line/60 ring-1 ring-line">
               <Avatar src={imageUrl} />
             </div>

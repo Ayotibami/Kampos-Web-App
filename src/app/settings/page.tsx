@@ -1,23 +1,5 @@
-import { gateServer } from "@/lib/serverAuth";
-import { HydrateAuth } from "@/components/auth/HydrateAuth";
-import { AppShell } from "@/components/layout/AppShell";
-import { Illustration } from "@/components/brand/illustrations";
+import { SettingsHub } from "./SettingsHub";
 
-/** Placeholder — settings screen lands in a later build pass. */
-export default async function SettingsPage() {
-  const { state, account, profiles } = await gateServer(["active"]);
-  return (
-    <>
-      <HydrateAuth state={state} account={account} profiles={profiles} />
-      <AppShell>
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-16 text-center">
-          <Illustration name="Kappywithwire" className="h-48 w-auto" />
-          <h1 className="font-nunito text-xl font-extrabold text-ink">Settings dey come 🔧</h1>
-          <p className="max-w-sm font-nunito text-sm text-muted">
-            Account, notifications, privacy — all landing here soon.
-          </p>
-        </div>
-      </AppShell>
-    </>
-  );
+export default function SettingsPage() {
+  return <SettingsHub />;
 }

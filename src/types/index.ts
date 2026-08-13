@@ -3,10 +3,28 @@
 
 export type ProfileType = "student" | "kreator" | "kompany" | "school" | "idiot";
 
+const PROFILE_TYPES: readonly ProfileType[] = ["student", "kreator", "kompany", "school", "idiot"];
+
+/**
+ * The backend's own ProfileType enum (KamposBackend/src/modules/profile/utils.ts)
+ * is uppercase — "STUDENT", "KREATOR", etc — sent as-is in every response that
+ * carries a profileType (/account/profile, /auth/switch-profile). This app's
+ * type/comparisons assume lowercase everywhere, so every value has to pass
+ * through here the moment it arrives from the API — normalizing at every
+ * individual call site instead would be easy to miss and had already silently
+ * broken the "is this a student profile" check in Profile Settings.
+ */
+export function normalizeProfileType(value: unknown): ProfileType | null {
+  if (typeof value !== "string") return null;
+  const lower = value.toLowerCase();
+  return (PROFILE_TYPES as readonly string[]).includes(lower) ? (lower as ProfileType) : null;
+}
+
 export interface Account {
   account_id?: string;
   email: string;
   is_otp_verified?: boolean;
+  created_at?: string;
   [key: string]: unknown;
 }
 

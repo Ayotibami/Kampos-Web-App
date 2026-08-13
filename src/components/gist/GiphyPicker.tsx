@@ -137,7 +137,7 @@ export function GiphyPicker({
             </div>
 
             {/* Search */}
-            <div className="mt-4 flex shrink-0 items-center rounded-xl bg-white px-3 shadow-[0_8px_24px_-12px_rgba(9,30,66,0.35)] ring-1 ring-line">
+            <div className="mt-4 flex shrink-0 items-center rounded-xl bg-surface-2 px-3 shadow-[0_8px_24px_-12px_rgba(9,30,66,0.35)] ring-1 ring-line">
               <Search className="h-4 w-4 shrink-0 text-faint" />
               <input
                 value={query}

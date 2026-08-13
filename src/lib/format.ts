@@ -44,6 +44,14 @@ export function friendlyDateTime(iso?: string): string {
   return `${date} · ${time}`;
 }
 
+/** "Joined" style month + year, e.g. "March 2026". */
+export function monthYear(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
 /**
  * Compact number, standard social-media style (Twitter/Instagram-like): a
  * decimal only shows while the whole part is a single digit — 1.2k, 9.8k —

@@ -71,7 +71,7 @@ export function SearchSelectList({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       {/* Search bar */}
-      <div className="flex shrink-0 items-center rounded-xl bg-white px-3 shadow-[0_8px_24px_-12px_rgba(9,30,66,0.35)] ring-1 ring-line">
+      <div className="flex shrink-0 items-center rounded-xl bg-surface-2 px-3 shadow-[0_8px_24px_-12px_rgba(9,30,66,0.35)] ring-1 ring-line">
         <input
           value={search}
           onChange={(e) => onSearch(e.target.value)}

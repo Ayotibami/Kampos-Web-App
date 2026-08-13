@@ -33,7 +33,7 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
         <span className="mb-1.5 block font-nunito text-sm text-muted">{label}</span>
       )}
       <div
-        className={`flex items-center rounded-2xl border bg-white px-4 transition focus-within:ring-2 focus-within:ring-brand/40 ${
+        className={`flex items-center rounded-2xl border bg-surface-2 px-4 transition focus-within:ring-2 focus-within:ring-brand/40 ${
           error ? "border-danger" : "border-line focus-within:border-brand"
         }`}
       >
