@@ -15,6 +15,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { useGistStore } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { requireAuth } from "@/lib/requireAuth";
+import { useIsMobile } from "@/lib/useIsMobile";
 import {
   ShareIconFill,
   FlagIconFill,
@@ -30,7 +31,7 @@ import {
 } from "@/components/ui/icons";
 import type { Gist, GistMedia, ReactionType } from "@/types";
 import { cloudinarySmartCrop } from "@/lib/cloudinary";
-import { timeAgo, friendlyDateTime, compactNumber } from "@/lib/format";
+import { friendlyDateTime, compactNumber } from "@/lib/format";
 
 // A single photo/video keeps its own real proportions instead of being
 // force-cropped — max-h-[420px] below (on both the image and video tiles)
@@ -54,6 +55,27 @@ import { timeAgo, friendlyDateTime, compactNumber } from "@/lib/format";
 // width/height), so MediaTile/VideoTile measure the real element once it
 // loads and only switch to the cropped layout past this point.
 const EXTREME_ASPECT_RATIO = 0.45;
+
+// Mobile's own reaction set — same 5 as everywhere else, just listed here
+// once since the mobile picker below needs to loop over them itself
+// (ReactionButton, used on desktop, already has its own copy of this).
+const MOBILE_REACTIONS: ReactionType[] = ["LIKE", "LOVE", "FIRE", "SAD", "LAUGH"];
+
+// The trigger's resting look is a direct copy of MobileReactionBadge's own
+// hero+orbit — same sizes, same math — since it's meant to read as the
+// same mobile reaction identity as the feed, just opening a different
+// picker (centered on this card, not a tray) when tapped. See
+// MobileReactionBadge.tsx for the original numbers/reasoning.
+const MOBILE_HERO_SIZE = 34;
+const MOBILE_SATELLITE_SIZE = 20;
+const MOBILE_ORBIT_RADIUS = 17;
+function mobileOrbitPositions(count: number, startDeg = 45) {
+  const step = 360 / count;
+  return Array.from({ length: count }, (_, i) => {
+    const rad = ((startDeg + i * step) * Math.PI) / 180;
+    return { x: Math.cos(rad) * MOBILE_ORBIT_RADIUS, y: Math.sin(rad) * MOBILE_ORBIT_RADIUS };
+  });
+}
 
 /**
  * A gist, adapted for the profile page's vertical scrolling list — same
@@ -80,10 +102,20 @@ const EXTREME_ASPECT_RATIO = 0.45;
  */
 export const ProfileGistCard = memo(function ProfileGistCard({
   gist,
+  active,
+  onToggleComments,
   onDeleted,
   onEdited,
 }: {
   gist: Gist;
+  /** True while the desktop comment panel is open AND currently showing
+   * this gist — lights up the comment button's own ring (see the footer)
+   * so it's obvious which card the panel refers to. */
+  active?: boolean;
+  /** Fires when the comment button (see the footer) is tapped — the
+   * profile page owns whether the panel is open at all and which gist
+   * it's showing, this card doesn't track that itself. */
+  onToggleComments?: () => void;
   /** The profile page owns the gist list, not this card — same reasoning
    * as GistCard's own onDeleted/onEdited. */
   onDeleted?: (gistId: string) => void;
@@ -109,6 +141,7 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   const [reactError, setReactError] = useState<string>();
   const [overlayIndex, setOverlayIndex] = useState<number | null>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   const hasMedia = !!gist.media && gist.media.length > 0;
   const isOwn = gist.avitag === avitag;
@@ -151,6 +184,72 @@ export const ProfileGistCard = memo(function ProfileGistCard({
       setReactError(apiErrorMessage(err, "Failed to remove reaction — try again"));
     }
   };
+
+  // Mobile's own reaction picker — desktop keeps the row (ReactionButton,
+  // self-contained, unchanged below). A row of 5 emoji-with-counts is wide;
+  // fine next to nothing else, too wide next to the comment button this
+  // footer also needs on the narrowest phones. Instead: a small trigger in
+  // the footer, and on tap the 5 reactions pop out centered over the
+  // card's own body — never off-screen, never overlapping a neighboring
+  // card the way a tray rising off the trigger itself could on a short
+  // card. State lives here (not in a separate component) because the
+  // trigger (footer) and the picker overlay (over the body) render in two
+  // different places in the tree and need to share it.
+  const isMobile = useIsMobile();
+  const [mobilePickerOpen, setMobilePickerOpen] = useState(false);
+  const [mobileActive, setMobileActive] = useState<ReactionType | null>(gist.my_reaction ?? null);
+  const [mobileDelta, setMobileDelta] = useState<Partial<Record<ReactionType, number>>>({});
+  const mobileCountFor = (type: ReactionType) =>
+    Math.max(0, (gist.counts?.reactions_by_type?.[type] ?? 0) + (mobileDelta[type] ?? 0));
+  // The trigger's satellites are whichever reactions AREN'T the active one
+  // (already shown as the hero) — same exclusion MobileReactionBadge uses.
+  const mobileRestReactions = MOBILE_REACTIONS.filter((t) => t !== mobileActive);
+  const mobileOrbitPos = mobileOrbitPositions(mobileRestReactions.length);
+
+  const handleMobilePick = (type: ReactionType) => {
+    if (!requireAuth("react to gists")) return;
+    if (mobileActive === type) {
+      setMobileDelta((p) => ({ ...p, [type]: (p[type] ?? 0) - 1 }));
+      setMobileActive(null);
+      handleUnreact();
+    } else {
+      // Date.now() here is just a unique key for the burst animation (see
+      // GistCard's own identical use for the same purpose) — genuinely
+      // fine to call from an event handler, the compiler's purity check is
+      // just conservative about it regardless of call site.
+      // eslint-disable-next-line react-hooks/purity
+      const burstId = Date.now();
+      setMobileDelta((p) => ({
+        ...p,
+        ...(mobileActive ? { [mobileActive]: (p[mobileActive] ?? 0) - 1 } : {}),
+        [type]: (p[type] ?? 0) + 1,
+      }));
+      setMobileActive(type);
+      handleReact(type);
+      setCenterBurst({ id: burstId, type });
+    }
+    setMobilePickerOpen(false);
+  };
+
+  // Double-tap (see handleDoubleTapReact above) only ever drives
+  // ReactionButton's externalTrigger prop on desktop — that component
+  // isn't mounted on mobile at all, so this mirrors the same sync for the
+  // picker's own local state here. Guarded to mobile only: without that,
+  // this would ALSO fire alongside ReactionButton's own identical
+  // externalTrigger effect on desktop, double-submitting the same react.
+  useEffect(() => {
+    if (!isMobile || !reactTrigger) return;
+    if (mobileActive === reactTrigger.type) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMobileDelta((p) => ({
+      ...p,
+      ...(mobileActive ? { [mobileActive]: (p[mobileActive] ?? 0) - 1 } : {}),
+      [reactTrigger.type]: (p[reactTrigger.type] ?? 0) + 1,
+    }));
+    setMobileActive(reactTrigger.type);
+    handleReact(reactTrigger.type);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reactTrigger, isMobile]);
 
   const shareUrl =
     typeof window !== "undefined" ? `${window.location.origin}/gist/${gist.gist_id}` : `/gist/${gist.gist_id}`;
@@ -211,6 +310,23 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     return () => document.removeEventListener("mousedown", onClick);
   }, [showActions]);
 
+  // Same "click outside closes it" pattern as the actions menu above — the
+  // reaction picker's own backdrop already closes it for a tap anywhere
+  // WITHIN this card, but with many of these cards in a list, tapping a
+  // DIFFERENT card's trigger is a click entirely outside this one's own
+  // DOM, which the backdrop alone never sees. Without this, opening a
+  // second card's picker left the first one's still open underneath.
+  useEffect(() => {
+    if (!mobilePickerOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
+        setMobilePickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [mobilePickerOpen]);
+
   // Same reachable-only-via-a-shared-link exception as GistCard — see its
   // own comment. Kept here too since this card can render a REJECTED gist
   // the exact same way if this list is ever reused somewhere that exception
@@ -236,11 +352,11 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     // up the way the feed's full-bleed stack card has. Dark mode's two
     // tokens are already far enough apart that this isn't an issue there,
     // but the border/shadow read fine either way, so no dark: override.
-    <div className="relative rounded-[26px] border border-line bg-surface-2 shadow-sm">
+    <div ref={cardRef} className="relative rounded-[26px] border border-line bg-surface-2 shadow-sm">
       {/* Header — just the timestamp + menu, not the poster's identity
           again (see the component doc comment above). */}
       <div className="flex items-center justify-between px-4 pt-3.5">
-        <span className="font-nunito text-xs font-semibold text-faint md:text-[13px]">{timeAgo(gist.created_at)}</span>
+        <span className="font-nunito text-xs font-semibold text-faint md:text-[13px]">{friendlyDateTime(gist.created_at)}</span>
 
         <div ref={actionsRef} className="relative z-20 shrink-0">
           <motion.button
@@ -337,18 +453,17 @@ export const ProfileGistCard = memo(function ProfileGistCard({
         </AnimatePresence>
       </div>
 
-      {/* Footer — same stats the feed shows, plus comments (the feed
-          deliberately hides it, since it's already visible elsewhere; a
-          list preview is exactly where a glanceable comment count belongs)
-          — and the same reaction row the feed already uses on desktop, now
-          on mobile too. flex-nowrap + the stats cluster's own
-          overflow-x-auto mirrors GistCard's own footer for the same
-          reason: on the narrowest phones, letting stats scroll keeps the
-          reaction row from ever being squeezed or wrapped onto its own
-          line. */}
+      {/* Footer — date/reactions/views/shares on the left (flex-nowrap +
+          this cluster's own overflow-x-auto mirrors GistCard's own footer:
+          on the narrowest phones, letting stats scroll keeps the row on the
+          right from ever being squeezed or wrapped onto its own line), the
+          reaction row plus the comment toggle on the right. Comments moved
+          OUT of this stats cluster into their own button — it's not just a
+          count here, it's what opens/closes the desktop comment panel (see
+          ProfileView), so it needs to be a real tappable target, not a
+          plain stat. */}
       <div className="relative mt-2 flex flex-nowrap items-center justify-between gap-x-3 gap-y-1 border-t border-line/40 px-4 pb-3.5 pt-2.5">
         <div className="no-scrollbar flex min-w-0 items-center gap-3 overflow-x-auto text-faint">
-          <span className="shrink-0 font-nunito text-xs md:text-[13px]">{friendlyDateTime(gist.created_at)}</span>
           <span className="flex shrink-0 items-center gap-1 font-nunito text-xs md:text-[13px]">
             <ReactionIconFill size={14} weight="regular" />
             {compactNumber(gist.counts?.reactions_count)}
@@ -361,21 +476,93 @@ export const ProfileGistCard = memo(function ProfileGistCard({
             <ShareIconFill size={14} weight="regular" />
             {compactNumber(gist.counts?.shares_count)}
           </span>
-          <span className="flex shrink-0 items-center gap-1 font-nunito text-xs md:text-[13px]">
-            <CommentIconFill size={14} weight="regular" />
-            {compactNumber(gist.counts?.comments_count)}
-          </span>
         </div>
-        <div className="shrink-0">
-          <ReactionButton
-            onReact={handleReact}
-            onUnreact={handleUnreact}
-            counts={gist.counts?.reactions_by_type}
-            initialActive={gist.my_reaction}
-            externalTrigger={reactTrigger}
-            onReacted={(type) => setCenterBurst({ id: Date.now(), type })}
-            guardClick={() => requireAuth("react to gists")}
-          />
+        <div className="flex shrink-0 items-center gap-2">
+          {isMobile ? (
+            // Exact copy of MobileReactionBadge's resting look (hero +
+            // orbiting satellites) — see the MOBILE_HERO_SIZE/etc constants
+            // above. Only what tapping the hero opens differs (the
+            // centered-on-card picker above, not an upward tray).
+            <div
+              className="relative shrink-0"
+              style={{
+                width: MOBILE_ORBIT_RADIUS * 2 + MOBILE_SATELLITE_SIZE,
+                height: MOBILE_ORBIT_RADIUS * 2 + MOBILE_SATELLITE_SIZE,
+              }}
+            >
+              {mobileRestReactions.map((type, i) => (
+                <div
+                  key={type}
+                  className="absolute flex items-center justify-center rounded-full bg-surface-2 shadow-sm shadow-black/10 ring-1 ring-line/60"
+                  style={{
+                    height: MOBILE_SATELLITE_SIZE,
+                    width: MOBILE_SATELLITE_SIZE,
+                    left: `calc(50% + ${mobileOrbitPos[i].x}px)`,
+                    top: `calc(50% + ${mobileOrbitPos[i].y}px)`,
+                    transform: "translate(-50%, -50%)",
+                    zIndex: 10,
+                  }}
+                >
+                  <Lottie animationData={REACTION_ANIMATIONS[type]} loop={false} autoplay={false} className="h-4 w-4" />
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setMobilePickerOpen((v) => !v)}
+                aria-label="React to this gist"
+                aria-expanded={mobilePickerOpen}
+                className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-surface-2 shadow-md shadow-black/15 ring-2 ring-brand/40 transition-transform active:scale-95"
+                style={{ height: MOBILE_HERO_SIZE, width: MOBILE_HERO_SIZE, zIndex: 20 }}
+              >
+                <motion.span
+                  key={mobileActive ?? "none"}
+                  initial={{ scale: 0.4, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                  className="flex items-center justify-center"
+                >
+                  {mobileActive ? (
+                    <Lottie animationData={REACTION_ANIMATIONS[mobileActive]} loop={false} autoplay={false} className="h-5 w-5" />
+                  ) : (
+                    <ReactionIconFill className="h-4 w-4 text-faint" weight="regular" />
+                  )}
+                </motion.span>
+              </button>
+            </div>
+          ) : (
+            <ReactionButton
+              onReact={handleReact}
+              onUnreact={handleUnreact}
+              counts={gist.counts?.reactions_by_type}
+              initialActive={gist.my_reaction}
+              externalTrigger={reactTrigger}
+              onReacted={(type) => setCenterBurst({ id: Date.now(), type })}
+              guardClick={() => requireAuth("react to gists")}
+            />
+          )}
+          {/* Same solid brand-filled look as the feed's own mobile
+              icon+count comment trigger (FeedContent.tsx) — icon and count
+              side by side here instead of stacked, since this sits in a
+              row next to the reactions rather than alone in a bottom bar.
+              The extra ring when `active` is the only cue that this
+              specific gist is the one currently showing in the panel — the
+              button itself looks the same whether the panel is open on a
+              DIFFERENT gist or closed entirely, on purpose: what matters
+              here is "is it open for THIS one," not "is it open at all". */}
+          <button
+            type="button"
+            onClick={onToggleComments}
+            aria-label={active ? "Hide comments" : "View comments"}
+            aria-pressed={active}
+            className={`flex shrink-0 items-center gap-1 rounded-full bg-brand px-2.5 py-1.5 text-white shadow-sm shadow-brand/30 transition ${
+              active ? "ring-2 ring-brand-accent" : ""
+            }`}
+          >
+            <CommentIconFill className="h-3.5 w-3.5" weight="fill" />
+            <span className="font-nunito text-[11px] font-bold leading-none tabular-nums">
+              {compactNumber(gist.counts?.comments_count)}
+            </span>
+          </button>
         </div>
       </div>
 
@@ -402,6 +589,62 @@ export const ProfileGistCard = memo(function ProfileGistCard({
       <ErrorModal open={!!reportError} onClose={() => setReportError(undefined)} message={reportError} />
       <ErrorModal open={!!deleteError} onClose={() => setDeleteError(undefined)} message={deleteError} />
       <ErrorModal open={!!reactError} onClose={() => setReactError(undefined)} message={reactError} />
+
+      {/* Mobile reaction picker — a sibling of the header/body/footer here
+          (not nested inside the body, where it used to live) specifically
+          so `absolute inset-0` resolves against the CARD's own bounds, not
+          just the body's — the dimmed backdrop needs to cover the whole
+          card (header + footer included), not leave the timestamp/menu row
+          and the footer itself sitting uncovered above and below it. Not
+          pointer-events-none like centerBurst — this one's interactive.
+          Tapping the dimmed backdrop (not one of the 5 buttons) closes it
+          without reacting. */}
+      <AnimatePresence>
+        {mobilePickerOpen && (
+          <motion.div
+            key="mobile-reaction-picker"
+            className="absolute inset-0 z-30 flex items-center justify-center gap-3 rounded-[26px] bg-black/55 backdrop-blur-[1px]"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            onClick={() => setMobilePickerOpen(false)}
+          >
+            {MOBILE_REACTIONS.map((type, i) => {
+              const isActive = type === mobileActive;
+              const count = mobileCountFor(type);
+              return (
+                <motion.button
+                  key={type}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleMobilePick(type);
+                  }}
+                  aria-label={type}
+                  aria-pressed={isActive}
+                  initial={{ opacity: 0, y: 10, scale: 0.5 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.5 }}
+                  transition={{ type: "spring", stiffness: 420, damping: 22, delay: i * 0.03 }}
+                  className="flex flex-col items-center gap-1"
+                >
+                  <span
+                    className={`flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 shadow-lg shadow-black/25 ring-2 ${
+                      isActive ? "ring-brand" : "ring-white/20"
+                    }`}
+                  >
+                    <Lottie animationData={REACTION_ANIMATIONS[type]} loop autoplay className="h-6 w-6" />
+                  </span>
+                  {count > 0 && (
+                    <span className="font-nunito text-[10px] font-bold text-white">{compactNumber(count)}</span>
+                  )}
+                </motion.button>
+              );
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {hasMedia && overlayIndex !== null && (

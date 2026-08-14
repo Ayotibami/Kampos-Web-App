@@ -34,6 +34,11 @@ interface PickedMedia {
   /** Set (equal to `url`) for a GIPHY pick — the signal handlePost uses to
    * call attachMediaUrl instead of uploadMedia. */
   remoteUrl?: string;
+  /** GIPHY's own reported dimensions for a remote pick — null/absent for
+   * everything else (a blob's real size only becomes known once Cloudinary
+   * finishes processing it at upload time, see uploadMedia). */
+  width?: number | null;
+  height?: number | null;
   kind: "image" | "video";
   name: string;
   /** Set when this entry is media the gist already had (editing an existing
@@ -440,12 +445,14 @@ export function CreateGistSheet({
     });
   };
 
-  const addGifs = (urls: string[]) => {
+  const addGifs = (items: Array<{ url: string; width: number | null; height: number | null }>) => {
     addMedia(
-      urls.map((url) => ({
+      items.map(({ url, width, height }) => ({
         id: crypto.randomUUID(),
         url,
         remoteUrl: url,
+        width,
+        height,
         kind: "image",
         name: "gif",
       })),
@@ -510,7 +517,7 @@ export function CreateGistSheet({
           const results = await Promise.allSettled(
             newMedia.map((m) =>
               m.remoteUrl
-                ? attachMediaUrl(gistId, m.remoteUrl)
+                ? attachMediaUrl(gistId, m.remoteUrl, m.width, m.height)
                 : uploadMedia(gistId, m.blob!, m.name, (pct) => setUploadProgress((p) => ({ ...p, [m.id]: pct }))),
             ),
           );
@@ -551,7 +558,7 @@ export function CreateGistSheet({
           const results = await Promise.allSettled(
             media.map((m) =>
               m.remoteUrl
-                ? attachMediaUrl(gistId, m.remoteUrl)
+                ? attachMediaUrl(gistId, m.remoteUrl, m.width, m.height)
                 : uploadMedia(gistId, m.blob!, m.name, (pct) => setUploadProgress((p) => ({ ...p, [m.id]: pct }))),
             ),
           );

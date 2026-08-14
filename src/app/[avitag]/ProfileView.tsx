@@ -6,13 +6,17 @@ import { useRouter } from "next/navigation";
 import { motion, useAnimationControls } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
 import { Avatar } from "@/components/ui/Avatar";
+import { Modal } from "@/components/ui/Modal";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ProfileGistCard } from "@/components/gist/ProfileGistCard";
 import { ProfileGistCardSkeleton } from "@/components/gist/ProfileGistCardSkeleton";
 import { CreateGistSheet } from "@/components/gist/CreateGistSheet";
+import { CommentPanel } from "@/components/comment/CommentPanel";
+import { CommentSheet } from "@/components/comment/CommentSheet";
 import {
   ArrowLeft,
   Plus,
+  X,
   SettingsIconFill,
   CampusIconFill,
   MajorIconFill,
@@ -21,6 +25,8 @@ import {
 import { useGistStore } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { apiErrorMessage } from "@/lib/api";
+import { timeAgo } from "@/lib/format";
+import { useIsMobile } from "@/lib/useIsMobile";
 import type { Gist, Profile } from "@/types";
 
 const BOARD_TONE = {
@@ -104,6 +110,88 @@ function InfoBoard({
   );
 }
 
+/** `CommentPanel` itself only ever shows a bare "X Comments" count — fine
+ * on the gist page, where the gist it's about is the whole screen right
+ * next to it, but not enough here, where the panel stays put while several
+ * different gists scroll past on the left. This sits above it (not inside
+ * CommentPanel itself, so its own look on the gist page is untouched) with
+ * just enough of the active gist to make it obvious what's being commented
+ * on without cross-referencing the list. */
+function ActiveGistStrip({ gist, onClose }: { gist: Gist | undefined; onClose: () => void }) {
+  if (!gist) return null;
+  const text = gist.gist_text?.trim();
+  const preview = text
+    ? text.length > 90
+      ? `${text.slice(0, 90).trimEnd()}…`
+      : text
+    : gist.media?.[0]?.media_type?.toLowerCase().includes("video")
+      ? "Video"
+      : gist.media?.length
+        ? "Photo"
+        : "";
+  return (
+    <div className="flex shrink-0 items-start justify-between gap-3 border-b border-line bg-brand/[0.06] px-5 py-3 dark:border-white/10 dark:bg-brand-ink/60">
+      <div className="min-w-0">
+        <p className="font-nunito text-[10px] font-bold uppercase tracking-wide text-brand">Commenting on</p>
+        <p className="mt-0.5 line-clamp-2 font-nunito text-xs text-ink dark:text-white/90">{preview}</p>
+        <p className="mt-0.5 font-nunito text-[11px] text-faint">{timeAgo(gist.created_at)}</p>
+      </div>
+      {/* Closes the panel regardless of which card opened it — useful once
+          you've scrolled away and the card whose button toggled it open
+          isn't even on screen anymore. */}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close comments"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/10"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+/** Full-size profile photo view — tap the avatar circle to open, tap
+ * anywhere (backdrop or the photo itself) to close, same as tapping a
+ * profile photo does everywhere else. Natural aspect ratio, capped to the
+ * viewport, no cropping — unlike the small circle it's opened from, this
+ * is the one place the whole photo is actually visible. */
+function AvatarLightbox({ open, src, onClose }: { open: boolean; src: string; onClose: () => void }) {
+  return (
+    // Built on the shared Modal, not a hand-rolled fixed/backdrop div — it
+    // already does the two things that actually matter here: locks the
+    // real page scroll while open (document.body.style.overflow), and
+    // portals to document.body so `position: fixed` resolves against the
+    // true viewport instead of risking getting trapped inside some
+    // ancestor's own transform (this page animates several elements with
+    // Framer Motion, any of which becomes a new containing block for a
+    // plain in-place `fixed` element). className overrides Modal's default
+    // sizing entirely, since a photo should size to its own aspect ratio,
+    // not a fixed dialog box.
+    <Modal
+      open={open}
+      onClose={onClose}
+      className="relative z-10 m-auto flex max-h-[90vh] max-w-[92vw] items-center justify-center"
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        className="absolute -right-2 -top-2 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80"
+      >
+        <X className="h-4 w-4" />
+      </button>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt=""
+        onClick={onClose}
+        className="max-h-[90vh] max-w-[92vw] cursor-pointer rounded-2xl object-contain"
+      />
+    </Modal>
+  );
+}
+
 /**
  * The one page for viewing a profile — your own or anyone else's, same
  * component either way. `isOwnProfile` (resolved server-side in page.tsx,
@@ -141,6 +229,7 @@ export function ProfileView({
     (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null,
   );
   const [showCreate, setShowCreate] = useState(false);
+  const [avatarLightboxOpen, setAvatarLightboxOpen] = useState(false);
   const [gists, setGists] = useState<Gist[]>([]);
   const [gistsError, setGistsError] = useState<string | null>(null);
   // Which avitag `gists`/`gistsError` actually reflect — lets "loading" be
@@ -230,6 +319,76 @@ export function ProfileView({
   const handleGistEdited = (fresh: Gist) =>
     setGists((prev) => prev.map((g) => (g.gist_id === fresh.gist_id ? fresh : g)));
 
+  // Desktop only: which gist the sticky comment panel (below the gist list)
+  // is currently showing — whichever card is nearest the vertical center of
+  // the screen as the list scrolls. `rootMargin: "-50% 0px -50% 0px"` is the
+  // standard "scrollspy" trick: it shrinks the observer's root down to a
+  // single line across the exact middle of the viewport, so `isIntersecting`
+  // only flips true for whichever card is currently crossing that line.
+  // Defaults to the first gist once the list loads, so the panel isn't
+  // empty before anyone's scrolled at all.
+  const [activeGistId, setActiveGistId] = useState<string | null>(null);
+  const cardRefs = useRef<Map<string, HTMLLIElement>>(new Map());
+
+  // Done during render (the documented React pattern for deriving state
+  // from a prop/state change), not in an effect — the guard itself
+  // (activeGistId === null) is what makes this safe to call unconditionally
+  // here: it's only ever true before the very first gist has loaded, so it
+  // fires exactly once and never again, no separate "did this already run"
+  // tracking needed.
+  if (activeGistId === null && gists.length > 0) {
+    setActiveGistId(gists[0].gist_id);
+  }
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const id = entry.target.getAttribute("data-gist-id");
+            if (id) setActiveGistId(id);
+          }
+        }
+      },
+      { rootMargin: "-50% 0px -50% 0px" },
+    );
+    cardRefs.current.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+    // Re-observes whenever the list itself changes (pagination adding more
+    // cards, or the list re-rendering with fresh refs) — cheap, and the
+    // alternative (trying to diff which refs are "new") isn't worth it for
+    // a handful of IntersectionObserver.observe() calls.
+  }, [gists]);
+
+  const activeGist = gists.find((g) => g.gist_id === activeGistId);
+
+  // Closed by default — the panel used to always show once you scrolled
+  // into the gist list, which meant permanently giving up 360px of width
+  // even for someone just browsing. Now a card's own comment button (see
+  // ProfileGistCard) is what opens it, and the gist list reclaims the full
+  // width the moment it's closed (see the sticky column's own render
+  // guard below, gated on this too).
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  // Mobile has no sticky side panel (there's no room for one) — same
+  // comment button instead opens CommentSheet, mirroring exactly how the
+  // feed's own mobile icon+count trigger already works: it opens the
+  // sheet, it doesn't toggle it shut again on a second tap (that's what
+  // the sheet's own close button/backdrop are for).
+  const isMobile = useIsMobile();
+  const [showCommentSheet, setShowCommentSheet] = useState(false);
+  const handleToggleComments = (gistId: string) => {
+    setActiveGistId(gistId);
+    if (isMobile) {
+      setShowCommentSheet(true);
+      return;
+    }
+    if (commentsOpen && activeGistId === gistId) {
+      setCommentsOpen(false);
+    } else {
+      setCommentsOpen(true);
+    }
+  };
+
   // Imperative controls (not a plain `animate` object) specifically because
   // this component drives TWO different animations on the same element over
   // time — the one-time entrance, then the recurring re-bounce — and only
@@ -301,24 +460,31 @@ export function ProfileView({
             legitimately fills the width with its two-pane layout), so on a
             wide monitor this column stretched thin and empty at the edges.
             Capped + centered from md up instead. */}
-        <div className="relative z-10 mx-auto flex w-full flex-1 flex-col md:max-w-6xl">
-          {/* The doodle background lives HERE now, as this column's own
-              first child, not as a sibling of the outer scrolling div — that
-              was the bug: sized via `absolute inset-0` against the SCROLL
-              CONTAINER, its height locked to one viewport's worth (the
-              scroll container's own visible height, not its scrollable
+        {/* Full width now, not capped — the header/boards/bio still get
+            their own centered md:max-w-6xl treatment just below, but the
+            gist list + comment panel split further down needs to reach the
+            TRUE viewport edge (same as the gist page's own comment panel
+            does), which a shared cap on everything would have prevented. */}
+        <div className="relative z-10 flex w-full flex-1 flex-col">
+          {/* The doodle background lives HERE, as this wrapper's own first
+              child, not as a sibling of the outer scrolling div — that was
+              the original bug: sized via `absolute inset-0` against the
+              SCROLL CONTAINER, its height locked to one viewport's worth
+              (the scroll container's own visible height, not its scrollable
               content height), so it simply ran out before reaching anything
-              below the fold, including the gist list. This column, by
-              contrast, grows with all of its own content (header through
-              the last gist), so `inset-0` against IT spans the whole page.
-              `-z-10` (not the default auto) keeps it behind this column's
-              own plain in-flow children — a positioned sibling with
-              z-index:auto would otherwise paint ABOVE ordinary in-flow
-              content, not below it, per the normal CSS stacking order.
-              The SVG's own paths are drawn at 8% fill-opacity internally —
-              stacking a low wrapper opacity on top of that compounds to
-              basically nothing; AppShell's "landscape" variant solves this
-              the same way (wrapper opacity in the 45-55% range). */}
+              below the fold. This wrapper, by contrast, grows with ALL of
+              its content below (both the capped header section AND the
+              full-width split section after it), so `inset-0` against IT
+              spans the whole page regardless of which of its children are
+              individually capped. `-z-10` (not the default auto) keeps it
+              behind this wrapper's own plain in-flow children — a
+              positioned sibling with z-index:auto would otherwise paint
+              ABOVE ordinary in-flow content, not below it, per the normal
+              CSS stacking order. The SVG's own paths are drawn at 8%
+              fill-opacity internally — stacking a low wrapper opacity on
+              top of that compounds to basically nothing; AppShell's
+              "landscape" variant solves this the same way (wrapper opacity
+              in the 45-55% range). */}
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 -z-10 opacity-[0.5] dark:opacity-[0.4] dark:invert"
@@ -328,6 +494,7 @@ export function ProfileView({
               backgroundSize: "280px auto",
             }}
           />
+        <div className="mx-auto flex w-full flex-1 flex-col md:max-w-6xl">
           {/* Header — a back arrow + the avitag as the page's own title, same
               "← Title" pattern Settings already uses. Always shown (unlike
               the settings/theme controls below, which only make sense on
@@ -392,12 +559,21 @@ export function ProfileView({
         <div className="flex flex-col items-center gap-4 px-6 pb-6 pt-4 text-center md:flex-row md:items-start md:gap-10 md:px-12 md:pt-10 md:text-left">
           <div className="flex shrink-0 flex-col items-center gap-3 md:items-start">
             {/* Same ring treatment Profile Settings already uses for its own
-                avatar — brand-filled outer ring, tinted inner circle. */}
-            <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand p-1.5 md:h-44 md:w-44 md:p-1">
+                avatar — brand-filled outer ring, tinted inner circle. Tap
+                opens it full-size, same as tapping a profile photo does
+                everywhere else — only actually clickable when there's a
+                real photo to enlarge, not the plain grey fallback circle. */}
+            <button
+              type="button"
+              onClick={() => imageUrl && setAvatarLightboxOpen(true)}
+              aria-label={imageUrl ? "View profile photo" : undefined}
+              disabled={!imageUrl}
+              className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand p-1.5 transition active:scale-95 disabled:active:scale-100 md:h-44 md:w-44 md:p-1"
+            >
               <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-brand/10">
                 <Avatar src={imageUrl} />
               </div>
-            </div>
+            </button>
 
             <div>
               <p className="font-nunito text-lg font-bold text-ink md:text-2xl">{displayName}</p>
@@ -486,58 +662,112 @@ export function ProfileView({
             )}
           </p>
         )}
+        </div>
 
-        {/* Narrower than the rest of the page on desktop (60% of this
-            section's own available width, centered) — deliberately not
-            full-bleed like the header/boards above it, so the doodle
-            background (painted behind the whole page, see the layer at the
-            top of this component) stays visible either side of the list
-            instead of getting covered edge to edge. */}
-        <div className="mt-8 flex-1 px-4 pb-8 sm:px-6 md:mt-12 md:w-[60%] md:mx-auto md:px-0">
-          {loadingGists ? (
-            <ul className="flex flex-col gap-3">
-              {SKELETON_VARIANTS.map((variant, i) => (
-                <li key={i}>
-                  <ProfileGistCardSkeleton variant={variant} />
-                </li>
-              ))}
-            </ul>
-          ) : gistsError ? (
-            <p className="py-8 text-center font-nunito text-sm text-danger">{gistsError}</p>
-          ) : gists.length === 0 ? (
-            <p className="py-8 text-center font-nunito text-sm text-muted">No gists yet.</p>
-          ) : (
-            <>
-              {/* Same "count + label" pattern CommentPanel already uses right
-                  above its own list — a count means something specific
-                  sitting next to what it's actually counting. */}
-              <p className="mb-3 font-nunito text-base font-bold text-ink md:text-lg">
-                {gists.length} {gists.length === 1 ? "Gist" : "Gists"}
-              </p>
+        {/* Below the bio, the page splits into two columns on desktop —
+            gists on the left, a sticky comment panel on the right, same
+            component and width the gist page's own comment panel already
+            uses. The split only starts HERE, not any higher up the page:
+            scrolled up in the header/bio there's nothing to comment on yet,
+            so nothing shows — that falls out naturally from the panel
+            being `sticky`, not `fixed`. `md:items-stretch` (flex's own
+            default, named explicitly since it's load-bearing here) makes
+            the right column's OUTER wrapper match the LEFT column's full
+            height, so the sticky panel nested inside it has real room to
+            keep sticking for as long as the gist list keeps scrolling —
+            the sticky panel itself stays a fixed one-viewport-tall box the
+            whole time, not the tall outer wrapper around it. No gap between
+            the two columns — CommentPanel already draws its own left
+            border as the seam, matching the gist page exactly, where the
+            panel sits flush against the true right edge of the screen. */}
+        <div className="mt-8 md:mt-12 md:flex md:items-stretch">
+          {/* justify-center + a capped inner block, not a flex-1 block that
+              just stretches — same trick GistStack uses for its own card
+              (max-w-[740px], centered in whatever width is actually left
+              over next to the fixed comment column) so a gist card doesn't
+              read any differently here than it does on the gist page. */}
+          <div className="flex min-w-0 flex-1 justify-center px-4 pb-8 sm:px-6 md:px-12">
+            <div className="w-full max-w-[740px]">
+            {loadingGists ? (
               <ul className="flex flex-col gap-3">
-                {gists.map((g) => (
-                  <li key={g.gist_id}>
-                    <ProfileGistCard gist={g} onDeleted={handleGistDeleted} onEdited={handleGistEdited} />
+                {SKELETON_VARIANTS.map((variant, i) => (
+                  <li key={i}>
+                    <ProfileGistCardSkeleton variant={variant} />
                   </li>
                 ))}
               </ul>
-              {/* Invisible trigger for the next page — see the
-                  IntersectionObserver effect above. Not shown once
-                  exhausted, so there's nothing left to ever re-trigger it. */}
-              {!exhausted && <div ref={sentinelRef} aria-hidden className="h-1 w-full" />}
-              {loadingMore && (
-                <ul className="mt-3 flex flex-col gap-3">
-                  {LOAD_MORE_SKELETON_VARIANTS.map((variant, i) => (
-                    <li key={i}>
-                      <ProfileGistCardSkeleton variant={variant} />
+            ) : gistsError ? (
+              <p className="py-8 text-center font-nunito text-sm text-danger">{gistsError}</p>
+            ) : gists.length === 0 ? (
+              <p className="py-8 text-center font-nunito text-sm text-muted">No gists yet.</p>
+            ) : (
+              <>
+                {/* Same "count + label" pattern CommentPanel already uses right
+                    above its own list — a count means something specific
+                    sitting next to what it's actually counting. */}
+                <p className="mb-3 font-nunito text-base font-bold text-ink md:text-lg">
+                  {gists.length} {gists.length === 1 ? "Gist" : "Gists"}
+                </p>
+                <ul className="flex flex-col gap-3">
+                  {gists.map((g) => (
+                    <li
+                      key={g.gist_id}
+                      data-gist-id={g.gist_id}
+                      ref={(el) => {
+                        if (el) cardRefs.current.set(g.gist_id, el);
+                        else cardRefs.current.delete(g.gist_id);
+                      }}
+                    >
+                      <ProfileGistCard
+                        gist={g}
+                        active={commentsOpen && g.gist_id === activeGistId}
+                        onToggleComments={() => handleToggleComments(g.gist_id)}
+                        onDeleted={handleGistDeleted}
+                        onEdited={handleGistEdited}
+                      />
                     </li>
                   ))}
                 </ul>
-              )}
-              {loadMoreError && (
-                <p className="py-4 text-center font-nunito text-xs text-danger">{loadMoreError}</p>
-              )}
-            </>
+                {/* Invisible trigger for the next page — see the
+                    IntersectionObserver effect above. Not shown once
+                    exhausted, so there's nothing left to ever re-trigger it. */}
+                {!exhausted && <div ref={sentinelRef} aria-hidden className="h-1 w-full" />}
+                {loadingMore && (
+                  <ul className="mt-3 flex flex-col gap-3">
+                    {LOAD_MORE_SKELETON_VARIANTS.map((variant, i) => (
+                      <li key={i}>
+                        <ProfileGistCardSkeleton variant={variant} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {loadMoreError && (
+                  <p className="py-4 text-center font-nunito text-xs text-danger">{loadMoreError}</p>
+                )}
+              </>
+            )}
+            </div>
+          </div>
+
+          {/* commentsOpen gates this whole column, not just the panel inside
+              it — with only the left column left in the flex row, its own
+              flex-1 + justify-center naturally reclaims the full width and
+              recenters, no separate "closed" layout to maintain. */}
+          {commentsOpen && !loadingGists && !gistsError && gists.length > 0 && (
+            <div className="hidden md:block md:w-[360px] md:shrink-0">
+              {/* bg-surface: CommentPanel's own background is a barely-there
+                  4% brand tint — deliberately subtle, and fine on the gist
+                  page where nothing sits behind it. Here the page's doodle
+                  background scrolls past underneath this STICKY box as the
+                  page moves, so without an opaque base of its own, that
+                  moving doodle showed straight through the tint. */}
+              <div className="sticky top-0 flex h-dvh flex-col bg-surface">
+                <ActiveGistStrip gist={activeGist} onClose={() => setCommentsOpen(false)} />
+                <div className="min-h-0 flex-1">
+                  <CommentPanel gist={activeGist} />
+                </div>
+              </div>
+            </div>
           )}
         </div>
         </div>
@@ -549,6 +779,17 @@ export function ProfileView({
           onClose={() => setShowCreate(false)}
           onPosted={(fresh) => setGists((prev) => [fresh, ...prev])}
         />
+      )}
+
+      <CommentSheet
+        open={showCommentSheet}
+        onClose={() => setShowCommentSheet(false)}
+        gist={activeGist}
+        autoFocusInput={false}
+      />
+
+      {imageUrl && (
+        <AvatarLightbox open={avatarLightboxOpen} src={imageUrl} onClose={() => setAvatarLightboxOpen(false)} />
       )}
     </AppShell>
   );

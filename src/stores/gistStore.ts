@@ -73,8 +73,11 @@ interface GistState {
    * callers can show a specific reason per failure point. */
   uploadMedia: (gistId: string, file: Blob, name?: string, onProgress?: (percent: number) => void) => Promise<unknown>;
   /** GIF/sticker attachment (GIPHY) — the URL is already hosted on GIPHY's
-   * CDN, so this just records it against the gist, no file upload. */
-  attachMediaUrl: (gistId: string, url: string) => Promise<unknown>;
+   * CDN, so this just records it against the gist, no file upload.
+   * width/height are GIPHY's own reported dimensions for that URL, same
+   * purpose as what Cloudinary reports for uploaded media — optional since
+   * they're only ever known for a fresh GIPHY pick. */
+  attachMediaUrl: (gistId: string, url: string, width?: number | null, height?: number | null) => Promise<unknown>;
   /** Removes one piece of media from a gist — used when editing an
    * existing post, not just at create time. */
   removeMedia: (mediaId: string) => Promise<void>;
@@ -235,10 +238,12 @@ export const useGistStore = create<GistState>((set) => ({
     }
   },
 
-  attachMediaUrl: async (gistId, url) => {
+  attachMediaUrl: async (gistId, url, width, height) => {
     try {
       const res = await api.post<ApiEnvelope<unknown>>(`/gists/${encodeURIComponent(gistId)}/media/url`, {
         media_url: url,
+        width: width ?? undefined,
+        height: height ?? undefined,
       });
       return res.data?.data;
     } catch (err) {

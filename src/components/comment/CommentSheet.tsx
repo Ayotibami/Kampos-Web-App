@@ -30,23 +30,34 @@ export function CommentSheet({
   autoFocusInput?: boolean;
 }) {
   const itemsByGist = useCommentStore((s) => s.itemsByGist);
+  const errorByGist = useCommentStore((s) => s.errorByGist);
   const items = (gist?.gist_id && itemsByGist[gist.gist_id]) || [];
+  // Same distinction CommentPanel draws (see its own comment) — cached
+  // means a fetch actually resolved for this gist, so a bare
+  // `items.length === 0` can't be trusted as "truly empty" while still loading.
+  const cached = !!(gist?.gist_id && itemsByGist[gist.gist_id]);
+  const hasError = !cached && !!(gist?.gist_id && errorByGist[gist.gist_id]);
+  const isEmpty = cached && items.length === 0;
 
   return (
     <Modal open={open} onClose={onClose} variant="sheet">
       <div className="relative flex h-[80dvh] flex-col overflow-hidden rounded-t-[2.5rem] bg-surface dark:bg-brand-ink">
         {/* Same tiled doodle CommentPanel uses, for the same reason — this
             is meant to read as the same surface, not a stripped-down
-            mobile substitute. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 z-0 opacity-90 dark:opacity-80 dark:invert"
-          style={{
-            backgroundImage: "url('/brand/doodles.svg')",
-            backgroundRepeat: "repeat",
-            backgroundSize: "220px auto",
-          }}
-        />
+            mobile substitute. Skipped once comments are known to be empty
+            or failed to load, same as CommentPanel — the empty/error
+            states' own illustration/copy shouldn't compete with it. */}
+        {!hasError && !isEmpty && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 z-0 opacity-90 dark:opacity-80 dark:invert"
+            style={{
+              backgroundImage: "url('/brand/doodles.svg')",
+              backgroundRepeat: "repeat",
+              backgroundSize: "220px auto",
+            }}
+          />
+        )}
 
         <div className="relative z-10 flex h-full w-full flex-col overflow-hidden">
           {/* Header */}

@@ -378,7 +378,7 @@ export function ProfileSettingsForm() {
             <div className="flex flex-col gap-1.5">
               <span className="font-nunito text-sm text-muted">School</span>
               <div className="flex items-center gap-3 rounded-2xl border border-line/70 bg-line/10 px-4 py-3.5 opacity-70">
-                <span className="flex-1 truncate font-nunito text-sm text-ink">{schoolLabel}</span>
+                <span className="min-w-0 flex-1 truncate font-nunito text-sm text-ink">{schoolLabel}</span>
                 <Lock className="h-4 w-4 shrink-0 text-faint" />
               </div>
             </div>
@@ -386,7 +386,7 @@ export function ProfileSettingsForm() {
             <div className="flex flex-col gap-1.5">
               <span className="font-nunito text-sm text-muted">Major</span>
               <div className="flex items-center gap-3 rounded-2xl border border-line/70 bg-line/10 px-4 py-3.5 opacity-70">
-                <span className="flex-1 truncate font-nunito text-sm text-ink">{majorLabel}</span>
+                <span className="min-w-0 flex-1 truncate font-nunito text-sm text-ink">{majorLabel}</span>
                 <Lock className="h-4 w-4 shrink-0 text-faint" />
               </div>
             </div>

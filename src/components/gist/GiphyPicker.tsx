@@ -27,8 +27,10 @@ export function GiphyPicker({
 }: {
   open: boolean;
   onClose: () => void;
-  /** Fires with the picked items' full-size URLs once "Attach" is pressed. */
-  onAttach: (urls: string[]) => void;
+  /** Fires with the picked items' full-size URLs (+ GIPHY's own reported
+   * dimensions, so the caller can size the tile before it loads) once
+   * "Attach" is pressed. */
+  onAttach: (items: Array<{ url: string; width: number | null; height: number | null }>) => void;
   /** How many more media slots are left on the gist — caps selection. */
   maxSelectable: number;
 }) {
@@ -89,7 +91,7 @@ export function GiphyPicker({
 
   const handleAttach = () => {
     if (!selected.length) return;
-    onAttach(selected.map((s) => s.fullUrl));
+    onAttach(selected.map((s) => ({ url: s.fullUrl, width: s.width, height: s.height })));
     onClose();
   };
 

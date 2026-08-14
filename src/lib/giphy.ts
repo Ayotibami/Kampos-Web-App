@@ -8,6 +8,13 @@ export interface GiphyItem {
   previewUrl: string;
   /** Full-size GIF/sticker actually attached to the gist. */
   fullUrl: string;
+  /** Real dimensions of `fullUrl` (GIPHY's `images.original`), same purpose
+   * as the width/height Cloudinary reports for uploaded media — lets the
+   * gist card reserve the right amount of space before the GIF loads
+   * instead of jumping into place. Null if GIPHY's response is somehow
+   * missing or unparseable, same as any other media without known dims. */
+  width: number | null;
+  height: number | null;
 }
 
 interface GiphyApiResult {
@@ -15,7 +22,8 @@ interface GiphyApiResult {
   title?: string;
   images: {
     fixed_width_small?: { url: string };
-    original?: { url: string };
+    // GIPHY reports numeric fields as strings throughout its API.
+    original?: { url: string; width?: string; height?: string };
   };
 }
 
@@ -37,7 +45,16 @@ function mapResult(r: GiphyApiResult): GiphyItem | null {
   const preview = r.images.fixed_width_small?.url;
   const full = r.images.original?.url;
   if (!preview || !full) return null;
-  return { id: r.id, description: r.title ?? "", previewUrl: preview, fullUrl: full };
+  const width = Number(r.images.original?.width);
+  const height = Number(r.images.original?.height);
+  return {
+    id: r.id,
+    description: r.title ?? "",
+    previewUrl: preview,
+    fullUrl: full,
+    width: Number.isFinite(width) && width > 0 ? width : null,
+    height: Number.isFinite(height) && height > 0 ? height : null,
+  };
 }
 
 async function giphyFetch(path: string, params: Record<string, string>): Promise<GiphyItem[]> {
