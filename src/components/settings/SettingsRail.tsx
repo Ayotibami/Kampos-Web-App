@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { LogoutAction } from "@/components/settings/LogoutAction";
 import { Wordmark } from "@/components/brand/Wordmark";
 import {
@@ -14,12 +14,14 @@ import {
   InstagramLogoFill,
 } from "@/components/ui/icons";
 import { CONTACT } from "@/lib/contact";
+import { runGuardedNavigation } from "@/stores/unsavedChangesStore";
+import { useAuthStore } from "@/stores/authStore";
 
 const NAV_ITEMS = [
-  { href: "/settings/profile", label: "Profile Settings", icon: ProfileIconFill },
-  { href: "/settings/account", label: "Account Management", icon: AccountIconFill },
-  { href: "/settings/legal", label: "App & Legal Info", icon: LegalIconFill },
-  { href: "/settings/support", label: "Feedback & Support", icon: SupportIconFill },
+  { href: "/settings/profile", label: "Profile", icon: ProfileIconFill },
+  { href: "/settings/account", label: "Account", icon: AccountIconFill },
+  { href: "/settings/legal", label: "Legal", icon: LegalIconFill },
+  { href: "/settings/support", label: "Support", icon: SupportIconFill },
 ] as const;
 
 /**
@@ -33,13 +35,22 @@ const NAV_ITEMS = [
  */
 export function SettingsRail() {
   const pathname = usePathname();
+  const router = useRouter();
+  // /profile no longer exists — a profile lives at the root (/avitag), own
+  // or anyone else's. Falls back to /feed if avitag hasn't loaded yet.
+  const avitag = useAuthStore((s) => s.avitag);
+  const backHref = avitag ? `/${avitag}` : "/feed";
 
   return (
     <nav className="hidden w-64 shrink-0 flex-col border-r border-line/70 p-6 md:flex">
       <div className="mb-6 flex items-center gap-2.5">
         <Link
-          href="/profile"
+          href={backHref}
           aria-label="Back to Kampos"
+          onClick={(e) => {
+            e.preventDefault();
+            runGuardedNavigation(() => router.push(backHref));
+          }}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
         >
           <ArrowLeft className="h-5 w-5" />
@@ -55,6 +66,10 @@ export function SettingsRail() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={(e) => {
+                e.preventDefault();
+                runGuardedNavigation(() => router.push(item.href));
+              }}
               className={`flex items-center gap-3 rounded-2xl px-3.5 py-2.5 font-nunito text-sm transition ${
                 active
                   ? "bg-brand/10 font-semibold text-brand"

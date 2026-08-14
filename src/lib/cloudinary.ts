@@ -37,6 +37,8 @@ export interface CloudinaryUploadResult {
   resource_type: "image" | "video";
   bytes: number;
   duration?: number;
+  width?: number;
+  height?: number;
   eager?: Array<{ secure_url: string }>;
 }
 

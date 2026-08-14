@@ -2,12 +2,13 @@ import type { MetadataRoute } from "next";
 import { env } from "@/lib/env";
 
 // Deliberately just the guest-facing entry points — everything else
-// (/feed, /profile, /settings, ...) requires a session and has nothing
-// for a crawler to index. Individual /gist/[gistId] pages aren't
-// enumerated here: they're real, indexable, ungated pages (see robots.ts
-// allowing /gist/), but listing every one would mean this file calling
-// out to the backend for every build/request, and search engines will
-// discover them organically via the links shared out to them regardless.
+// (/feed, /settings, ...) requires a session and has nothing for a
+// crawler to index. Individual /gist/[gistId] and profile (/avitag)
+// pages aren't enumerated here either: they're real, indexable, ungated
+// pages (see robots.ts allowing them), but listing every one would mean
+// this file calling out to the backend for every build/request, and
+// search engines will discover them organically via the links shared out
+// to them regardless.
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
   return [

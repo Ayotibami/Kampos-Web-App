@@ -44,7 +44,7 @@ const FAQS = [
 
 export default function SupportPage() {
   return (
-    <SettingsPageShell title="Feedback & Support" backHref="/settings" wide>
+    <SettingsPageShell title="Support" backHref="/settings" wide>
       <p className="mb-5 max-w-md font-nunito text-sm text-muted">
         Got a bug, a big idea, or just wan tell us hey? Pick where you want to reach us — each one opens
         our main site, where you can actually send it.

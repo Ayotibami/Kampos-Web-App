@@ -65,6 +65,11 @@ export interface GistMedia {
   media_type: string;
   media_url: string;
   thumbnail_url?: string;
+  /** Real dimensions from Cloudinary at upload time — absent/null on older
+   * media (or anything attached by URL rather than uploaded, e.g. a GIF)
+   * that predates this, or never had it. */
+  width?: number | null;
+  height?: number | null;
 }
 
 export interface GistCounts {

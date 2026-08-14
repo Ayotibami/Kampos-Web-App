@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import { Heart, RefreshCw } from "@/components/ui/icons";
 import { Illustration } from "@/components/brand/illustrations";
@@ -134,23 +135,37 @@ function CommentBubble({
       >
         {/* Header row */}
         <div className="flex items-start justify-between">
-          {/* Left side: Avatar + Names */}
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-light">
-              <Avatar src={c.image_url} />
+          {/* Left side: Avatar + Names → the commenter's profile (falls back
+              to a plain, non-clickable version for the rare case a comment
+              has no avitag at all). */}
+          {c.avitag ? (
+            <Link href={`/${c.avitag}`} className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-light">
+                <Avatar src={c.image_url} />
+              </div>
+              <div className="flex flex-col">
+                <span className="flex items-center gap-1.5 font-nunito text-sm font-semibold">
+                  {displayName ?? c.avitag.replace(/_?\d+$/, "")}
+                  {isOwn && (
+                    <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-brand">
+                      You
+                    </span>
+                  )}
+                </span>
+                <span className="font-nunito text-xs text-muted dark:text-white/70">{c.avitag}</span>
+              </div>
+            </Link>
+          ) : (
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-light">
+                <Avatar src={c.image_url} />
+              </div>
+              <div className="flex flex-col">
+                <span className="font-nunito text-sm font-semibold">{displayName ?? "Fola_shade"}</span>
+                <span className="font-nunito text-xs text-muted dark:text-white/70">someone</span>
+              </div>
             </div>
-            <div className="flex flex-col">
-              <span className="flex items-center gap-1.5 font-nunito text-sm font-semibold">
-                {displayName ?? (c.avitag ? c.avitag.replace(/_?\d+$/, "") : "Fola_shade")}
-                {isOwn && (
-                  <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-brand">
-                    You
-                  </span>
-                )}
-              </span>
-              <span className="font-nunito text-xs text-muted dark:text-white/70">{c.avitag ?? "someone"}</span>
-            </div>
-          </div>
+          )}
 
           {/* Right side: Time + Major Campus */}
           <div className="flex flex-col items-end">

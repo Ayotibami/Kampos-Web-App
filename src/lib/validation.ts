@@ -80,6 +80,29 @@ const HAS_LETTER_RE = /[A-Za-z]/;
 // Zero-width characters stripped before validating (U+200B–U+200D, U+FEFF).
 const ZERO_WIDTH_RE = new RegExp("[\\u200B-\\u200D\\uFEFF]", "g");
 
+// A profile lives at the root — /avitag, no /profile prefix — so an avitag
+// matching one of this app's own top-level route segments would make that
+// person's profile permanently unreachable (Next.js always matches the
+// static route over the dynamic [avitag] catch-all). Mirrored by hand in
+// KamposBackend's schemas/profile.ts (avitagSchema) since that's a separate
+// repo — keep both in sync if either list changes. Hyphenated routes
+// (forgot-password, verify-otp, etc.) aren't included: the charset check
+// above already rejects hyphens, so they can never collide anyway.
+const RESERVED_AVITAGS = new Set([
+  "login",
+  "signup",
+  "feed",
+  "settings",
+  "gist",
+  "api",
+  "profile",
+  "kampos",
+  "kappy",
+  "ceo",
+  "admin",
+  "test",
+]);
+
 /** Normalize an avitag the same way mobile does before validating/submitting. */
 export function normalizeAvitag(raw: string): string {
   return raw.trim().toLowerCase().replace(ZERO_WIDTH_RE, "").normalize("NFC");
@@ -96,5 +119,6 @@ export function validateAvitag(raw: string): string | null {
   if (avitag.startsWith("_")) return "Avitag cannot start with an underscore.";
   if (avitag.endsWith("_")) return "Avitag cannot end with an underscore.";
   if (avitag.includes("__")) return "Avitag cannot contain two underscores in a row.";
+  if (RESERVED_AVITAGS.has(avitag)) return "That avitag isn't available, abeg pick another.";
   return null;
 }

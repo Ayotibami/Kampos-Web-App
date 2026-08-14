@@ -39,7 +39,7 @@ const DOCS = [
 
 export default function LegalPage() {
   return (
-    <SettingsPageShell title="App & Legal Info" backHref="/settings" wide>
+    <SettingsPageShell title="Legal" backHref="/settings" wide>
       <p className="mb-5 max-w-md font-nunito text-sm text-muted">
         The full details on what we collect, how we use it, and what you&apos;re agreeing to when you use
         Kampos — both live on our main site.

@@ -72,4 +72,7 @@ export {
   InstagramLogo as InstagramLogoFill,
   ArrowUpRight as ExternalLinkIconFill,
   UsersThree as CommunityIconFill,
+  GraduationCap as CampusIconFill,
+  BookOpen as MajorIconFill,
+  TrendUp as LevelIconFill,
 } from "@phosphor-icons/react";

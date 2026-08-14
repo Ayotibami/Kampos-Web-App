@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SettingsPageShell } from "@/components/settings/SettingsPageShell";
 import { ProfileSettingsSkeleton } from "./ProfileSettingsSkeleton";
 import { TextInput } from "@/components/ui/TextInput";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
+import { Modal } from "@/components/ui/Modal";
 import { ErrorModal, SuccessModal } from "@/components/ui/FeedbackModal";
 import { Camera, Plus, Lock, EditIconFill } from "@/components/ui/icons";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -15,6 +16,8 @@ import { LIMITS } from "@/lib/brand";
 import { monthYear } from "@/lib/format";
 import { useAuthStore } from "@/stores/authStore";
 import { useProfileStore } from "@/stores/profileStore";
+import { useUnsavedChangesStore } from "@/stores/unsavedChangesStore";
+import { env } from "@/lib/env";
 
 const LEVELS = ["100", "200", "300", "400", "500", "600"];
 
@@ -64,6 +67,16 @@ export function ProfileSettingsForm() {
   // once school/major changes get their own deliberate flow.
   const [schoolLabel, setSchoolLabel] = useState("—");
   const [majorLabel, setMajorLabel] = useState("—");
+  // The as-loaded/as-saved values — compared against the live fields below
+  // to compute isDirty, which drives the unsaved-changes guard. Updated
+  // after every successful load and every successful save.
+  const [baseline, setBaseline] = useState<{
+    firstName: string;
+    lastName: string;
+    level: string | null;
+    bio: string;
+    imageUrl: string | null;
+  } | null>(null);
 
   const [uploadingImage, setUploadingImage] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -73,37 +86,84 @@ export function ProfileSettingsForm() {
   const [showError, setShowError] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  useEffect(() => {
+  const [showUnsavedModal, setShowUnsavedModal] = useState(false);
+  const [savingFromModal, setSavingFromModal] = useState(false);
+  const pendingProceedRef = useRef<(() => void) | null>(null);
+  const setGuard = useUnsavedChangesStore((s) => s.setGuard);
+
+  const loadProfile = useCallback(async () => {
     // Non-student profile types render their own "not available yet" branch
     // below (checked ahead of the loading spinner) without ever needing
     // loadingProfile flipped — nothing to fetch for them here.
     if (!avitag || profileType !== "student") return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const profile = await getStudentProfile(avitag);
-        if (cancelled || !profile) return;
-        setFirstName(String(profile.first_name ?? ""));
-        setLastName(String(profile.last_name ?? ""));
-        setLevel(profile.level != null ? String(profile.level) : null);
-        setBio(String(profile.bio ?? ""));
-        setImageUrl((profile.image_url as string | null | undefined) ?? null);
-        setCreatedAt((profile.created_at as string | undefined) ?? null);
-        setSchoolLabel(
-          tagLabel(profile.campus_name as string | null, profile.campus_tag as string | null),
-        );
-        setMajorLabel(tagLabel(profile.major_name as string | null, profile.major_tag as string | null));
-      } catch (err) {
-        if (!cancelled) setLoadError(apiErrorMessage(err, "Failed to load your profile"));
-      } finally {
-        if (!cancelled) setLoadingProfile(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    try {
+      const profile = await getStudentProfile(avitag);
+      if (!profile) return;
+      const next = {
+        firstName: String(profile.first_name ?? ""),
+        lastName: String(profile.last_name ?? ""),
+        level: profile.level != null ? String(profile.level) : null,
+        bio: String(profile.bio ?? ""),
+        imageUrl: (profile.image_url as string | null | undefined) ?? null,
+      };
+      setFirstName(next.firstName);
+      setLastName(next.lastName);
+      setLevel(next.level);
+      setBio(next.bio);
+      setImageUrl(next.imageUrl);
+      setBaseline(next);
+      setCreatedAt((profile.created_at as string | undefined) ?? null);
+      setSchoolLabel(tagLabel(profile.campus_name as string | null, profile.campus_tag as string | null));
+      setMajorLabel(tagLabel(profile.major_name as string | null, profile.major_tag as string | null));
+    } catch (err) {
+      setLoadError(apiErrorMessage(err, "Failed to load your profile"));
+    } finally {
+      setLoadingProfile(false);
+    }
+  }, [avitag, profileType, getStudentProfile]);
+
+  useEffect(() => {
+    void loadProfile();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [avitag, profileType]);
+
+  const isDirty =
+    !!baseline &&
+    (firstName !== baseline.firstName ||
+      lastName !== baseline.lastName ||
+      level !== baseline.level ||
+      bio !== baseline.bio ||
+      imageUrl !== baseline.imageUrl);
+
+  // Registers/clears the guard SettingsHeader's back arrow and SettingsRail's
+  // links call before navigating away from this page — see
+  // stores/unsavedChangesStore.ts. Only active while there's actually
+  // something unsaved; cleared on unmount either way.
+  useEffect(() => {
+    if (!isDirty) {
+      setGuard(null);
+      return;
+    }
+    setGuard((proceed) => {
+      pendingProceedRef.current = proceed;
+      setShowUnsavedModal(true);
+    });
+    return () => setGuard(null);
+  }, [isDirty, setGuard]);
+
+  // Covers hard navigation the guard above can't (closing the tab,
+  // refreshing, typing a new URL) — browser-controlled generic text, no
+  // custom UI possible here by design (a security restriction, not a
+  // choice this app can override).
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!isDirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
 
   // Uploaded the instant it's picked, same as the setup wizard's avatar step
   // — a real Cloudinary URL is what gets saved, not the picked File itself.
@@ -127,15 +187,18 @@ export function ProfileSettingsForm() {
     }
   };
 
-  const handleSave = async () => {
-    if (!avitag) return;
+  // Shared by the main "Save details" button and the unsaved-changes
+  // modal's "Save" option. Returns whether it actually succeeded, so each
+  // caller can decide what happens next (show the success modal vs. resume
+  // the navigation that was waiting on this).
+  const performSave = async (): Promise<boolean> => {
+    if (!avitag) return false;
     const nameError = validateName(firstName, lastName);
     if (nameError) {
       setMessage(nameError);
       setShowError(true);
-      return;
+      return false;
     }
-    setSaving(true);
     try {
       await updateStudentProfile(avitag, {
         first_name: firstName.trim().replace(/\s+/g, " "),
@@ -146,18 +209,49 @@ export function ProfileSettingsForm() {
         // already-uploaded Cloudinary URL is a valid image_url.
         ...(imageUrl && !imageUrl.startsWith("blob:") ? { image_url: imageUrl } : {}),
       });
-      setShowSuccess(true);
+      setBaseline({ firstName, lastName, level, bio, imageUrl });
+      return true;
     } catch (err) {
       setMessage(apiErrorMessage(err, "Failed to save changes"));
       setShowError(true);
-    } finally {
-      setSaving(false);
+      return false;
     }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    const ok = await performSave();
+    setSaving(false);
+    if (ok) setShowSuccess(true);
+  };
+
+  // Resumes whatever navigation was waiting (SettingsHeader's back arrow /
+  // SettingsRail's links) once the choice is made — discard just proceeds,
+  // save only proceeds if it actually succeeded (a failed save leaves the
+  // modal closed and ErrorModal visible instead, same as the main button).
+  const resumePendingNavigation = () => {
+    const proceed = pendingProceedRef.current;
+    pendingProceedRef.current = null;
+    setGuard(null);
+    proceed?.();
+  };
+
+  const handleDiscardUnsaved = () => {
+    setShowUnsavedModal(false);
+    resumePendingNavigation();
+  };
+
+  const handleSaveFromUnsavedModal = async () => {
+    setSavingFromModal(true);
+    const ok = await performSave();
+    setSavingFromModal(false);
+    setShowUnsavedModal(false);
+    if (ok) resumePendingNavigation();
   };
 
   if (avitag && profileType && profileType !== "student") {
     return (
-      <SettingsPageShell title="Profile Settings" backHref="/settings">
+      <SettingsPageShell title="Profile" backHref="/settings">
         <div className="flex flex-1 items-center justify-center text-center">
           <p className="font-nunito text-sm text-muted">Editing dey come soon for this profile type.</p>
         </div>
@@ -167,7 +261,7 @@ export function ProfileSettingsForm() {
 
   if (loadingProfile) {
     return (
-      <SettingsPageShell title="Profile Settings" backHref="/settings">
+      <SettingsPageShell title="Profile" backHref="/settings">
         <ProfileSettingsSkeleton />
       </SettingsPageShell>
     );
@@ -175,9 +269,14 @@ export function ProfileSettingsForm() {
 
   if (loadError) {
     return (
-      <SettingsPageShell title="Profile Settings" backHref="/settings">
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-          <p className="font-nunito text-sm text-muted">{loadError}</p>
+      <SettingsPageShell title="Profile" backHref="/settings">
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+          <p className="font-nunito text-sm text-muted">
+            We encountered an issue fetching your profile. Relax, it&apos;s our fault.
+          </p>
+          <Button fullWidth={false} onClick={() => void loadProfile()}>
+            Try again
+          </Button>
         </div>
       </SettingsPageShell>
     );
@@ -194,11 +293,29 @@ export function ProfileSettingsForm() {
           router.push("/settings");
         }}
       />
+      <Modal open={showUnsavedModal} onClose={() => setShowUnsavedModal(false)}>
+        <div className="rounded-3xl bg-surface-2 p-6 text-center shadow-2xl">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-warning/15 text-2xl">
+            ✍️
+          </div>
+          <p className="mb-1.5 font-nunito text-sm font-semibold text-ink">Save before you go?</p>
+          <p className="mb-5 font-nunito text-sm text-muted">
+            You&apos;ve made changes on this page that haven&apos;t been saved yet.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="secondary" className="flex-1" onClick={handleDiscardUnsaved} disabled={savingFromModal}>
+              Discard
+            </Button>
+            <Button className="flex-1" loading={savingFromModal} onClick={() => void handleSaveFromUnsavedModal()}>
+              Save
+            </Button>
+          </div>
+        </div>
+      </Modal>
       <ErrorModal open={showError} onClose={() => setShowError(false)} message={message} />
-      <SettingsPageShell title="Profile Settings" backHref="/settings">
+      <SettingsPageShell title="Profile" backHref="/settings">
         <div className="flex flex-col gap-10">
           <section className="flex flex-col items-center gap-3 border-b border-line/70 pb-8 text-center">
-            <p className="font-nunito text-xs text-muted">Tap to change your profile image</p>
             <div className="relative shrink-0">
               <button
                 type="button"
@@ -256,7 +373,6 @@ export function ProfileSettingsForm() {
           <section className="flex flex-col gap-5">
             <div>
               <h2 className="font-nunito text-sm font-bold text-ink">Academic Info</h2>
-              {/* helper text pending */}
             </div>
 
             <div className="flex flex-col gap-1.5">
@@ -274,6 +390,21 @@ export function ProfileSettingsForm() {
                 <Lock className="h-4 w-4 shrink-0 text-faint" />
               </div>
             </div>
+
+            <p className="-mt-2 font-nunito text-xs text-muted">
+              Your school and major are one-time — they shape your feed and how other students find and
+              recognize you, so they&apos;re not meant to change anyhow, same as real life. Got a genuine
+              reason to update yours?{" "}
+              <a
+                href={env.CONTACT_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="font-semibold text-brand hover:underline"
+              >
+                Reach out to us
+              </a>
+              .
+            </p>
 
             <div className="flex flex-col gap-2">
               <span className="font-nunito text-sm text-muted">Level</span>

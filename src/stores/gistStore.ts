@@ -46,7 +46,12 @@ interface GistState {
 
   list: (params?: Record<string, unknown>) => Promise<Gist[]>;
   trending: () => Promise<Gist[]>;
-  byUser: (avitag: string) => Promise<Gist[]>;
+  /** A specific user's gists (profile page) — deliberately does NOT touch
+   * `items`/`loading` like list()/trending() do. Those two back the main
+   * feed; sharing state with them here would mean visiting a profile page
+   * and returning to the feed shows stale/wrong gists until a refetch.
+   * Matches get()/getContext()/counts()'s own read-only pattern below. */
+  byUser: (avitag: string, params?: { limit?: number; cursor?: string }) => Promise<Gist[]>;
   get: (gistId: string) => Promise<Gist | undefined>;
   /** The shared-link view: one target gist (any status — including a
    * removed/rejected one, which the caller renders its own "removed"
@@ -113,16 +118,10 @@ export const useGistStore = create<GistState>((set) => ({
     }
   },
 
-  byUser: async (avitag) => {
-    set({ loading: true, error: null });
-    try {
-      const data = normalizeGists((await apiGet<Gist[]>(`/gists/user/${encodeURIComponent(avitag)}`)) ?? []);
-      set({ items: data, loading: false });
-      return data;
-    } catch (err) {
-      set({ error: apiErrorMessage(err, "Failed to load user gists"), loading: false });
-      throw err;
-    }
+  byUser: async (avitag, params) => {
+    return normalizeGists(
+      (await apiGet<Gist[]>(`/gists/user/${encodeURIComponent(avitag)}`, { params })) ?? [],
+    );
   },
 
   get: async (gistId) => {
@@ -226,6 +225,8 @@ export const useGistStore = create<GistState>((set) => ({
         resource_type: result.resource_type,
         bytes: result.bytes,
         duration: result.duration,
+        width: result.width,
+        height: result.height,
         thumbnail_url: result.eager?.[0]?.secure_url,
       });
       return res.data?.data;

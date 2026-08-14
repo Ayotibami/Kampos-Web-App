@@ -68,11 +68,16 @@ export default function RootLayout({
             defaults to light rather than following system preference, so a
             first-time visitor on a dark-mode OS still sees the light theme
             until they explicitly switch. Also gated to the same
-            feed/profile/settings routes ThemeRouteSync enforces client-side
-            (see its own docstring) — this only covers the initial/hard
-            load; ThemeRouteSync handles subsequent client-side navigation. */}
+            feed/settings/profile routes ThemeRouteSync enforces client-side
+            (see its own docstring, and isDarkEnabledRoute's for why a
+            profile — root-level /avitag — can't be matched by a fixed path
+            segment) — this only covers the initial/hard load;
+            ThemeRouteSync handles subsequent client-side navigation. Kept
+            in sync by hand since this one has to run as a raw inline
+            script, before hydration, not the TS module ThemeRouteSync
+            imports its route list from. */}
         <Script id="kampos-theme-init" strategy="beforeInteractive">
-          {`(function(){try{var s=localStorage.getItem('kampos-theme');var allowed=/^\\/(feed|profile|settings)(\\/|$)/.test(location.pathname);document.documentElement.classList.toggle('dark',allowed&&s==='dark');}catch(e){}})();`}
+          {`(function(){try{var s=localStorage.getItem('kampos-theme');var seg=(location.pathname.split('/')[1]||'');var light={'':1,welcome:1,login:1,signup:1,'signup-success':1,'verify-otp':1,'forgot-password':1,'reset-password':1,'setup-profile':1,gist:1};var allowed=seg==='feed'||seg==='settings'||!light[seg];document.documentElement.classList.toggle('dark',allowed&&s==='dark');}catch(e){}})();`}
         </Script>
         <SessionWatcher />
         <ThemeRouteSync />

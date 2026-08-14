@@ -58,6 +58,7 @@ function pickRandomPrompt(): string {
 export function FeedContent() {
   const listGists = useGistStore((s) => s.list);
   const prefetchComments = useCommentStore((s) => s.prefetchBatch);
+  const myAvitag = useAuthStore((s) => s.avitag);
   const myImageUrl = useAuthStore(
     (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null
   );
@@ -221,7 +222,7 @@ export function FeedContent() {
                   wordmark actually reads as centered between two anchors
                   rather than centered against a dead spacer. */}
               <Link
-                href="/profile"
+                href={myAvitag ? `/${myAvitag}` : "/feed"}
                 aria-label="Your profile"
                 className="flex h-9 w-9 shrink-0 items-center justify-center justify-self-start overflow-hidden rounded-full ring-1 ring-line transition hover:ring-brand"
               >

@@ -1,12 +1,14 @@
 "use client";
 
 import { memo, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import Lottie from "lottie-react";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
 import { Avatar } from "@/components/ui/Avatar";
 import { GistMediaBackdrop, GistMediaBodyPanel } from "./GistMediaStage";
 import { GistMediaOverlay } from "./GistMediaOverlay";
+import { CampusTag, MajorTag, LevelTag } from "./GistTags";
 import { ReactionButton } from "./ReactionButton";
 import { MobileReactionBadge } from "./MobileReactionBadge";
 import { CreateGistSheet } from "./CreateGistSheet";
@@ -33,7 +35,7 @@ import { gistColorForGist } from "@/lib/brand";
 import { HERO_TEXT_MAX_REM, fitHeroBlock, nominalHeroTextRem } from "@/lib/heroText";
 import { timeAgo, friendlyDateTime, compactNumber } from "@/lib/format";
 
-const SHORT_TEXT = 200;
+export const SHORT_TEXT = 200;
 
 // Hero statement block sizing lives in lib/heroText.ts — shared with the
 // compose sheet's live preview, so composing genuinely shows what posting
@@ -326,32 +328,38 @@ export const GistCard = memo(function GistCard({
           action popup regardless of the popup's own z-index, since that only
           resolves against siblings inside the header, not against body. */}
       <div className="relative z-20 flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line">
-          <Avatar src={gist.image_url} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 shrink truncate font-nunito text-sm font-bold text-ink md:text-[15px]">
-              {gist.first_name || gist.name || gist.avitag}
-            </span>
-            {isOwn && (
-              <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-brand md:text-[11px]">
-                You
+        {/* Avatar + name → the poster's profile. A plain Link (not wrapping
+            the Actions menu below, which is a button — nesting a button
+            inside an anchor is invalid), same /avitag route whether it's
+            your own profile or someone else's. */}
+        <Link href={`/${gist.avitag}`} className="flex min-w-0 flex-1 items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line">
+            <Avatar src={gist.image_url} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="min-w-0 shrink truncate font-nunito text-sm font-bold text-ink md:text-[15px]">
+                {gist.first_name || gist.name || gist.avitag}
               </span>
-            )}
-            <span className="min-w-0 shrink truncate font-nunito text-xs text-faint md:text-[13px]">
-              {gist.avitag}
-            </span>
-            <span className="shrink-0 font-nunito text-xs text-faint md:text-[13px]">
-              · {timeAgo(gist.created_at)}
-            </span>
+              {isOwn && (
+                <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-brand md:text-[11px]">
+                  You
+                </span>
+              )}
+              <span className="min-w-0 shrink truncate font-nunito text-xs text-faint md:text-[13px]">
+                {gist.avitag}
+              </span>
+              <span className="shrink-0 font-nunito text-xs text-faint md:text-[13px]">
+                · {timeAgo(gist.created_at)}
+              </span>
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+              {gist.campus_tag && <CampusTag>{gist.campus_tag}</CampusTag>}
+              {gist.major_tag && <MajorTag>{gist.major_tag}</MajorTag>}
+              {gist.level && <LevelTag>{gist.level}</LevelTag>}
+            </div>
           </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-            {gist.campus_tag && <CampusTag>{gist.campus_tag}</CampusTag>}
-            {gist.major_tag && <MajorTag>{gist.major_tag}</MajorTag>}
-            {gist.level && <LevelTag>{gist.level}</LevelTag>}
-          </div>
-        </div>
+        </Link>
 
         {/* Actions — a three-dot trigger that pops share/flag out
             straight below it, each with its own distinct entrance so the
@@ -620,7 +628,7 @@ export const GistCard = memo(function GistCard({
  * active/confirmed — same two states the dot button itself uses). Bounces on
  * tap via a springy overshoot, plus a quick expanding ring "ping" for extra
  * tactile feedback since there's no continuous loop to lean on. */
-function PopActionButton({
+export function PopActionButton({
   icon,
   label,
   onClick,
@@ -676,64 +684,23 @@ function PopActionButton({
   );
 }
 
-// Uniform pill styling for all three (campus, major, level) — same shape,
-// background, and color. Hierarchy comes only from font size and weight,
-// stepping down from campus (largest/boldest) to level (smallest/lightest).
-//
-// Each tag also gets a subtle side-to-side sway every few seconds, staggered
-// slightly (campus first, then major, then level) so the three ripple like a
-// little dance instead of blinking in unison.
-const TAG_BASE =
-  "inline-block rounded-full bg-brand/10 px-2 py-0.5 font-nunito uppercase tracking-wide text-brand";
-
-const TAG_DANCE = {
-  animate: { x: [0, -3, 3, 0], rotate: [0, -3, 3, 0] },
-  transition: { duration: 0.6, repeat: Infinity, repeatDelay: 3.4, ease: "easeInOut" as const },
-};
-
-function CampusTag({ children }: { children: React.ReactNode }) {
-  return (
-    <motion.span
-      {...TAG_DANCE}
-      transition={{ ...TAG_DANCE.transition, delay: 0 }}
-      className={`${TAG_BASE} text-[9px] font-bold md:text-[10px]`}
-    >
-      {children}
-    </motion.span>
-  );
-}
-
-function MajorTag({ children }: { children: React.ReactNode }) {
-  return (
-    <motion.span
-      {...TAG_DANCE}
-      transition={{ ...TAG_DANCE.transition, delay: 0.15 }}
-      className={`${TAG_BASE} text-[8px] font-semibold md:text-[9px]`}
-    >
-      {children}
-    </motion.span>
-  );
-}
-
-function LevelTag({ children }: { children: React.ReactNode }) {
-  return (
-    <motion.span
-      {...TAG_DANCE}
-      transition={{ ...TAG_DANCE.transition, delay: 0.3 }}
-      className={`${TAG_BASE} text-[7px] font-medium md:text-[8px]`}
-    >
-      {children}
-    </motion.span>
-  );
-}
+// CampusTag/MajorTag/LevelTag moved to ./GistTags — the profile page's
+// header reuses them verbatim, so they live in one place now instead of
+// being duplicated.
 
 /**
  * Short, text-only gists get a bold colored "hero" block that fills the card's
  * whole body (not just a floating minimum-height box), so it owns the frame
  * the way a quote card should. Text scales up on larger screens so a very
  * short gist doesn't read as a tiny caption lost in a big colored void.
+ *
+ * `h-full` degrades gracefully outside the feed's fixed-height stack card
+ * too: with no ancestor giving it a real height to be a percentage OF, it
+ * resolves to `auto` per spec and `min-h-[160px]` takes over instead — which
+ * is exactly the sizing ProfileGistCard wants for its own content-driven
+ * (not viewport-locked) list rows. Same component, two contexts, no fork.
  */
-function ShortGist({
+export function ShortGist({
   text,
   colorKey,
   fallbackSeed,

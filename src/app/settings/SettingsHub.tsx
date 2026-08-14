@@ -6,6 +6,7 @@ import { SettingsPageShell } from "@/components/settings/SettingsPageShell";
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { LogoutAction } from "@/components/settings/LogoutAction";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { useAuthStore } from "@/stores/authStore";
 import {
   ProfileIconFill,
   AccountIconFill,
@@ -19,25 +20,25 @@ import { CONTACT } from "@/lib/contact";
 const ROWS = [
   {
     icon: <ProfileIconFill className="h-5 w-5" weight="regular" />,
-    title: "Profile Settings",
+    title: "Profile",
     subtitle: "Edit Profile Information",
     href: "/settings/profile",
   },
   {
     icon: <AccountIconFill className="h-5 w-5" weight="regular" />,
-    title: "Account Management",
+    title: "Account",
     subtitle: "Change passwords, Deactivate Account",
     href: "/settings/account",
   },
   {
     icon: <LegalIconFill className="h-5 w-5" weight="regular" />,
-    title: "App & Legal Info",
+    title: "Legal",
     subtitle: "Privacy Policy, Terms & Conditions",
     href: "/settings/legal",
   },
   {
     icon: <SupportIconFill className="h-5 w-5" weight="regular" />,
-    title: "Feedback & Support",
+    title: "Support",
     subtitle: "Report, Feature Requests, Contact Us",
     href: "/settings/support",
   },
@@ -55,6 +56,10 @@ const ROWS = [
 export function SettingsHub() {
   const router = useRouter();
   const isMobile = useIsMobile();
+  // /profile no longer exists — a profile lives at the root (/avitag), own
+  // or anyone else's. Falls back to /feed if avitag hasn't loaded yet.
+  const avitag = useAuthStore((s) => s.avitag);
+  const backHref = avitag ? `/${avitag}` : "/feed";
 
   useEffect(() => {
     if (!isMobile) router.replace("/settings/profile");
@@ -62,7 +67,7 @@ export function SettingsHub() {
 
   return (
     <div className="flex flex-1 flex-col md:hidden">
-      <SettingsPageShell title="Settings" backHref="/profile">
+      <SettingsPageShell title="Settings" backHref={backHref}>
         <div className="flex flex-col gap-1">
           {ROWS.map((row) => (
             <SettingsRow key={row.href} {...row} />

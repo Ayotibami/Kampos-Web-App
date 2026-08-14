@@ -103,7 +103,7 @@ export function AccountManagementForm() {
         confirmLabel="Deactivate"
         loading={deactivating}
       />
-      <SettingsPageShell title="Account Management" backHref="/settings">
+      <SettingsPageShell title="Account" backHref="/settings">
         <div className="flex flex-col gap-10">
           <section className="flex flex-col items-center gap-3 border-b border-line/70 pb-8 text-center">
             {user?.email && (
