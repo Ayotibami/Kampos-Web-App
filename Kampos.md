@@ -124,6 +124,7 @@ All stores live in `src/stores/`. None use Redux-style middleware beyond Zustand
 | `referenceStore.ts` | Campuses/majors fetched from `/misc/campuses` and `/misc/majors`, cached after first load | No |
 | `themeStore.ts` | The user's *preference* (`"light"`/`"dark"`) — does **not** itself touch the DOM | Yes, via raw `localStorage` (`kampos-theme` key, not Zustand's `persist` middleware) |
 | `authPromptStore.ts` | Global "you need an account" modal open/close state + the action label shown | No |
+| `unsavedChangesStore.ts` | A single registered guard function (`setGuard`) + `runGuardedNavigation()` — lets a dirty form (Profile Settings, Section 4b) intercept any navigation attempt (mobile back arrow, desktop rail links) and show a Save/Discard prompt instead of silently losing edits | No |
 
 `setupProfileStore` and `authStore` both gate on a `hasHydrated`/mount check before trusting persisted values, since `localStorage` isn't available during SSR and a naive read would cause a hydration flash/mismatch.
 
@@ -387,7 +388,7 @@ The whole wizard's draft (`data`, `imageUrl`, `currentStep`) persists to `localS
 
 ## 10. Validation & Security
 
-- **`src/lib/validation.ts`** — email regex, the shared `PASSWORD_RULES` array (8+ chars, one lower/upper/number/special-char — each rule independently testable, driving both a live green-checklist UI on signup and the submit-time gate), name-part validation (letters only, 3+ chars), avitag validation (4–15 chars, alphanumeric+underscore, must contain a letter, no leading/trailing/double underscore) — explicitly "ported verbatim in spirit from the mobile app" to keep both platforms' rules identical.
+- **`src/lib/validation.ts`** — email regex, the shared `PASSWORD_RULES` array (8+ chars, one lower/upper/number/special-char — each rule independently testable, driving both a live green-checklist UI on signup and the submit-time gate), name-part validation (letters only, 3+ chars), avitag validation (4–15 chars, alphanumeric+underscore, must contain a letter, no leading/trailing/double underscore, and not on `RESERVED_AVITAGS` — `login`/`signup`/`feed`/`settings`/`gist`/`api`/`profile`/`kampos`/`kappy`/`ceo`/`admin`/`test` — since a profile lives at `/avitag` with no prefix, Section 4a) — explicitly "ported verbatim in spirit from the mobile app" to keep both platforms' rules identical. The reserved-word check is mirrored server-side too (`KamposBackend/Kampos.md` Section 2) — that's the real enforcement point; this one is just a fast, friendly client-side echo of it.
 - **`src/lib/sanitize.ts`** — `stripInvisibleChars` (strips zero-width/bidi-override/control characters — safe to run on every keystroke, used to prevent hidden-text/word-filter-dodging/display-order-spoofing tricks like U+202E right-to-left override), `sanitizeForSubmit` (adds a final trim + caps runs of 4+ blank lines so someone can't pad a post into a wall of empty space), `sanitizeFileName` (strips anything unsafe from an uploaded file's name across OS/filesystem boundaries). An inline comment is explicit that this is about **content hygiene**, not XSS — React already escapes everything it renders as text, so this isn't a script-injection defense.
 - **`src/lib/mediaValidation.ts`** — real magic-byte signature sniffing (see Section 5.5) on top of MIME-type/size checks; genuinely catches a renamed/mislabeled file that a naive `<input accept>` + `.type` check would miss.
 - No CSRF-token mechanism is visible in this repo — session security relies entirely on the httpOnly cookie + same-origin proxy pattern (Section 1).
@@ -423,12 +424,13 @@ Currently the **only** consumer is `commentStore.ts`'s module-level `comment:cre
 
 ## 13. Things That Look Built But Aren't (Known Gaps)
 
-- **`/profile` and `/settings` pages are pure placeholders.** Both just render an illustration + a "coming soon"-style message ("Your profile dey cook 👀" / "Settings dey come 🔧"). No real profile view (own gists, bio, stats) or settings (account, notifications, privacy) exists yet, despite being fully gated/routed as if they were real pages.
-- **Multi-profile switching has no UI.** `profileStore.switchProfile` exists and is called internally (auto-switch after creating a profile, and `authStore`'s self-heal), but there's no screen or menu letting a logged-in user with multiple profiles pick which one is active.
+- **Public profile pages are student-only.** `/[avitag]` (Section 4a) only ever renders a *student* profile — kreator/kompany/school/idiot profiles have no public page of their own yet, even though the backend has endpoints for all five profile types.
+- **Multi-profile switching has no UI.** `profileStore.switchProfile` exists and is called internally (auto-switch after creating a profile, and `authStore`'s self-heal), but there's no screen or menu letting a logged-in user with multiple profiles pick which one is active. Worth knowing alongside this: a gist always posts as whichever profile is *currently active*, not whichever profile's page happens to be open (Section 4a) — confirmed intentional, not something to "fix" once multi-profile support is real.
+- **The profile page's two-photo layout doesn't use real dimensions yet.** `ProfileGistCard`'s `MediaBlock` (Section 5.3a) now has real width/height available for a duo, same as the single-item case, but still falls back to the older equal-crop split rather than a Twitter-style ratio-balanced row — a deliberate scope cut (a real design question, not a quick fix), not a bug.
 - **OAuth (Google/Facebook/Apple) has no frontend UI.** The backend supports it (per its own docs), and illustration assets for all three provider logos exist in `src/assets/illustrations/` (`Googleicon.svg`, `Facebookicon.svg`, `Appleicon.svg`), but no login/signup button in this repo actually wires them up — only email/password auth is reachable from the UI.
 - **Real-time is read-only and narrow in practice.** Only `comment:created` is subscribed to; gist approval/rejection broadcasts and reaction broadcasts (which the backend does emit) aren't consumed anywhere in the frontend, so e.g. a newly-approved gist from someone else won't appear in your feed live — only on next full reload/refetch.
-- **No test suite.** No test script, no test files found anywhere in `src/`.
-- **`todo.md`** (repo root) is a live, informal list of outstanding polish items in the founder's own words — worth reading directly for anything not captured above, though it's not kept perfectly in sync with what's actually shipped (some listed items, like edit/delete and sharing, are now done).
+- **No test suite.** No test script, no test files found anywhere in `src/`. Verification throughout this repo's history has instead been manual — `tsc`/`eslint` for correctness, and Playwright screenshots at real breakpoints for anything visual/responsive, run ad hoc rather than as a committed suite.
+- **`todo.md`** (repo root) is a live, informal list of outstanding polish items in the founder's own words — worth reading directly for anything not captured above, though it's not kept perfectly in sync with what's actually shipped (some listed items, like edit/delete, sharing, and settings/profile screens, are now done).
 
 ---
 
@@ -454,7 +456,9 @@ kampos-web/
     │   ├── signup-success/         Post-verification celebration (needs-profile only)
     │   ├── setup-profile/          5-step wizard orchestrator (needs-profile only)
     │   ├── feed/                   Main app — page.tsx (gate) + FeedContent.tsx (the real UI)
-    │   ├── profile/, settings/     Placeholder pages (active only)
+    │   ├── [avitag]/                Public profile page (no gate) — page.tsx + ProfileView.tsx (Section 4a)
+    │   ├── settings/                 layout.tsx (rail + gate) + page.tsx/SettingsHub.tsx (hub) +
+    │   │                              profile/, account/, legal/, support/ subpages (Section 4b)
     │   ├── gist/[gistId]/          Ungated shared-link view: page.tsx + GistShareView.tsx
     │   └── api/
     │       ├── v1/[...path]/route.ts   Same-origin backend proxy (Section 1)
@@ -463,11 +467,13 @@ kampos-web/
     ├── robots.ts, sitemap.ts         SEO: crawl rules + the few real guest-facing URLs
     ├── components/
     │   ├── auth/                  HydrateAuth, SessionWatcher, AuthPromptModal
-    │   ├── brand/                 Wordmark, illustrations.tsx, GistPreviewCard/Marquee, MiniGistCard, MiniCommentCard, PhoneKappyOrbit, KappyOpportunitiesOrbit
-    │   ├── comment/                CommentPanel
-    │   ├── gist/                   GistCard, GistStack, CreateGistSheet, GistMediaStage, GistMediaOverlay, ReactionButton, ReportModal, ShareModal, GiphyPicker, WebcamCapture, GistCardSkeleton
-    │   ├── layout/                  AppShell, AuthShell
+    │   ├── brand/                 Wordmark, illustrations.tsx, GistPreviewCard/Marquee, MiniGistCard, MiniCommentCard, PhoneKappyOrbit, KappyOpportunitiesOrbit, GhostCard (Section 8)
+    │   ├── comment/                CommentPanel, CommentSheet (mobile bottom sheet), CommentList/CommentComposer (shared by both — Section 5.8)
+    │   ├── gist/                   GistCard, GistStack, CreateGistSheet, GistMediaStage, GistMediaOverlay, ReactionButton, ReportModal, ShareModal, GiphyPicker, WebcamCapture, GistCardSkeleton,
+    │   │                            GistTags (CampusTag/MajorTag/LevelTag — Section 5.3), ProfileGistCard/ProfileGistCardSkeleton (Section 5.3a), MobileReactionBadge (Section 5.3a)
+    │   ├── layout/                  AppShell, AuthShell, FeedScrollLock (Section 5.2)
     │   ├── onboarding/             ProgressDots
+    │   ├── settings/                SettingsRail (desktop nav), SettingsPageShell, SettingsHeader, SettingsRow, LogoutAction (Section 4b)
     │   ├── setup/                  StepScaffold, SearchSelectList, types.ts, steps/{NameStep,SchoolStep,AcademicsStep,ProfileStep,AvitagStep}
     │   ├── theme/                   ThemeRouteSync
     │   └── ui/                      Button, TextInput, Modal, FeedbackModal, Avatar, Chip, LinkText, OtpInputs, ThemeToggle, icons.tsx
@@ -475,17 +481,21 @@ kampos-web/
     │   ├── api.ts                  Shared axios instance + 401/refresh interceptor
     │   ├── env.ts                  Validated env var access
     │   ├── serverAuth.ts            resolveServerAuthState, gateServer
+    │   ├── serverProfile.ts          fetchStudentProfileByAvitag() (cache()-wrapped) — server-side profile fetch for /[avitag] (Section 4a)
     │   ├── authGate.ts              destinationFor()
     │   ├── requireAuth.ts            requireAuth() — the shared "must be logged in" gate for actions
     │   ├── serverGist.ts             fetchGistContext() — server-side gist fetch for the share route
     │   ├── cloudinary.ts             cloudinarySmartCrop(), uploadToCloudinaryDirect() (Section 5.5)
-    │   ├── sanitize.ts, mediaValidation.ts, validation.ts   Content/input safety
+    │   ├── heroText.ts                nominalHeroTextRem/fitHeroBlock/fitHeroTextarea — shared hero-text sizing (Section 5.3)
+    │   ├── useOverscrollNav.ts        Mobile vertical swipe-to-navigate detector (Section 5.2)
+    │   ├── useIsMobile.ts             Breakpoint hook, backs every mobile/desktop UI branch introduced this round
+    │   ├── sanitize.ts, mediaValidation.ts, validation.ts   Content/input safety (validation.ts also owns RESERVED_AVITAGS — Section 10)
     │   ├── ws.ts                    WSClient
-    │   ├── giphy.ts                  GIPHY API wrapper + cache
+    │   ├── giphy.ts                  GIPHY API wrapper + cache (now includes width/height — Section 5.7)
     │   ├── format.ts                  timeAgo, friendlyDateTime, compactNumber, formatCountdown
-    │   ├── brand.ts                  GIST_CARD_PALETTE, gistColorFor, LIMITS, ONBOARDING copy
+    │   ├── brand.ts                  GIST_CARD_PALETTE (8 colors), gistColorFor, LIMITS, ONBOARDING copy
     │   └── onboarding.ts              hasSeenOnboarding/markOnboardingSeen (localStorage)
-    ├── stores/                      One Zustand store per domain (Section 3)
+    ├── stores/                      One Zustand store per domain (Section 3) — plus unsavedChangesStore.ts (runGuardedNavigation, Section 4b)
     ├── types/index.ts                Shared domain types
     └── assets/
         ├── illustrations/           WebP (converted raster art) + genuine vector SVGs — see Section 8
