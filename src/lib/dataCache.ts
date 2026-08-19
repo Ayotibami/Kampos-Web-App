@@ -6,7 +6,7 @@
  * offline queue for persisting mutations across browser restarts.
  *
  * Max 200 entries; when full, the oldest-accessed entry is evicted.
- * Default TTL is 2 min (matching the per-method freshness window), overridable
+ * Default TTL is 5 minutes (matching the feed freshness window), overridable
  * per `set()` call.
  */
 
@@ -14,11 +14,13 @@ const DB = "kampos-data";
 const STORE = "entries";
 const VERSION = 1;
 const MAX_ENTRIES = 200;
+const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface Entry {
   key: string;
   value: unknown;
   ts: number; // Date.now() when written
+  ttlMs: number; // lifetime for this value; respected by cacheGet()
   accessed: number; // Date.now() of last read (for LRU)
 }
 
@@ -50,13 +52,14 @@ async function tx(mode: IDBTransactionMode) {
 export async function cacheSet(
   key: string,
   value: unknown,
-  ttlMs = 300_000,
+  ttlMs = DEFAULT_CACHE_TTL_MS,
 ): Promise<void> {
   const store = await tx("readwrite");
   const entry: Entry = {
     key,
     value,
     ts: Date.now(),
+    ttlMs,
     accessed: Date.now(),
   };
   await promisify(store.put(entry));
@@ -69,12 +72,13 @@ export async function cacheSet(
 /** Read a value. Returns `null` if missing or if TTL has expired. */
 export async function cacheGet<R = unknown>(
   key: string,
-  ttlMs = 300_000,
+  ttlMs = DEFAULT_CACHE_TTL_MS,
 ): Promise<R | null> {
   const store = await tx("readonly");
   const entry = await promisify<Entry | undefined>(store.get(key));
   if (!entry) return null;
-  if (Date.now() - entry.ts > ttlMs) {
+  const effectiveTtlMs = typeof entry.ttlMs === "number" ? entry.ttlMs : ttlMs;
+  if (Date.now() - entry.ts > effectiveTtlMs) {
     // Expired — delete in background and return null.
     cacheDelete(key).catch(() => {});
     return null;

@@ -3,7 +3,7 @@ import axios from "axios";
 import { api, apiGet, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
 import { uploadToCloudinaryDirect, type CloudinarySignature, type CloudinaryUploadResult } from "@/lib/cloudinary";
 import { cacheGet, cacheSet, cacheDeleteMatching } from "@/lib/dataCache";
-import { enqueue, type QueuedAction } from "@/lib/offlineQueue";
+import { enqueue } from "@/lib/offlineQueue";
 import type { Gist, GistCounts, ReactionType } from "@/types";
 
 /** Which of the three legs of a direct-to-Cloudinary upload failed — lets
@@ -41,13 +41,15 @@ function normalizeGists(raw: Gist[]): Gist[] {
   return raw.map(normalizeGist);
 }
 
+const GIST_CACHE_TTL_MS = 5 * 60 * 1000;
+
 // ── Cache helpers (Phase 2 — stale-while-revalidate) ────────────────────
 
 /** Shared stale-while-revalidate read pattern used by list(), trending(),
  *  byUser(), get(), getContext(), and counts().
  *
  *  1. Check IndexedDB cache for `cacheKey`.
- *  2. If cached AND fresh (≤30 s old): return cached data immediately,
+ *  2. If cached AND fresh (≤5 minutes old): return cached data immediately,
  *     then fire the real network fetch in the background so the cache is
  *     warm for the NEXT read without the user waiting.
  *  3. If stale or missing: fetch from network, cache the result, return it. */
@@ -56,7 +58,7 @@ async function cachedRead<T>(
   fetcher: () => Promise<T | undefined>,
   onFresh?: (fresh: T) => void,
 ): Promise<T | undefined> {
-  const cached = await cacheGet<T>(cacheKey, 300_000);
+  const cached = await cacheGet<T>(cacheKey, GIST_CACHE_TTL_MS);
   if (cached !== null) {
     // Background refresh — fires the network call, then pushes fresh data
     // into both the cache AND (via onFresh) the store so the UI updates

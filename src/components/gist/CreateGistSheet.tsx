@@ -392,8 +392,8 @@ export function CreateGistSheet({
         continue;
       }
       // Reject an over-length video before it ever uploads a single byte
-      // — much better than finding out only after waiting for a 2-minute
-      // upload to finish, or worse, letting the server reject it silently.
+      // — much better than finding out only after a long upload has already
+      // spent time, or worse, letting the server reject it silently.
       if (f.type.startsWith("video/")) {
         try {
           const duration = await readVideoDurationSeconds(f);
