@@ -24,6 +24,15 @@ export function HydrateAuth({
   const resolveAuthState = useAuthStore((s) => s.resolveAuthState);
 
   useEffect(() => {
+    // "unknown" means the backend was temporarily unreachable during server
+    // render (e.g. Render cold-start, 5xx) — not that the user is a guest.
+    // Skip hydrating the store with null account data (which would clobber
+    // any existing good state) and re-resolve client-side instead, so the
+    // user's name/avatar/session stay intact while the backend wakes up.
+    if (state === "unknown") {
+      void resolveAuthState();
+      return;
+    }
     hydrateFromServer({ state, account, profiles });
     // The server gate only checks "does this account have a profile at
     // all," not "does the current session actually have one active" (that

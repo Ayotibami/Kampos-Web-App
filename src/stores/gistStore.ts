@@ -2,6 +2,8 @@ import { create } from "zustand";
 import axios from "axios";
 import { api, apiGet, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
 import { uploadToCloudinaryDirect, type CloudinarySignature, type CloudinaryUploadResult } from "@/lib/cloudinary";
+import { cacheGet, cacheSet, cacheDeleteMatching } from "@/lib/dataCache";
+import { enqueue, type QueuedAction } from "@/lib/offlineQueue";
 import type { Gist, GistCounts, ReactionType } from "@/types";
 
 /** Which of the three legs of a direct-to-Cloudinary upload failed — lets
@@ -37,6 +39,58 @@ function normalizeGist(raw: Gist): Gist {
 }
 function normalizeGists(raw: Gist[]): Gist[] {
   return raw.map(normalizeGist);
+}
+
+// ── Cache helpers (Phase 2 — stale-while-revalidate) ────────────────────
+
+/** Shared stale-while-revalidate read pattern used by list(), trending(),
+ *  byUser(), get(), getContext(), and counts().
+ *
+ *  1. Check IndexedDB cache for `cacheKey`.
+ *  2. If cached AND fresh (≤30 s old): return cached data immediately,
+ *     then fire the real network fetch in the background so the cache is
+ *     warm for the NEXT read without the user waiting.
+ *  3. If stale or missing: fetch from network, cache the result, return it. */
+async function cachedRead<T>(
+  cacheKey: string,
+  fetcher: () => Promise<T | undefined>,
+  onFresh?: (fresh: T) => void,
+): Promise<T | undefined> {
+  const cached = await cacheGet<T>(cacheKey, 300_000);
+  if (cached !== null) {
+    // Background refresh — fires the network call, then pushes fresh data
+    // into both the cache AND (via onFresh) the store so the UI updates
+    // without the user ever seeing a loading spinner.
+    fetcher()
+      .then((fresh) => {
+        if (fresh !== undefined) {
+          cacheSet(cacheKey, fresh);
+          onFresh?.(fresh);
+        }
+      })
+      .catch(() => {});
+    return cached;
+  }
+  // No cache hit — must wait for the network.
+  const fresh = await fetcher();
+  if (fresh !== undefined) cacheSet(cacheKey, fresh);
+  return fresh;
+}
+
+/** Build a stable cache key from a method name and its params. */
+function cacheKey(method: string, params?: Record<string, unknown>): string {
+  if (!params) return `GET:${method}`;
+  // Sort keys so {a:1,b:2} and {b:2,a:1} produce the same cache entry.
+  const sorted = Object.keys(params)
+    .sort()
+    .reduce(
+      (acc, k) => {
+        acc[k] = params[k];
+        return acc;
+      },
+      {} as Record<string, unknown>,
+    );
+  return `GET:${method}?${JSON.stringify(sorted)}`;
 }
 
 interface GistState {
@@ -90,19 +144,54 @@ interface GistState {
   share: (gistId: string, platform?: string) => Promise<void>;
   react: (gistId: string, type: ReactionType) => Promise<void>;
   unreact: (gistId: string) => Promise<void>;
+  /** Replay all offline-queued write mutations and invalidate the gist
+   * cache so the next feed read includes them. Call this from
+   * useNetworkStatus when coming back online. */
+  flushOfflineQueue: () => Promise<void>;
+  /** True when a background refresh fetched new gists and they're waiting
+   * to be shown — the UI renders a "Check out new gists" pill. */
+  hasNewGists: boolean;
+  /** Swaps in the fresh gists that arrived via background refresh. */
+  loadNewGists: () => void;
+  /** Internal — the cache key from the last list() call, used by
+   * loadNewGists to read the background-refreshed data from cache. */
+  _lastListKey: string;
 }
 
-export const useGistStore = create<GistState>((set) => ({
+export const useGistStore = create<GistState>((set, get) => ({
   items: [],
   loading: false,
   error: null,
+  hasNewGists: false,
+  _lastListKey: "",
 
   list: async (params = {}) => {
-    set({ loading: true, error: null });
+    set({ loading: true, error: null, hasNewGists: false });
+    const key = cacheKey("/gists", params);
+    set({ _lastListKey: key });
     try {
-      const data = normalizeGists((await apiGet<Gist[]>("/gists", { params })) ?? []);
-      set({ items: data, loading: false });
-      return data;
+      const data = await cachedRead<Gist[]>(key, () =>
+        apiGet<Gist[]>("/gists", { params }),
+        // When fresh gists arrive in the background, DON'T auto-replace.
+        // Instead show a pill so the user isn't interrupted mid-scroll.
+        (fresh) => {
+          // Only show the pill if the fresh data is ACTUALLY different
+          // from what's already on screen.  Otherwise the background
+          // refresh just updates the cache silently — no reason to
+          // interrupt the user for the exact same gists.
+          const current = normalizeGists(get().items);
+          const incoming = normalizeGists(fresh);
+          const changed =
+            current.length !== incoming.length ||
+            current.some((g, i) => g.gist_id !== incoming[i]?.gist_id || g.gist_text !== incoming[i]?.gist_text || g.counts?.reactions_count !== incoming[i]?.counts?.reactions_count || g.counts?.comments_count !== incoming[i]?.counts?.comments_count);
+          if (changed) {
+            set({ hasNewGists: true });
+          }
+        },
+      );
+      const normalized = normalizeGists(data ?? []);
+      set({ items: normalized, loading: false });
+      return normalized;
     } catch (err) {
       set({ error: apiErrorMessage(err, "Failed to load gists"), loading: false });
       throw err;
@@ -122,9 +211,11 @@ export const useGistStore = create<GistState>((set) => ({
   },
 
   byUser: async (avitag, params) => {
-    return normalizeGists(
-      (await apiGet<Gist[]>(`/gists/user/${encodeURIComponent(avitag)}`, { params })) ?? [],
+    const key = cacheKey(`/gists/user/${encodeURIComponent(avitag)}`, params as Record<string, unknown> | undefined);
+    const data = await cachedRead<Gist[]>(key, () =>
+      apiGet<Gist[]>(`/gists/user/${encodeURIComponent(avitag)}`, { params }),
     );
+    return normalizeGists(data ?? []);
   },
 
   get: async (gistId) => {
@@ -165,11 +256,52 @@ export const useGistStore = create<GistState>((set) => ({
   },
 
   create: async (payload) => {
+    // Offline — queue the mutation and return an optimistic gist so the UI
+    // updates immediately. The real create will replay when connectivity
+    // returns (see flushOfflineQueue).
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      await enqueue({ type: "create-gist", payload });
+      // Build an optimistic temporary gist for the UI. It gets replaced
+      // once the real gist comes back from the server after flush.
+      const optimistic: Gist = {
+        gist_id: `offline-${crypto.randomUUID()}`,
+        gist_text: String(payload.gist_text ?? ""),
+        avitag: "",
+        display_name: "",
+        image_url: null,
+        campus: null,
+        major: null,
+        level: undefined,
+        media_urls: (payload.media_urls as string[]) ?? [],
+        gif_url: (payload.gif_url as string) ?? null,
+        gif_aspect_ratio: (payload.gif_aspect_ratio as number) ?? null,
+        status: "POSTED",
+        campus_tag: undefined,
+        my_reaction: null,
+        counts: { reactions_count: 0, comments_count: 0, views_count: 0, reports_count: 0, shares_count: 0 },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      // Prepend to the feed so the user sees it right away.
+      set((s) => ({ items: [optimistic, ...s.items] }));
+      return optimistic;
+    }
     set({ loading: true, error: null });
     try {
       const res = await api.post<ApiEnvelope<Gist>>("/gists", payload);
-      set({ loading: false });
-      return res.data?.data;
+      const gist = res.data?.data;
+      if (gist) {
+        set((s) => ({
+          items: [normalizeGist(gist), ...s.items],
+          loading: false,
+        }));
+        // Invalidate feed caches so the next list() fetches fresh data
+        // that includes this new gist.
+        cacheDeleteMatching(/^GET:\/gists/).catch(() => {});
+      } else {
+        set({ loading: false });
+      }
+      return gist;
     } catch (err) {
       set({ error: apiErrorMessage(err, "Failed to create gist"), loading: false });
       throw err;
@@ -177,6 +309,17 @@ export const useGistStore = create<GistState>((set) => ({
   },
 
   update: async (gistId, gistText) => {
+    // Offline — queue the edit so it replays when connectivity returns.
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      await enqueue({ type: "update-gist", payload: { gist_id: gistId, gist_text: gistText } });
+      // Apply optimistic text update to the local item immediately.
+      set((s) => ({
+        items: s.items.map((g) =>
+          g.gist_id === gistId ? { ...g, gist_text: gistText } : g,
+        ),
+      }));
+      return;
+    }
     try {
       // PATCH, not PUT — the backend only registers this route as PATCH
       // (a partial update, which is what this actually is: gist_text
@@ -186,6 +329,7 @@ export const useGistStore = create<GistState>((set) => ({
       const res = await api.patch<ApiEnvelope<Gist>>(`/gists/${encodeURIComponent(gistId)}`, {
         gist_text: gistText,
       });
+      cacheDeleteMatching(/^GET:\/gists/).catch(() => {});
       return res.data?.data;
     } catch (err) {
       set({ error: apiErrorMessage(err, "Failed to update gist") });
@@ -262,9 +406,16 @@ export const useGistStore = create<GistState>((set) => ({
   },
 
   remove: async (gistId) => {
+    // Offline — queue the deletion and remove from local items immediately.
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      await enqueue({ type: "delete-gist", payload: { gist_id: gistId } });
+      set((s) => ({ items: s.items.filter((g) => g.gist_id !== gistId) }));
+      return;
+    }
     try {
       await api.delete(`/gists/${encodeURIComponent(gistId)}`);
       set((s) => ({ items: s.items.filter((g) => g.gist_id !== gistId) }));
+      cacheDeleteMatching(/^GET:\/gists/).catch(() => {});
     } catch (err) {
       set({ error: apiErrorMessage(err, "Failed to delete gist") });
       throw err;
@@ -320,6 +471,7 @@ export const useGistStore = create<GistState>((set) => ({
     }));
     try {
       await api.post("/reactions", { entity_type: "GIST", entity_id: gistId, type });
+      cacheDeleteMatching(/^GET:\/gists/).catch(() => {});
     } catch (err) {
       // Roll back — without this, a failed request (most commonly: not
       // actually authenticated, since this endpoint requires real auth
@@ -354,6 +506,7 @@ export const useGistStore = create<GistState>((set) => ({
     }));
     try {
       await api.delete(`/reactions/entity/GIST/${encodeURIComponent(gistId)}`);
+      cacheDeleteMatching(/^GET:\/gists/).catch(() => {});
     } catch (err) {
       // Roll back — same reasoning as react(): without this, a failed
       // delete left the UI showing "unreacted" for a reaction the backend
@@ -364,5 +517,49 @@ export const useGistStore = create<GistState>((set) => ({
       set({ error: apiErrorMessage(err, "Failed to remove reaction") });
       throw err;
     }
+  },
+
+  /** Replays all queued offline gist mutations (create/update/delete) in
+   * FIFO order and then invalidates the gist cache so the next feed read
+   * picks up the new data. Call this from useNetworkStatus's onReconnect. */
+  flushOfflineQueue: async () => {
+    const { flush } = await import("@/lib/offlineQueue");
+    await flush(async (action) => {
+      switch (action.type) {
+        case "create-gist":
+          await api.post("/gists", action.payload);
+          break;
+        case "update-gist":
+          await api.patch(
+            `/gists/${encodeURIComponent(String(action.payload.gist_id))}`,
+            { gist_text: action.payload.gist_text },
+          );
+          break;
+        case "delete-gist":
+          await api.delete(
+            `/gists/${encodeURIComponent(String(action.payload.gist_id))}`,
+          );
+          break;
+      }
+    });
+    // Strip optimistic (offline- prefixed) gists from the feed now that
+    // the real ones have been POSTed to the server.  The next feed fetch
+    // will bring back the canonical versions.
+    set((s) => ({
+      items: s.items.filter((g) => !g.gist_id.startsWith("offline-")),
+    }));
+  },
+
+  /** Swaps in the fresh gists that the background refresh already cached —
+   * no network call, instant. Called when the user taps the pill. */
+  loadNewGists: () => {
+    const key = get()._lastListKey;
+    set({ hasNewGists: false });
+    if (!key) return;
+    cacheGet<Gist[]>(key)
+      .then((fresh) => {
+        if (fresh) set({ items: normalizeGists(fresh) });
+      })
+      .catch(() => {});
   },
 }));

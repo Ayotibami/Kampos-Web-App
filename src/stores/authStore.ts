@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import axios from "axios";
 import type { AxiosRequestConfig } from "axios";
 import { api, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
 import { normalizeProfileType, type Account, type ProfileType } from "@/types";
@@ -10,7 +11,12 @@ import { normalizeProfileType, type Account, type ProfileType } from "@/types";
  * `resolveAuthState` runs — never inferred client-side from stale local
  * data, since that's exactly what let ungated pages be reachable before.
  */
-export type AuthGateState = "unknown" | "guest" | "needs-otp" | "needs-profile" | "active";
+export type AuthGateState =
+  | "unknown"
+  | "guest"
+  | "needs-otp"
+  | "needs-profile"
+  | "active";
 
 export interface ProfileSummary {
   avitag: string;
@@ -37,7 +43,10 @@ interface AuthState {
   loading: boolean;
   error: string | null;
 
-  setProfileMeta: (meta: { avitag?: string | null; profileType?: ProfileType | null }) => void;
+  setProfileMeta: (meta: {
+    avitag?: string | null;
+    profileType?: ProfileType | null;
+  }) => void;
   /** Seeds the store from a gate check already done server-side (see
    * lib/serverAuth.ts) — no network call, just adopting data the page
    * already has from its own SSR fetch. Replaces what a client-side
@@ -48,7 +57,10 @@ interface AuthState {
     profiles: ProfileSummary[];
   }) => void;
 
-  register: (payload: { email: string; password: string }) => Promise<AuthGateState>;
+  register: (payload: {
+    email: string;
+    password: string;
+  }) => Promise<AuthGateState>;
   login: (creds: { email: string; password: string }) => Promise<AuthGateState>;
   /** The single source of truth — hits the backend, derives the gate
    * state from the real account + profile rows, and stores both. Every
@@ -65,11 +77,18 @@ interface AuthState {
    * the reset UI confirm the code before it swaps the code entry for the
    * new-password fields, same as verify-otp already does for signup. */
   verifyResetCode: (input: { email: string; code: string }) => Promise<void>;
-  resetPassword: (input: { email: string; code: string; newPassword: string }) => Promise<void>;
+  resetPassword: (input: {
+    email: string;
+    code: string;
+    newPassword: string;
+  }) => Promise<void>;
   /** Authenticated change-password (Account Management) — distinct from the
    * OTP-based forgotPassword/resetPassword flow above, which is for a
    * signed-out visitor who doesn't know their current password at all. */
-  changePassword: (input: { currentPassword: string; newPassword: string }) => Promise<void>;
+  changePassword: (input: {
+    currentPassword: string;
+    newPassword: string;
+  }) => Promise<void>;
   /** DELETE /account/delete — a soft delete server-side (account_status
    * flips to DELETED; the session itself isn't invalidated by the backend),
    * so this also clears local session state the same way logout does —
@@ -107,7 +126,10 @@ export const useAuthStore = create<AuthState>()(
           await api.post("/auth/register", payload);
           return await get().resolveAuthState();
         } catch (err) {
-          set({ error: apiErrorMessage(err, "Registration failed"), loading: false });
+          set({
+            error: apiErrorMessage(err, "Registration failed"),
+            loading: false,
+          });
           throw err;
         }
       },
@@ -132,9 +154,12 @@ export const useAuthStore = create<AuthState>()(
           // the same 401 as a session dying mid-use and globally redirects
           // to /login, which is exactly wrong on a guest-only page like
           // /signup or /forgot-password (see SessionWatcher).
-          const res = await api.get<ApiEnvelope<AccountProfileResponse>>("/account/profile", {
-            skipUnauthorizedEvent: true,
-          } as AxiosRequestConfig);
+          const res = await api.get<ApiEnvelope<AccountProfileResponse>>(
+            "/account/profile",
+            {
+              skipUnauthorizedEvent: true,
+            } as AxiosRequestConfig,
+          );
           const account = res.data?.data?.account ?? null;
           const profiles = res.data?.data?.profiles ?? [];
           let avitag = res.data?.data?.avitag ?? null;
@@ -156,25 +181,60 @@ export const useAuthStore = create<AuthState>()(
           // instead of getting stuck the same way again.
           if (authState === "active" && !avitag && profiles[0]?.avitag) {
             try {
-              const switchRes = await api.post<ApiEnvelope<{ avitag: string; profileType: ProfileType }>>(
-                "/auth/switch-profile",
-                { avitag: profiles[0].avitag },
-              );
+              const switchRes = await api.post<
+                ApiEnvelope<{ avitag: string; profileType: ProfileType }>
+              >("/auth/switch-profile", { avitag: profiles[0].avitag });
               avitag = switchRes.data?.data?.avitag ?? null;
-              profileType = normalizeProfileType(switchRes.data?.data?.profileType);
+              profileType = normalizeProfileType(
+                switchRes.data?.data?.profileType,
+              );
             } catch {
               // Leave avitag null — this resolve will just retry next time.
             }
           }
 
-          set({ user: account, profiles, authState, avitag, profileType, loading: false });
+          set({
+            user: account,
+            profiles,
+            authState,
+            avitag,
+            profileType,
+            loading: false,
+          });
           return authState;
-        } catch {
-          // No valid session (401), or the backend's unreachable — either
-          // way, there's no confirmed identity, so treat as guest rather
-          // than leaving stale user data lying around in the store.
-          set({ user: null, profiles: [], authState: "guest", loading: false });
-          return "guest";
+        } catch (err) {
+          // A confirmed 401 (genuine session expiry after a failed refresh)
+          // means the user really does need to log back in — clear state.
+          // Network errors and 5xx (backend temporarily unreachable) are a
+          // different story: the session is likely still valid, so preserve
+          // the current store state rather than falsely marking the user as
+          // a guest just because the backend happened to be cold-starting.
+          //
+          // The _refreshUnavailable flag is set by api.ts's interceptor when
+          // the refresh attempt itself couldn't reach the backend (network
+          // error, timeout, 5xx). Without checking it here, this catch block
+          // would see the original 401 (from the expired access token) and
+          // wrongly conclude the session is dead — logging the user out just
+          // because Render was cold-starting.
+          if (axios.isAxiosError(err)) {
+            const cfg = err.config as
+              | (AxiosRequestConfig & { _refreshUnavailable?: boolean })
+              | undefined;
+            const isConfirmedExpiry =
+              err.response?.status === 401 && !cfg?._refreshUnavailable;
+            if (isConfirmedExpiry) {
+              set({
+                user: null,
+                profiles: [],
+                authState: "guest",
+                loading: false,
+              });
+              return "guest";
+            }
+          }
+          // Backend unreachable — don't change authState, just stop loading.
+          set({ loading: false });
+          return get().authState;
         }
       },
 
@@ -189,7 +249,10 @@ export const useAuthStore = create<AuthState>()(
           await api.post("/auth/verify-otp/send", { email });
           set({ loading: false });
         } catch (err) {
-          set({ error: apiErrorMessage(err, "Failed to send OTP"), loading: false });
+          set({
+            error: apiErrorMessage(err, "Failed to send OTP"),
+            loading: false,
+          });
           throw err;
         }
       },
@@ -215,7 +278,10 @@ export const useAuthStore = create<AuthState>()(
           await api.post("/auth/forgot-password", { email });
           set({ loading: false });
         } catch (err) {
-          set({ error: apiErrorMessage(err, "Failed to send OTP code"), loading: false });
+          set({
+            error: apiErrorMessage(err, "Failed to send OTP code"),
+            loading: false,
+          });
           throw err;
         }
       },
@@ -237,7 +303,10 @@ export const useAuthStore = create<AuthState>()(
           await api.post("/auth/reset-password", { email, code, newPassword });
           set({ loading: false });
         } catch (err) {
-          set({ error: apiErrorMessage(err, "Failed to reset password"), loading: false });
+          set({
+            error: apiErrorMessage(err, "Failed to reset password"),
+            loading: false,
+          });
           throw err;
         }
       },
@@ -245,10 +314,16 @@ export const useAuthStore = create<AuthState>()(
       changePassword: async ({ currentPassword, newPassword }) => {
         set({ loading: true, error: null });
         try {
-          await api.patch("/account/change-password", { currentPassword, newPassword });
+          await api.patch("/account/change-password", {
+            currentPassword,
+            newPassword,
+          });
           set({ loading: false });
         } catch (err) {
-          set({ error: apiErrorMessage(err, "Failed to change password"), loading: false });
+          set({
+            error: apiErrorMessage(err, "Failed to change password"),
+            loading: false,
+          });
           throw err;
         }
       },
@@ -258,7 +333,10 @@ export const useAuthStore = create<AuthState>()(
         try {
           await api.delete("/account/delete");
         } catch (err) {
-          set({ error: apiErrorMessage(err, "Failed to deactivate account"), loading: false });
+          set({
+            error: apiErrorMessage(err, "Failed to deactivate account"),
+            loading: false,
+          });
           throw err;
         }
         // Best-effort, same as logout() below — the account row is already

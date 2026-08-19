@@ -56,11 +56,24 @@ export async function middleware(request: NextRequest) {
     // gate check still carrying the old (expired) access token, defeating
     // the entire point of refreshing before that check runs.
     const forwardedRequestHeaders = new Headers(request.headers);
-    const newCookiePairs = refreshRes.headers
-      .getSetCookie()
-      .map((c) => c.split(";")[0])
-      .join("; ");
-    if (newCookiePairs) forwardedRequestHeaders.set("cookie", newCookiePairs);
+    // Merge: start from the existing cookies, then overwrite only the ones
+    // the refresh response actually set. A plain .set() replacement would
+    // drop any cookie not returned by the refresh endpoint — e.g. the
+    // still-valid refresh token itself if the backend only sends a new
+    // access token — which would make this same request's gate check see
+    // no refresh token and treat the session as a guest.
+    const cookieMap = new Map<string, string>();
+    for (const pair of (request.headers.get("cookie") ?? "").split(";")) {
+      const eq = pair.trim().indexOf("=");
+      if (eq > 0) cookieMap.set(pair.trim().slice(0, eq), pair.trim().slice(eq + 1));
+    }
+    for (const setCookie of refreshRes.headers.getSetCookie()) {
+      const pair = setCookie.split(";")[0].trim();
+      const eq = pair.indexOf("=");
+      if (eq > 0) cookieMap.set(pair.slice(0, eq), pair.slice(eq + 1));
+    }
+    const mergedCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join("; ");
+    if (mergedCookies) forwardedRequestHeaders.set("cookie", mergedCookies);
 
     const response = NextResponse.next({ request: { headers: forwardedRequestHeaders } });
     for (const cookie of refreshRes.headers.getSetCookie()) {

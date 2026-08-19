@@ -28,6 +28,8 @@ import {
   PlayIconFill,
   PauseIconFill,
   ExpandIconFill,
+  VolumeIconFill,
+  MuteIconFill,
 } from "@/components/ui/icons";
 import type { Gist, GistMedia, ReactionType } from "@/types";
 import { cloudinarySmartCrop } from "@/lib/cloudinary";
@@ -59,7 +61,13 @@ const EXTREME_ASPECT_RATIO = 0.45;
 // Mobile's own reaction set — same 5 as everywhere else, just listed here
 // once since the mobile picker below needs to loop over them itself
 // (ReactionButton, used on desktop, already has its own copy of this).
-const MOBILE_REACTIONS: ReactionType[] = ["LIKE", "LOVE", "FIRE", "SAD", "LAUGH"];
+const MOBILE_REACTIONS: ReactionType[] = [
+  "LIKE",
+  "LOVE",
+  "FIRE",
+  "SAD",
+  "LAUGH",
+];
 
 // The trigger's resting look is a direct copy of MobileReactionBadge's own
 // hero+orbit — same sizes, same math — since it's meant to read as the
@@ -73,7 +81,10 @@ function mobileOrbitPositions(count: number, startDeg = 45) {
   const step = 360 / count;
   return Array.from({ length: count }, (_, i) => {
     const rad = ((startDeg + i * step) * Math.PI) / 180;
-    return { x: Math.cos(rad) * MOBILE_ORBIT_RADIUS, y: Math.sin(rad) * MOBILE_ORBIT_RADIUS };
+    return {
+      x: Math.cos(rad) * MOBILE_ORBIT_RADIUS,
+      y: Math.sin(rad) * MOBILE_ORBIT_RADIUS,
+    };
   });
 }
 
@@ -140,6 +151,13 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   const [deleteError, setDeleteError] = useState<string>();
   const [reactError, setReactError] = useState<string>();
   const [overlayIndex, setOverlayIndex] = useState<number | null>(null);
+  const [overlayStartTime, setOverlayStartTime] = useState(0);
+  // Ref that VideoTile populates with get/seek functions so the overlay
+  // can hand off the playback position seamlessly — card → overlay → card.
+  const videoSyncRef = useRef<{
+    getCurrentTime: () => number;
+    seek: (time: number) => void;
+  } | null>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -154,10 +172,21 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   // just scoped to the media itself here instead of the whole card, since
   // media no longer covers the whole body.
   const lastTapRef = useRef(0);
-  const [reactTrigger, setReactTrigger] = useState<{ type: ReactionType; nonce: number } | null>(null);
-  const [centerBurst, setCenterBurst] = useState<{ id: number; type: ReactionType } | null>(null);
+  const [reactTrigger, setReactTrigger] = useState<{
+    type: ReactionType;
+    nonce: number;
+  } | null>(null);
+  const [centerBurst, setCenterBurst] = useState<{
+    id: number;
+    type: ReactionType;
+  } | null>(null);
   const handleDoubleTapReact = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest("button, a, input, textarea, [data-media-block]")) return;
+    if (
+      (e.target as HTMLElement).closest(
+        "button, a, input, textarea, [data-media-block]",
+      )
+    )
+      return;
     const now = Date.now();
     if (now - lastTapRef.current < 300) {
       lastTapRef.current = 0;
@@ -181,7 +210,9 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     try {
       await unreactGist(gist.gist_id);
     } catch (err) {
-      setReactError(apiErrorMessage(err, "Failed to remove reaction — try again"));
+      setReactError(
+        apiErrorMessage(err, "Failed to remove reaction — try again"),
+      );
     }
   };
 
@@ -197,13 +228,22 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   // different places in the tree and need to share it.
   const isMobile = useIsMobile();
   const [mobilePickerOpen, setMobilePickerOpen] = useState(false);
-  const [mobileActive, setMobileActive] = useState<ReactionType | null>(gist.my_reaction ?? null);
-  const [mobileDelta, setMobileDelta] = useState<Partial<Record<ReactionType, number>>>({});
+  const [mobileActive, setMobileActive] = useState<ReactionType | null>(
+    gist.my_reaction ?? null,
+  );
+  const [mobileDelta, setMobileDelta] = useState<
+    Partial<Record<ReactionType, number>>
+  >({});
   const mobileCountFor = (type: ReactionType) =>
-    Math.max(0, (gist.counts?.reactions_by_type?.[type] ?? 0) + (mobileDelta[type] ?? 0));
+    Math.max(
+      0,
+      (gist.counts?.reactions_by_type?.[type] ?? 0) + (mobileDelta[type] ?? 0),
+    );
   // The trigger's satellites are whichever reactions AREN'T the active one
   // (already shown as the hero) — same exclusion MobileReactionBadge uses.
-  const mobileRestReactions = MOBILE_REACTIONS.filter((t) => t !== mobileActive);
+  const mobileRestReactions = MOBILE_REACTIONS.filter(
+    (t) => t !== mobileActive,
+  );
   const mobileOrbitPos = mobileOrbitPositions(mobileRestReactions.length);
 
   const handleMobilePick = (type: ReactionType) => {
@@ -252,7 +292,9 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   }, [reactTrigger, isMobile]);
 
   const shareUrl =
-    typeof window !== "undefined" ? `${window.location.origin}/gist/${gist.gist_id}` : `/gist/${gist.gist_id}`;
+    typeof window !== "undefined"
+      ? `${window.location.origin}/gist/${gist.gist_id}`
+      : `/gist/${gist.gist_id}`;
   const SHARE_CAPTION_LIMIT = 200;
   const shareCaption =
     gist.gist_text.length > SHARE_CAPTION_LIMIT
@@ -302,7 +344,10 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   useEffect(() => {
     if (!showActions) return;
     const onClick = (e: MouseEvent) => {
-      if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) {
+      if (
+        actionsRef.current &&
+        !actionsRef.current.contains(e.target as Node)
+      ) {
         setShowActions(false);
       }
     };
@@ -337,7 +382,9 @@ export const ProfileGistCard = memo(function ProfileGistCard({
         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-danger/10 text-danger">
           <FlagIconFill size={24} weight="fill" />
         </div>
-        <p className="font-nunito text-sm font-semibold text-ink">This gist has been removed</p>
+        <p className="font-nunito text-sm font-semibold text-ink">
+          This gist has been removed
+        </p>
         <p className="max-w-xs font-nunito text-xs text-muted">
           It went against Kampos&apos; community guidelines.
         </p>
@@ -352,11 +399,16 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     // up the way the feed's full-bleed stack card has. Dark mode's two
     // tokens are already far enough apart that this isn't an issue there,
     // but the border/shadow read fine either way, so no dark: override.
-    <div ref={cardRef} className="relative rounded-[26px] border border-line bg-surface-2 shadow-sm">
+    <div
+      ref={cardRef}
+      className="relative rounded-[26px] border border-line bg-surface-2 shadow-sm"
+    >
       {/* Header — just the timestamp + menu, not the poster's identity
           again (see the component doc comment above). */}
       <div className="flex items-center justify-between px-4 pt-3.5">
-        <span className="font-nunito text-xs font-semibold text-faint md:text-[13px]">{friendlyDateTime(gist.created_at)}</span>
+        <span className="font-nunito text-xs font-semibold text-faint md:text-[13px]">
+          {friendlyDateTime(gist.created_at)}
+        </span>
 
         <div ref={actionsRef} className="relative z-20 shrink-0">
           <motion.button
@@ -380,7 +432,11 @@ export const ProfileGistCard = memo(function ProfileGistCard({
                 transition={{ duration: 0.1, staggerChildren: 0.035 }}
                 className="absolute top-full right-0 z-30 mt-2 flex flex-col items-end gap-1.5"
               >
-                <PopActionButton label="Share" onClick={handleShare} icon={<ShareIconFill size={17} weight="fill" />} />
+                <PopActionButton
+                  label="Share"
+                  onClick={handleShare}
+                  icon={<ShareIconFill size={17} weight="fill" />}
+                />
                 {isOwn ? (
                   <>
                     <PopActionButton
@@ -424,12 +480,26 @@ export const ProfileGistCard = memo(function ProfileGistCard({
           reacts. Text first, media (if any) below it. */}
       <div onClick={handleDoubleTapReact} className="relative px-4 pt-2.5">
         {short ? (
-          <ShortGist text={gist.gist_text} colorKey={gist.color_key} fallbackSeed={gist.gist_id} />
+          <ShortGist
+            text={gist.gist_text}
+            colorKey={gist.color_key}
+            fallbackSeed={gist.gist_id}
+          />
         ) : (
           gist.gist_text && <ExpandableText text={gist.gist_text} />
         )}
 
-        {hasMedia && <MediaBlock media={gist.media!} onOpenOverlay={setOverlayIndex} />}
+        {hasMedia && (
+          <MediaBlock
+            media={gist.media!}
+            onOpenOverlay={(index) => {
+              setOverlayStartTime(videoSyncRef.current?.getCurrentTime() ?? 0);
+              setOverlayIndex(index);
+            }}
+            overlayOpen={overlayIndex !== null}
+            videoSyncRef={videoSyncRef}
+          />
+        )}
 
         <AnimatePresence>
           {centerBurst && (
@@ -439,7 +509,11 @@ export const ProfileGistCard = memo(function ProfileGistCard({
               className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
               initial={{ opacity: 0, scale: 0.4 }}
               animate={{ opacity: [0, 1, 1, 0], scale: [0.4, 1.15, 1, 0.9] }}
-              transition={{ duration: 0.9, times: [0, 0.25, 0.7, 1], ease: "easeOut" }}
+              transition={{
+                duration: 0.9,
+                times: [0, 0.25, 0.7, 1],
+                ease: "easeOut",
+              }}
               onAnimationComplete={() => setCenterBurst(null)}
             >
               <Lottie
@@ -503,7 +577,12 @@ export const ProfileGistCard = memo(function ProfileGistCard({
                     zIndex: 10,
                   }}
                 >
-                  <Lottie animationData={REACTION_ANIMATIONS[type]} loop={false} autoplay={false} className="h-4 w-4" />
+                  <Lottie
+                    animationData={REACTION_ANIMATIONS[type]}
+                    loop={false}
+                    autoplay={false}
+                    className="h-4 w-4"
+                  />
                 </div>
               ))}
               <button
@@ -512,7 +591,11 @@ export const ProfileGistCard = memo(function ProfileGistCard({
                 aria-label="React to this gist"
                 aria-expanded={mobilePickerOpen}
                 className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-surface-2 shadow-md shadow-black/15 ring-2 ring-brand/40 transition-transform active:scale-95"
-                style={{ height: MOBILE_HERO_SIZE, width: MOBILE_HERO_SIZE, zIndex: 20 }}
+                style={{
+                  height: MOBILE_HERO_SIZE,
+                  width: MOBILE_HERO_SIZE,
+                  zIndex: 20,
+                }}
               >
                 <motion.span
                   key={mobileActive ?? "none"}
@@ -522,9 +605,17 @@ export const ProfileGistCard = memo(function ProfileGistCard({
                   className="flex items-center justify-center"
                 >
                   {mobileActive ? (
-                    <Lottie animationData={REACTION_ANIMATIONS[mobileActive]} loop={false} autoplay={false} className="h-5 w-5" />
+                    <Lottie
+                      animationData={REACTION_ANIMATIONS[mobileActive]}
+                      loop={false}
+                      autoplay={false}
+                      className="h-5 w-5"
+                    />
                   ) : (
-                    <ReactionIconFill className="h-4 w-4 text-faint" weight="regular" />
+                    <ReactionIconFill
+                      className="h-4 w-4 text-faint"
+                      weight="regular"
+                    />
                   )}
                 </motion.span>
               </button>
@@ -566,7 +657,12 @@ export const ProfileGistCard = memo(function ProfileGistCard({
         </div>
       </div>
 
-      <CreateGistSheet open={showEdit} onClose={() => setShowEdit(false)} editGist={gist} onPosted={(fresh) => onEdited?.(fresh)} />
+      <CreateGistSheet
+        open={showEdit}
+        onClose={() => setShowEdit(false)}
+        editGist={gist}
+        onPosted={(fresh) => onEdited?.(fresh)}
+      />
 
       <ConfirmModal
         open={showDeleteConfirm}
@@ -578,7 +674,12 @@ export const ProfileGistCard = memo(function ProfileGistCard({
         confirmLabel="Delete"
       />
 
-      <ReportModal open={showReportModal} onClose={() => setShowReportModal(false)} onSubmit={handleReport} loading={reporting} />
+      <ReportModal
+        open={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        onSubmit={handleReport}
+        loading={reporting}
+      />
       <ShareModal
         open={showShareModal}
         onClose={() => setShowShareModal(false)}
@@ -586,9 +687,21 @@ export const ProfileGistCard = memo(function ProfileGistCard({
         text={shareCaption}
         onShared={(platform) => shareGist(gist.gist_id, platform)}
       />
-      <ErrorModal open={!!reportError} onClose={() => setReportError(undefined)} message={reportError} />
-      <ErrorModal open={!!deleteError} onClose={() => setDeleteError(undefined)} message={deleteError} />
-      <ErrorModal open={!!reactError} onClose={() => setReactError(undefined)} message={reactError} />
+      <ErrorModal
+        open={!!reportError}
+        onClose={() => setReportError(undefined)}
+        message={reportError}
+      />
+      <ErrorModal
+        open={!!deleteError}
+        onClose={() => setDeleteError(undefined)}
+        message={deleteError}
+      />
+      <ErrorModal
+        open={!!reactError}
+        onClose={() => setReactError(undefined)}
+        message={reactError}
+      />
 
       {/* Mobile reaction picker — a sibling of the header/body/footer here
           (not nested inside the body, where it used to live) specifically
@@ -626,7 +739,12 @@ export const ProfileGistCard = memo(function ProfileGistCard({
                   initial={{ opacity: 0, y: 10, scale: 0.5 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.5 }}
-                  transition={{ type: "spring", stiffness: 420, damping: 22, delay: i * 0.03 }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 420,
+                    damping: 22,
+                    delay: i * 0.03,
+                  }}
                   className="flex flex-col items-center gap-1"
                 >
                   <span
@@ -634,10 +752,17 @@ export const ProfileGistCard = memo(function ProfileGistCard({
                       isActive ? "ring-brand" : "ring-white/20"
                     }`}
                   >
-                    <Lottie animationData={REACTION_ANIMATIONS[type]} loop autoplay className="h-6 w-6" />
+                    <Lottie
+                      animationData={REACTION_ANIMATIONS[type]}
+                      loop
+                      autoplay
+                      className="h-6 w-6"
+                    />
                   </span>
                   {count > 0 && (
-                    <span className="font-nunito text-[10px] font-bold text-white">{compactNumber(count)}</span>
+                    <span className="font-nunito text-[10px] font-bold text-white">
+                      {compactNumber(count)}
+                    </span>
                   )}
                 </motion.button>
               );
@@ -648,7 +773,17 @@ export const ProfileGistCard = memo(function ProfileGistCard({
 
       <AnimatePresence>
         {hasMedia && overlayIndex !== null && (
-          <GistMediaOverlay media={gist.media!} startIndex={overlayIndex} onClose={() => setOverlayIndex(null)} />
+          <GistMediaOverlay
+            media={gist.media!}
+            startIndex={overlayIndex}
+            startTime={overlayStartTime}
+            onClose={(currentTime) => {
+              if (currentTime !== undefined && videoSyncRef.current) {
+                videoSyncRef.current.seek(currentTime);
+              }
+              setOverlayIndex(null);
+            }}
+          />
         )}
       </AnimatePresence>
     </div>
@@ -697,19 +832,52 @@ function ExpandableText({ text }: { text: string }) {
  * row the way Twitter itself does, so this falls back to the feed's own
  * crop approach instead, just arranged horizontally rather than stacked.
  */
-function MediaBlock({ media, onOpenOverlay }: { media: GistMedia[]; onOpenOverlay: (index: number) => void }) {
+function MediaBlock({
+  media,
+  onOpenOverlay,
+  overlayOpen,
+  videoSyncRef,
+}: {
+  media: GistMedia[];
+  onOpenOverlay: (index: number) => void;
+  overlayOpen: boolean;
+  videoSyncRef: React.RefObject<{
+    getCurrentTime: () => number;
+    seek: (time: number) => void;
+  } | null>;
+}) {
   const items = media.slice(0, 2);
   const isDuo = items.length === 2;
 
   return (
-    <div data-media-block className={`mt-2.5 ${isDuo ? "flex aspect-[4/3] w-full gap-1" : ""}`}>
-      {isDuo
-        ? items.map((item, idx) => (
-            <div key={item.media_id} className="relative h-full flex-1 overflow-hidden rounded-2xl">
-              <MediaTile item={item} cropped onOpenOverlay={() => onOpenOverlay(idx)} />
-            </div>
-          ))
-        : <MediaTile item={items[0]} cropped={false} onOpenOverlay={() => onOpenOverlay(0)} />}
+    <div
+      data-media-block
+      className={`mt-2.5 ${isDuo ? "flex aspect-[4/3] w-full gap-1" : ""}`}
+    >
+      {isDuo ? (
+        items.map((item, idx) => (
+          <div
+            key={item.media_id}
+            className="relative h-full flex-1 overflow-hidden rounded-2xl"
+          >
+            <MediaTile
+              item={item}
+              cropped
+              onOpenOverlay={() => onOpenOverlay(idx)}
+              overlayOpen={overlayOpen}
+              videoSyncRef={videoSyncRef}
+            />
+          </div>
+        ))
+      ) : (
+        <MediaTile
+          item={items[0]}
+          cropped={false}
+          onOpenOverlay={() => onOpenOverlay(0)}
+          overlayOpen={overlayOpen}
+          videoSyncRef={videoSyncRef}
+        />
+      )}
     </div>
   );
 }
@@ -718,12 +886,29 @@ function MediaBlock({ media, onOpenOverlay }: { media: GistMedia[]; onOpenOverla
  * (see the backend's finalize/upload/create handlers) — null for anything
  * older, or attached by URL rather than uploaded (a GIF/sticker). */
 function knownRatio(item: GistMedia): number | null {
-  return typeof item.width === "number" && typeof item.height === "number" && item.height > 0
+  return typeof item.width === "number" &&
+    typeof item.height === "number" &&
+    item.height > 0
     ? item.width / item.height
     : null;
 }
 
-function MediaTile({ item, cropped, onOpenOverlay }: { item: GistMedia; cropped: boolean; onOpenOverlay: () => void }) {
+function MediaTile({
+  item,
+  cropped,
+  onOpenOverlay,
+  overlayOpen,
+  videoSyncRef,
+}: {
+  item: GistMedia;
+  cropped: boolean;
+  onOpenOverlay: () => void;
+  overlayOpen: boolean;
+  videoSyncRef: React.RefObject<{
+    getCurrentTime: () => number;
+    seek: (time: number) => void;
+  } | null>;
+}) {
   const isVideo = item.media_type?.toLowerCase().includes("video");
   const known = knownRatio(item);
   const [measuredExtreme, setMeasuredExtreme] = useState(false);
@@ -731,10 +916,19 @@ function MediaTile({ item, cropped, onOpenOverlay }: { item: GistMedia; cropped:
   // nothing to measure. Only media missing it (see knownRatio) falls back
   // to reading the loaded element itself, which can only ever catch up
   // AFTER the first paint already guessed wrong.
-  const extreme = known !== null ? known < EXTREME_ASPECT_RATIO : measuredExtreme;
+  const extreme =
+    known !== null ? known < EXTREME_ASPECT_RATIO : measuredExtreme;
 
   if (isVideo) {
-    return <VideoTile item={item} cropped={cropped} onOpenOverlay={onOpenOverlay} />;
+    return (
+      <VideoTile
+        item={item}
+        cropped={cropped}
+        onOpenOverlay={onOpenOverlay}
+        overlayOpen={overlayOpen}
+        videoSyncRef={videoSyncRef}
+      />
+    );
   }
 
   return (
@@ -748,7 +942,8 @@ function MediaTile({ item, cropped, onOpenOverlay }: { item: GistMedia; cropped:
           ? undefined
           : (e) => {
               const img = e.currentTarget;
-              if (img.naturalWidth / img.naturalHeight < EXTREME_ASPECT_RATIO) setMeasuredExtreme(true);
+              if (img.naturalWidth / img.naturalHeight < EXTREME_ASPECT_RATIO)
+                setMeasuredExtreme(true);
             }
       }
       draggable={false}
@@ -757,34 +952,68 @@ function MediaTile({ item, cropped, onOpenOverlay }: { item: GistMedia; cropped:
       // image itself — for a photo that's rarely a visible difference, but
       // using the exact same mechanism VideoTile relies on (see its own
       // note) means one code path, not two subtly different ones.
-      style={{
-        WebkitUserDrag: "none",
-        ...(known !== null && !extreme ? { aspectRatio: known } : {}),
-      } as React.CSSProperties}
+      style={
+        {
+          WebkitUserDrag: "none",
+          ...(known !== null && !extreme ? { aspectRatio: known } : {}),
+        } as React.CSSProperties
+      }
       className={
         cropped
           ? "h-full w-full cursor-pointer rounded-2xl object-cover object-top"
           : extreme
             ? "aspect-[3/4] max-h-[420px] w-full cursor-pointer rounded-2xl object-cover object-top"
-            : "block max-h-[420px] w-auto max-w-full cursor-pointer rounded-2xl"
+            : "block w-full max-h-[420px] cursor-pointer rounded-2xl object-cover object-top"
       }
     />
   );
 }
 
 /**
- * No autoplay, no mute toggle — this tile never plays without a direct tap,
- * which is already real consent to hear it (same reasoning the feed uses
- * for its own non-lead, tap-to-play tiles), so there's nothing a separate
- * mute button would add. Just play/pause, and an explicit expand into the
- * same GistMediaOverlay the feed itself uses for its bigger view.
+ * Tap-to-play with mute/unmute control — tapping the video itself toggles
+ * play/pause (same as the feed's own tiles), and a dedicated mute button
+ * sits next to the play/pause button. Starts muted (browsers block
+ * autoplay-with-sound anyway, and a muted start is less jarring in a
+ * scrolling list). Expand opens the same GistMediaOverlay the feed uses.
  */
-function VideoTile({ item, cropped, onOpenOverlay }: { item: GistMedia; cropped: boolean; onOpenOverlay: () => void }) {
+function VideoTile({
+  item,
+  cropped,
+  onOpenOverlay,
+  overlayOpen,
+  videoSyncRef,
+}: {
+  item: GistMedia;
+  cropped: boolean;
+  onOpenOverlay: () => void;
+  overlayOpen: boolean;
+  videoSyncRef: React.RefObject<{
+    getCurrentTime: () => number;
+    seek: (time: number) => void;
+  } | null>;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
+  const [muted, setMuted] = useState(true);
   const known = knownRatio(item);
   const [measuredExtreme, setMeasuredExtreme] = useState(false);
-  const extreme = known !== null ? known < EXTREME_ASPECT_RATIO : measuredExtreme;
+  const extreme =
+    known !== null ? known < EXTREME_ASPECT_RATIO : measuredExtreme;
+
+  // Populate the sync ref so the parent (ProfileGistCard) can read the
+  // current playback position when opening the overlay and seek the
+  // in-card video when the overlay closes — seamless handoff.
+  useEffect(() => {
+    videoSyncRef.current = {
+      getCurrentTime: () => videoRef.current?.currentTime ?? 0,
+      seek: (time: number) => {
+        if (videoRef.current) videoRef.current.currentTime = time;
+      },
+    };
+    return () => {
+      videoSyncRef.current = null;
+    };
+  }, [videoSyncRef]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -793,37 +1022,52 @@ function VideoTile({ item, cropped, onOpenOverlay }: { item: GistMedia; cropped:
     else video.pause();
   }, [playing]);
 
-  // A list can hold several videos someone's pressed play on and then just
-  // kept scrolling past — without this, every one of them keeps playing
-  // (and, worse, keeps making sound) indefinitely in the background. Only
-  // subscribes while actually playing — nothing to watch for once already
-  // paused. Setting `playing` false here re-runs the effect above, which
-  // pauses the real <video> element the same way the pause button does.
+  // Pause the in-card video when the overlay opens — two copies of the
+  // same video (and audio) playing at once makes no sense. The overlay's
+  // own video takes over; when it closes, the in-card video stays paused
+  // until the user taps play or scrolls away and back.
+  useEffect(() => {
+    if (overlayOpen) setPlaying(false);
+  }, [overlayOpen]);
+
+  // Autoplay when the video scrolls into view (muted — browsers block
+  // autoplay-with-sound), pause when it scrolls out. Same pattern as the
+  // feed's own swipe-stack: the "active" card's video plays, the rest
+  // don't. The observer fires only when the element crosses the threshold
+  // (not on every render), so a user manually pausing a video that's
+  // still in view stays paused until the card leaves and re-enters view.
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !playing) return;
+    if (!video) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (!entries[0]?.isIntersecting) setPlaying(false);
+        if (entries[0]?.isIntersecting) {
+          setPlaying(true);
+        } else {
+          setPlaying(false);
+        }
       },
-      { threshold: 0.4 },
+      { threshold: 0.5 },
     );
     observer.observe(video);
     return () => observer.disconnect();
-  }, [playing]);
+  }, []);
 
   return (
     <div
-      style={known !== null && !cropped && !extreme ? { aspectRatio: known } : undefined}
+      style={
+        known !== null && !cropped && !extreme
+          ? { aspectRatio: known }
+          : undefined
+      }
       className={
         cropped
           ? "relative h-full w-full"
           : extreme
             ? "relative aspect-[3/4] max-h-[420px] w-full"
-            : known !== null
-              ? "relative max-h-[420px] w-full"
-              : "relative inline-block max-w-full"
+            : "relative w-full max-h-[420px]"
       }
+      onClick={() => setPlaying((p) => !p)}
     >
       <video
         ref={videoRef}
@@ -831,6 +1075,7 @@ function VideoTile({ item, cropped, onOpenOverlay }: { item: GistMedia; cropped:
         poster={item.thumbnail_url}
         playsInline
         loop
+        muted={muted}
         // Belt-and-suspenders for media that DOES have a known ratio (the
         // wrapper's own aspect-ratio above already sizes it correctly
         // regardless), and the only thing that helps at all for media that
@@ -844,28 +1089,55 @@ function VideoTile({ item, cropped, onOpenOverlay }: { item: GistMedia; cropped:
             ? undefined
             : (e) => {
                 const video = e.currentTarget;
-                if (video.videoWidth / video.videoHeight < EXTREME_ASPECT_RATIO) setMeasuredExtreme(true);
+                if (video.videoWidth / video.videoHeight < EXTREME_ASPECT_RATIO)
+                  setMeasuredExtreme(true);
               }
         }
-        className={
-          cropped || extreme || known !== null
-            ? "h-full w-full rounded-2xl object-cover object-top"
-            : "block max-h-[420px] w-auto max-w-full rounded-2xl"
-        }
+        className="h-full w-full rounded-2xl object-cover object-top"
       />
-      <button
-        type="button"
-        aria-label={playing ? "Pause" : "Play"}
-        onClick={() => setPlaying((p) => !p)}
-        className="absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm"
-      >
-        {playing ? <PauseIconFill className="h-4 w-4" weight="fill" /> : <PlayIconFill className="h-4 w-4" weight="fill" />}
-      </button>
+      <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5">
+        <button
+          type="button"
+          aria-label={playing ? "Pause" : "Play"}
+          onPointerDownCapture={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            setPlaying((p) => !p);
+          }}
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm"
+        >
+          {playing ? (
+            <PauseIconFill className="h-4 w-4" weight="fill" />
+          ) : (
+            <PlayIconFill className="h-4 w-4" weight="fill" />
+          )}
+        </button>
+        <button
+          type="button"
+          aria-label={muted ? "Unmute" : "Mute"}
+          onPointerDownCapture={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            setMuted((m) => !m);
+          }}
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm"
+        >
+          {muted ? (
+            <MuteIconFill className="h-4 w-4" weight="fill" />
+          ) : (
+            <VolumeIconFill className="h-4 w-4" weight="fill" />
+          )}
+        </button>
+      </div>
       <button
         type="button"
         aria-label="Expand"
-        onClick={onOpenOverlay}
-        className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm"
+        onPointerDownCapture={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenOverlay();
+        }}
+        className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm"
       >
         <ExpandIconFill className="h-4 w-4" weight="duotone" />
       </button>

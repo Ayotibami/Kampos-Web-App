@@ -17,7 +17,18 @@ export function SessionWatcher() {
   const router = useRouter();
 
   useEffect(() => {
-    const onUnauthorized = () => {
+    const onUnauthorized = async () => {
+      // Re-verify once before giving up — as a final safety net, in case
+      // the backend recovered between the failed refresh attempt and now
+      // (e.g. Render cold-start finishing). resolveAuthState uses
+      // skipUnauthorizedEvent so this check itself can't re-trigger this
+      // same handler. Only redirect if the session is genuinely gone.
+      try {
+        const state = await useAuthStore.getState().resolveAuthState();
+        if (state === "active") return;
+      } catch {
+        // ignore — treat as session gone
+      }
       useAuthStore.setState({
         user: null,
         profiles: [],

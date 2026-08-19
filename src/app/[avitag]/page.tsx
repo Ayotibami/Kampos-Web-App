@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { HydrateAuth } from "@/components/auth/HydrateAuth";
 import { resolveServerAuthState } from "@/lib/serverAuth";
 import { fetchStudentProfileByAvitag } from "@/lib/serverProfile";
+import { fetchUserGists } from "@/lib/serverGist";
 import { ProfileView } from "./ProfileView";
 
 export async function generateMetadata({
@@ -13,7 +14,8 @@ export async function generateMetadata({
   const { avitag } = await params;
   const profile = await fetchStudentProfileByAvitag(avitag);
   if (!profile) return { title: "Profile" };
-  const name = [profile.first_name, profile.last_name].filter(Boolean).join(" ") || avitag;
+  const name =
+    [profile.first_name, profile.last_name].filter(Boolean).join(" ") || avitag;
   return { title: `${name} (@${avitag})` };
 }
 
@@ -27,8 +29,16 @@ export default async function ProfilePage({
   // /gist/[gistId]: a guest (or a share-preview crawler) should see it with
   // no login wall, and the backend's GET /profiles/students/:avitag route
   // has no auth requirement at all.
-  const { state, account, profiles } = await resolveServerAuthState();
-  const profile = await fetchStudentProfileByAvitag(avitag);
+  //
+  // Auth state, profile data, and the profile's first page of gists all
+  // fetched in parallel — no added latency. If the profile doesn't exist,
+  // notFound() takes over regardless of what the other two returned.
+  const [{ state, account, profiles }, profile, initialGists] =
+    await Promise.all([
+      resolveServerAuthState(),
+      fetchStudentProfileByAvitag(avitag),
+      fetchUserGists(avitag),
+    ]);
   if (!profile) notFound();
 
   // avitag is globally unique, so if it's anywhere in the signed-in
@@ -41,7 +51,12 @@ export default async function ProfilePage({
   return (
     <>
       <HydrateAuth state={state} account={account} profiles={profiles} />
-      <ProfileView avitag={avitag} profile={profile} isOwnProfile={isOwnProfile} />
+      <ProfileView
+        avitag={avitag}
+        profile={profile}
+        isOwnProfile={isOwnProfile}
+        initialGists={initialGists}
+      />
     </>
   );
 }

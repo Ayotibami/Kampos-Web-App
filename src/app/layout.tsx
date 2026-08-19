@@ -3,6 +3,7 @@ import { Nunito } from "next/font/google";
 import Script from "next/script";
 import { SessionWatcher } from "@/components/auth/SessionWatcher";
 import { AuthPromptModal } from "@/components/auth/AuthPromptModal";
+import { OfflineSync } from "@/components/auth/OfflineSync";
 import { ThemeRouteSync } from "@/components/theme/ThemeRouteSync";
 import { FeedScrollLock } from "@/components/layout/FeedScrollLock";
 import { env } from "@/lib/env";
@@ -36,6 +37,16 @@ export const metadata: Metadata = {
   applicationName: "Kampos",
   keywords: ["Kampos", "campus", "gists", "student app", "university social app", "Nigerian students"],
   robots: { index: true, follow: true },
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "Kampos",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    icon: "/icons/icon-192.png",
+    apple: "/icons/icon-180.png",
+  },
   openGraph: {
     type: "website",
     siteName: "Kampos",
@@ -79,9 +90,17 @@ export default function RootLayout({
         <Script id="kampos-theme-init" strategy="beforeInteractive">
           {`(function(){try{var s=localStorage.getItem('kampos-theme');var seg=(location.pathname.split('/')[1]||'');var light={'':1,welcome:1,login:1,signup:1,'signup-success':1,'verify-otp':1,'forgot-password':1,'reset-password':1,'setup-profile':1,gist:1};var allowed=seg==='feed'||seg==='settings'||!light[seg];document.documentElement.classList.toggle('dark',allowed&&s==='dark');}catch(e){}})();`}
         </Script>
+        {/* Registers the PWA service worker on first page load so subsequent
+            visits serve cached static assets and HTML instantly. Runs after
+            the page is interactive so it never competes with the critical
+            render path. */}
+        <Script id="kampos-sw" strategy="afterInteractive">
+          {`if('serviceWorker' in navigator&&location.hostname!=='localhost'){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').then(function(r){console.log('[SW] registered',r.scope)},function(e){console.log('[SW] failed',e)})})}`}
+        </Script>
         <SessionWatcher />
         <ThemeRouteSync />
         <FeedScrollLock />
+        <OfflineSync />
         <AuthPromptModal />
         {children}
       </body>

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
+import { cacheGet, cacheSet, cacheDelete } from "@/lib/dataCache";
 import { useAuthStore } from "./authStore";
 import type { Profile, ProfileType, StudentProfilePayload } from "@/types";
 
@@ -100,11 +101,24 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   },
 
   getStudentProfile: async (avitag) => {
+    const key = `GET:/profiles/students/${avitag}`;
     set({ loading: true, error: null });
     try {
+      // Cache-first: if we have a fresh cached profile (≤30s), return it
+      // immediately and refresh in the background.
+      const cached = await cacheGet<Profile>(key);
+      if (cached) {
+        set({ loading: false });
+        api.get<ApiEnvelope<Profile>>(`/profiles/students/${avitag}`)
+          .then((r) => { if (r.data?.data) cacheSet(key, r.data.data); })
+          .catch(() => {});
+        return cached;
+      }
       const res = await api.get<ApiEnvelope<Profile>>(`/profiles/students/${avitag}`);
+      const profile = res.data?.data;
+      if (profile) cacheSet(key, profile);
       set({ loading: false });
-      return res.data?.data;
+      return profile;
     } catch (err) {
       set({ error: apiErrorMessage(err, "Failed to load profile"), loading: false });
       throw err;
@@ -115,6 +129,7 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const res = await api.put<ApiEnvelope<Profile>>(`/profiles/students/${avitag}`, patch);
+      cacheDelete(`GET:/profiles/students/${avitag}`).catch(() => {});
       set({ loading: false });
       return res.data?.data;
     } catch (err) {

@@ -1,0 +1,39 @@
+{
+  "name": "Kampos",
+  "short_name": "Kampos",
+  "description": "Your campus life in one app — gists, rants, banters, school updates, right in the middle of your campus.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#165abf",
+  "theme_color": "#165abf",
+  "lang": "en",
+  "categories": ["social", "education"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Feed",
+      "url": "/feed",
+      "description": "View your campus feed"
+    },
+    {
+      "name": "Settings",
+      "url": "/settings",
+      "description": "Manage your account"
+    }
+  ]
+}

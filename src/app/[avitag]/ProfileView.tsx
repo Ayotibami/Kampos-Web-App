@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, useAnimationControls } from "framer-motion";
@@ -21,6 +27,7 @@ import {
   CampusIconFill,
   MajorIconFill,
   LevelIconFill,
+  EditIconFill,
 } from "@/components/ui/icons";
 import { useGistStore } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
@@ -33,6 +40,7 @@ const BOARD_TONE = {
   blue: "bg-[#dbe9fd] text-[#0e3e87]",
   gold: "bg-[#fff0c2] text-[#6b4f00]",
   mint: "bg-[#dcf7e3] text-[#1e5c33]",
+  lavender: "bg-[#ede9fe] text-[#4c1d95]",
 } as const;
 
 // The three info boards' one-time entrance ("jump" into place) and their
@@ -44,11 +52,7 @@ const REBOUNCE = {
   scale: [1, 1.05, 1],
   transition: { duration: 0.45, ease: "easeOut" as const },
 };
-const BOUNCE_INTERVAL_MS = 30_000;
-// The bio's flanking em-dashes only make sense as a one-line quote — past
-// this length they'd sit oddly next to a wrapped paragraph, so longer bios
-// drop them and read as a plain centered callout instead.
-const BIO_DASH_MAX_CHARS = 60;
+const BOUNCE_INTERVAL_MS = 5_000;
 // A mix, not four of the same shape — previews the real variety a gist
 // list actually has (short hero, plain long text, media) instead of
 // reading as one block repeated.
@@ -61,7 +65,13 @@ const LOAD_MORE_SKELETON_VARIANTS = ["text", "hero"] as const;
  * its corresponding InfoBoard below via the same BOARD_TONE, so the small
  * chip up top and the fuller card further down read as the same fact told
  * twice, not two unrelated pieces of UI. */
-function ProfileTag({ tone, children }: { tone: keyof typeof BOARD_TONE; children: ReactNode }) {
+function ProfileTag({
+  tone,
+  children,
+}: {
+  tone: keyof typeof BOARD_TONE;
+  children: ReactNode;
+}) {
   return (
     <span
       className={`inline-block rounded-full px-2 py-0.5 font-nunito text-[9px] font-bold uppercase tracking-wide md:text-[11px] ${BOARD_TONE[tone]}`}
@@ -117,7 +127,13 @@ function InfoBoard({
  * CommentPanel itself, so its own look on the gist page is untouched) with
  * just enough of the active gist to make it obvious what's being commented
  * on without cross-referencing the list. */
-function ActiveGistStrip({ gist, onClose }: { gist: Gist | undefined; onClose: () => void }) {
+function ActiveGistStrip({
+  gist,
+  onClose,
+}: {
+  gist: Gist | undefined;
+  onClose: () => void;
+}) {
   if (!gist) return null;
   const text = gist.gist_text?.trim();
   const preview = text
@@ -132,9 +148,15 @@ function ActiveGistStrip({ gist, onClose }: { gist: Gist | undefined; onClose: (
   return (
     <div className="flex shrink-0 items-start justify-between gap-3 border-b border-line bg-brand/[0.06] px-5 py-3 dark:border-white/10 dark:bg-brand-ink/60">
       <div className="min-w-0">
-        <p className="font-nunito text-[10px] font-bold uppercase tracking-wide text-brand">Commenting on</p>
-        <p className="mt-0.5 line-clamp-2 font-nunito text-xs text-ink dark:text-white/90">{preview}</p>
-        <p className="mt-0.5 font-nunito text-[11px] text-faint">{timeAgo(gist.created_at)}</p>
+        <p className="font-nunito text-[10px] font-bold uppercase tracking-wide text-brand">
+          Commenting on
+        </p>
+        <p className="mt-0.5 line-clamp-2 font-nunito text-xs text-ink dark:text-white/90">
+          {preview}
+        </p>
+        <p className="mt-0.5 font-nunito text-[11px] text-faint">
+          {timeAgo(gist.created_at)}
+        </p>
       </div>
       {/* Closes the panel regardless of which card opened it — useful once
           you've scrolled away and the card whose button toggled it open
@@ -156,7 +178,15 @@ function ActiveGistStrip({ gist, onClose }: { gist: Gist | undefined; onClose: (
  * profile photo does everywhere else. Natural aspect ratio, capped to the
  * viewport, no cropping — unlike the small circle it's opened from, this
  * is the one place the whole photo is actually visible. */
-function AvatarLightbox({ open, src, onClose }: { open: boolean; src: string; onClose: () => void }) {
+function AvatarLightbox({
+  open,
+  src,
+  onClose,
+}: {
+  open: boolean;
+  src: string;
+  onClose: () => void;
+}) {
   return (
     // Built on the shared Modal, not a hand-rolled fixed/backdrop div — it
     // already does the two things that actually matter here: locks the
@@ -212,10 +242,12 @@ export function ProfileView({
   avitag,
   profile,
   isOwnProfile,
+  initialGists,
 }: {
   avitag: string;
   profile: Profile;
   isOwnProfile: boolean;
+  initialGists: Gist[];
 }) {
   const router = useRouter();
   const byUser = useGistStore((s) => s.byUser);
@@ -226,18 +258,28 @@ export function ProfileView({
   // neither this nor the Settings/theme row.
   const myAvitag = useAuthStore((s) => s.avitag);
   const myImageUrl = useAuthStore(
-    (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null,
+    (s) =>
+      (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as
+        | string
+        | undefined) ?? null,
   );
   const [showCreate, setShowCreate] = useState(false);
   const [avatarLightboxOpen, setAvatarLightboxOpen] = useState(false);
-  const [gists, setGists] = useState<Gist[]>([]);
+  // Start with server-fetched gists (if any) — no skeleton on first render.
+  // Only fall back to a client-side fetch if the server couldn't deliver
+  // (backend was down during SSR).
+  const [gists, setGists] = useState<Gist[]>(initialGists);
   const [gistsError, setGistsError] = useState<string | null>(null);
   // Which avitag `gists`/`gistsError` actually reflect — lets "loading" be
   // derived instead of an explicit synchronous reset at the top of the
   // effect below (avoids double-rendering on every avitag switch), while
   // still correctly showing a loading state if this ever navigates from one
   // profile straight to another without a full remount.
-  const [loadedAvitag, setLoadedAvitag] = useState<string | null>(null);
+  // If the server already delivered gists for this avitag, mark it as
+  // loaded so loadingGists is false on the very first render.
+  const [loadedAvitag, setLoadedAvitag] = useState<string | null>(
+    initialGists.length > 0 ? avitag : null,
+  );
   const loadingGists = loadedAvitag !== avitag;
   // byUser defaults to a 20-gist page server-side (see gist.repo.ts's
   // listByUser) — without this, anyone with more than 20 gists just had
@@ -253,8 +295,14 @@ export function ProfileView({
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Skip the client-side fetch if the server already delivered gists
+    // for this avitag — they're already in state from the initial props.
+    // Only fetch if the server couldn't deliver (backend was down during
+    // SSR, so initialGists is empty).
+    if (initialGists.length > 0 && loadedAvitag === avitag) return;
+
     let cancelled = false;
-    byUser(avitag)
+    byUser(avitag, { limit: 30 })
       .then((data) => {
         if (cancelled) return;
         setGists(data);
@@ -270,7 +318,7 @@ export function ProfileView({
     return () => {
       cancelled = true;
     };
-  }, [avitag, byUser]);
+  }, [avitag, byUser, initialGists, loadedAvitag]);
 
   const loadMoreGists = useCallback(async () => {
     if (loadingMore || exhausted || gists.length === 0) return;
@@ -278,7 +326,7 @@ export function ProfileView({
     if (!cursor) return;
     setLoadingMore(true);
     try {
-      const more = await byUser(avitag, { cursor });
+      const more = await byUser(avitag, { cursor, limit: 30 });
       if (more.length) setGists((prev) => [...prev, ...more]);
       else setExhausted(true);
       setLoadMoreError(null);
@@ -315,9 +363,12 @@ export function ProfileView({
   // The list itself owns these gists, not any single card — ProfileGistCard
   // fires these after a real delete/edit succeeds so the list reflects it
   // immediately instead of waiting on a refetch.
-  const handleGistDeleted = (gistId: string) => setGists((prev) => prev.filter((g) => g.gist_id !== gistId));
+  const handleGistDeleted = (gistId: string) =>
+    setGists((prev) => prev.filter((g) => g.gist_id !== gistId));
   const handleGistEdited = (fresh: Gist) =>
-    setGists((prev) => prev.map((g) => (g.gist_id === fresh.gist_id ? fresh : g)));
+    setGists((prev) =>
+      prev.map((g) => (g.gist_id === fresh.gist_id ? fresh : g)),
+    );
 
   // Desktop only: which gist the sticky comment panel (below the gist list)
   // is currently showing — whichever card is nearest the vertical center of
@@ -340,7 +391,14 @@ export function ProfileView({
     setActiveGistId(gists[0].gist_id);
   }
 
+  const isMobile = useIsMobile();
+
   useEffect(() => {
+    // Scrollspy is desktop-only — on mobile comments open in a modal
+    // (CommentSheet), not a side panel.  If the observer were active on
+    // mobile, scrolling the page behind an open sheet would silently
+    // change which gist's comments are shown.
+    if (isMobile) return;
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -358,7 +416,7 @@ export function ProfileView({
     // cards, or the list re-rendering with fresh refs) — cheap, and the
     // alternative (trying to diff which refs are "new") isn't worth it for
     // a handful of IntersectionObserver.observe() calls.
-  }, [gists]);
+  }, [gists, isMobile]);
 
   const activeGist = gists.find((g) => g.gist_id === activeGistId);
 
@@ -369,12 +427,15 @@ export function ProfileView({
   // width the moment it's closed (see the sticky column's own render
   // guard below, gated on this too).
   const [commentsOpen, setCommentsOpen] = useState(false);
+  // Show-on-scroll-up header (Instagram-style): hides when scrolling down,
+  // reappears when scrolling up or at the top of the page.
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [headerVisible, setHeaderVisible] = useState(true);
   // Mobile has no sticky side panel (there's no room for one) — same
   // comment button instead opens CommentSheet, mirroring exactly how the
   // feed's own mobile icon+count trigger already works: it opens the
   // sheet, it doesn't toggle it shut again on a second tap (that's what
   // the sheet's own close button/backdrop are for).
-  const isMobile = useIsMobile();
   const [showCommentSheet, setShowCommentSheet] = useState(false);
   const handleToggleComments = (gistId: string) => {
     setActiveGistId(gistId);
@@ -400,9 +461,24 @@ export function ProfileView({
 
   useEffect(() => {
     // Staggered on the way in (each card jumps a beat after the last)...
-    campusControls.start({ y: 0, opacity: 1, scale: 1, transition: { ...JUMP_IN_SPRING, delay: 0 } });
-    majorControls.start({ y: 0, opacity: 1, scale: 1, transition: { ...JUMP_IN_SPRING, delay: 0.1 } });
-    levelControls.start({ y: 0, opacity: 1, scale: 1, transition: { ...JUMP_IN_SPRING, delay: 0.2 } });
+    campusControls.start({
+      y: 0,
+      opacity: 1,
+      scale: 1,
+      transition: { ...JUMP_IN_SPRING, delay: 0 },
+    });
+    majorControls.start({
+      y: 0,
+      opacity: 1,
+      scale: 1,
+      transition: { ...JUMP_IN_SPRING, delay: 0.1 },
+    });
+    levelControls.start({
+      y: 0,
+      opacity: 1,
+      scale: 1,
+      transition: { ...JUMP_IN_SPRING, delay: 0.2 },
+    });
 
     // ...but the recurring re-bounce fires all three from the SAME interval
     // tick, so they bounce together rather than staggered again.
@@ -415,9 +491,51 @@ export function ProfileView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Show-on-scroll-up header (Instagram-style): hides when scrolling down
+  // past 4px, reappears when scrolling up 4px or at the very top of the
+  // page. Movement is measured CUMULATIVELY from the last state change (not
+  // per-frame), so a slow scroll-up still crosses the threshold.
+  //
+  // Listens to both the inner overflow-y-auto div (the scroller on desktop,
+  // where AppShell's "panel" variant locks its height at md+) and the window
+  // (the scroller on mobile, where nothing locks its height). Whichever one
+  // reports a non-zero offset is the one that's actually scrolling — no
+  // media-query guessing needed.
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    const read = () => el?.scrollTop || window.scrollY;
+
+    let baseline = read();
+    const onScroll = () => {
+      const y = read();
+      if (y <= 0) {
+        setHeaderVisible(true);
+        baseline = y;
+        return;
+      }
+      const delta = y - baseline;
+      if (delta <= -4) {
+        setHeaderVisible(true);
+        baseline = y;
+      } else if (delta >= 4) {
+        setHeaderVisible(false);
+        baseline = y;
+      }
+      // Within ±4px of the last change: hold state AND hold the baseline so
+      // movement keeps accumulating (slow-scroll-up fix).
+    };
+
+    el?.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el?.removeEventListener("scroll", onScroll);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
   const firstName = String(profile.first_name ?? "");
   const lastName = String(profile.last_name ?? "");
-  const bio = String(profile.bio ?? "");
+  const bio = String(profile.bio ?? "").trim();
   const imageUrl = (profile.image_url as string | null | undefined) ?? null;
   const level = profile.level as number | string | null | undefined;
   const displayName = [firstName, lastName].filter(Boolean).join(" ") || avitag;
@@ -439,8 +557,10 @@ export function ProfileView({
   // Raw short tags (not the full names above) — the same terse chips gist
   // posts already show next to a poster's name, reused here verbatim (see
   // GistTags.tsx) so a name is recognizable the same way in both places.
-  const campusTag = typeof profile.campus_tag === "string" ? profile.campus_tag : null;
-  const majorTag = typeof profile.major_tag === "string" ? profile.major_tag : null;
+  const campusTag =
+    typeof profile.campus_tag === "string" ? profile.campus_tag : null;
+  const majorTag =
+    typeof profile.major_tag === "string" ? profile.major_tag : null;
 
   return (
     <AppShell variant="panel">
@@ -453,7 +573,10 @@ export function ProfileView({
           centered column's edge. Without it, content taller than the
           viewport was just clipped, with no way to reach anything past the
           fold on desktop. */}
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div
+        ref={scrollContainerRef}
+        className="relative flex min-h-0 flex-1 flex-col overflow-y-auto pt-[60px]"
+      >
         {/* Full-bleed on mobile (already narrow, nothing to gain from
             capping it) — but "panel" is otherwise an edge-to-edge desktop
             page with no side rail of its own here (unlike Settings, which
@@ -494,177 +617,214 @@ export function ProfileView({
               backgroundSize: "280px auto",
             }}
           />
-        <div className="mx-auto flex w-full flex-1 flex-col md:max-w-6xl">
-          {/* Header — a back arrow + the avitag as the page's own title, same
-              "← Title" pattern Settings already uses. Always shown (unlike
-              the settings/theme controls below, which only make sense on
-              your own profile) — this is what fills the otherwise-empty top
-              of the page when looking at someone else's profile, and gives
-              everyone a way back that isn't just the browser's own button. */}
-          <div className="flex items-center justify-between gap-3 px-4 pt-4 sm:px-6">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => router.back()}
-                aria-label="Back"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-              <span className="font-nunito text-lg font-extrabold text-ink md:text-xl">{avitag}</span>
-            </div>
+          <div className="mx-auto flex w-full flex-1 flex-col md:max-w-6xl">
+            {/* Header — a back arrow + the avitag as the page's own title, same
+              "← Title" pattern Settings already uses. Fixed to the viewport
+              top (not sticky, which drifted with the scroll container on
+              certain viewports). Slides up off-screen on scroll-down (4px+
+              cumulative) and back down on scroll-up, with a frosted-glass
+              backdrop so content scrolling under it remains legible. At the
+              very top of the page it's always visible. */}
+            <div
+              className={`fixed top-0 inset-x-0 z-30 flex items-center justify-between gap-3 border-b border-line/60 bg-surface-2/95 px-4 py-3 backdrop-blur-md transition-transform duration-300 sm:px-6 ${
+                headerVisible ? "translate-y-0" : "-translate-y-full"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => router.back()}
+                  aria-label="Back"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+                <span className="font-nunito text-lg font-extrabold text-ink md:text-xl">
+                  {avitag}
+                </span>
+              </div>
 
-            {isOwnProfile ? (
-              <div className="flex items-center gap-1.5">
-                {/* Compose trigger — same brand-filled circle as the feed
+              {isOwnProfile ? (
+                <div className="flex items-center gap-1.5">
+                  {/* Compose trigger — same brand-filled circle as the feed
                     header's own (see FeedContent.tsx), so posting reads as
                     one consistent affordance app-wide, not a feed-only
                     action. Only shown here because a gist posts as whichever
                     profile is active — that's always this one on your own
                     page, never true on someone else's. */}
-                <button
-                  type="button"
-                  onClick={() => setShowCreate(true)}
-                  aria-label="Create a gist"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-                <Link
-                  href="/settings"
-                  aria-label="Settings"
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
-                >
-                  <SettingsIconFill className="h-5 w-5" weight="regular" />
-                </Link>
-                <ThemeToggle />
-              </div>
-            ) : (
-              myAvitag && (
-                <Link
-                  href={`/${myAvitag}`}
-                  aria-label="Your profile"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-line transition hover:ring-brand"
-                >
-                  <Avatar src={myImageUrl} />
-                </Link>
-              )
-            )}
-          </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreate(true)}
+                    aria-label="Create a gist"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                  <Link
+                    href="/settings"
+                    aria-label="Settings"
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
+                  >
+                    <SettingsIconFill className="h-5 w-5" weight="regular" />
+                  </Link>
+                  <ThemeToggle />
+                </div>
+              ) : (
+                myAvitag && (
+                  <Link
+                    href={`/${myAvitag}`}
+                    aria-label="Your profile"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-line transition hover:ring-brand"
+                  >
+                    <Avatar src={myImageUrl} />
+                  </Link>
+                )
+              )}
+            </div>
 
-        {/* Mobile: everything stacked and centered. Desktop: Pinboard's
+            {/* Mobile: everything stacked and centered. Desktop: Pinboard's
             layout — avatar+name anchored far left and sized up, the info
             boards spanning the remaining width to its right, wrapping as
             needed. */}
-        <div className="flex flex-col items-center gap-4 px-6 pb-6 pt-4 text-center md:flex-row md:items-start md:gap-10 md:px-12 md:pt-10 md:text-left">
-          <div className="flex shrink-0 flex-col items-center gap-3 md:items-start">
-            {/* Same ring treatment Profile Settings already uses for its own
+            <div className="flex flex-col items-center gap-4 px-6 pb-6 pt-4 text-center md:flex-row md:items-start md:gap-10 md:px-12 md:pt-10 md:text-left">
+              <div className="flex shrink-0 flex-col items-center gap-3 md:items-start">
+                {/* Same ring treatment Profile Settings already uses for its own
                 avatar — brand-filled outer ring, tinted inner circle. Tap
                 opens it full-size, same as tapping a profile photo does
                 everywhere else — only actually clickable when there's a
                 real photo to enlarge, not the plain grey fallback circle. */}
-            <button
-              type="button"
-              onClick={() => imageUrl && setAvatarLightboxOpen(true)}
-              aria-label={imageUrl ? "View profile photo" : undefined}
-              disabled={!imageUrl}
-              className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand p-1.5 transition active:scale-95 disabled:active:scale-100 md:h-44 md:w-44 md:p-1"
-            >
-              <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-brand/10">
-                <Avatar src={imageUrl} />
-              </div>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => imageUrl && setAvatarLightboxOpen(true)}
+                  aria-label={imageUrl ? "View profile photo" : undefined}
+                  disabled={!imageUrl}
+                  className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand p-1.5 transition active:scale-95 disabled:active:scale-100 md:h-44 md:w-44 md:p-1"
+                >
+                  <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-brand/10">
+                    <Avatar src={imageUrl} />
+                  </div>
+                </button>
 
-            <div>
-              <p className="font-nunito text-lg font-bold text-ink md:text-2xl">{displayName}</p>
-              <p className="font-nunito text-sm text-brand md:text-base">{avitag}</p>
-              {(campusTag || majorTag || level != null) && (
-                <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5 md:justify-start">
-                  {campusTag && <ProfileTag tone="blue">{campusTag}</ProfileTag>}
-                  {majorTag && <ProfileTag tone="gold">{majorTag}</ProfileTag>}
-                  {level != null && <ProfileTag tone="mint">{level}</ProfileTag>}
+                <div>
+                  <p className="font-nunito text-lg font-bold text-ink md:text-2xl">
+                    {displayName}
+                  </p>
+                  <p className="font-nunito text-sm text-brand md:text-base">
+                    {avitag}
+                  </p>
+                  {(campusTag || majorTag || level != null) && (
+                    <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5 md:justify-start">
+                      {campusTag && (
+                        <ProfileTag tone="blue">{campusTag}</ProfileTag>
+                      )}
+                      {majorTag && (
+                        <ProfileTag tone="gold">{majorTag}</ProfileTag>
+                      )}
+                      {level != null && (
+                        <ProfileTag tone="mint">{level}</ProfileTag>
+                      )}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
+              </div>
 
-          {/* flex-1 on each card (mobile only; desktop keeps its own fixed
+              {/* flex-1 on each card (mobile only; desktop keeps its own fixed
               min/max-w sizing via md:flex-none) splits the row evenly so all
               three fit on one line most of the time — but the rotation stays
               on every breakpoint, and a rotated card's corners can push past
               a strict single row on the narrowest phones, so this still
               wraps (flex-wrap, not nowrap) rather than clip/overlap when
               that happens. */}
-          <div className="flex w-full flex-1 flex-wrap items-center justify-center gap-2 md:flex-nowrap md:justify-start md:gap-8 md:pt-3">
-            {campusName && (
-              <motion.div
-                className="min-w-0 flex-1 md:flex-none"
-                initial={{ y: 40, opacity: 0, scale: 0.5 }}
-                animate={campusControls}
-              >
-                <div className="-rotate-3">
-                  <InfoBoard
-                    icon={<CampusIconFill className="h-3.5 w-3.5 md:h-4 md:w-4" weight="bold" />}
-                    label="Campus"
-                    value={campusName}
-                    tone="blue"
-                  />
+              <div className="flex w-full flex-1 flex-wrap items-center justify-center gap-2 md:flex-nowrap md:justify-start md:gap-8 md:pt-3">
+                {campusName && (
+                  <motion.div
+                    className="min-w-0 flex-1 md:flex-none"
+                    initial={{ y: 40, opacity: 0, scale: 0.5 }}
+                    animate={campusControls}
+                  >
+                    <div className="-rotate-3">
+                      <InfoBoard
+                        icon={
+                          <CampusIconFill
+                            className="h-3.5 w-3.5 md:h-4 md:w-4"
+                            weight="bold"
+                          />
+                        }
+                        label="Campus"
+                        value={campusName}
+                        tone="blue"
+                      />
+                    </div>
+                  </motion.div>
+                )}
+                {majorName && (
+                  <motion.div
+                    className="min-w-0 flex-1 md:flex-none"
+                    initial={{ y: 40, opacity: 0, scale: 0.5 }}
+                    animate={majorControls}
+                  >
+                    <div className="rotate-2">
+                      <InfoBoard
+                        icon={
+                          <MajorIconFill
+                            className="h-3.5 w-3.5 md:h-4 md:w-4"
+                            weight="bold"
+                          />
+                        }
+                        label="Major"
+                        value={majorName}
+                        tone="gold"
+                      />
+                    </div>
+                  </motion.div>
+                )}
+                {level != null && (
+                  <motion.div
+                    className="min-w-0 flex-1 md:flex-none"
+                    initial={{ y: 40, opacity: 0, scale: 0.5 }}
+                    animate={levelControls}
+                  >
+                    <div className="-rotate-2">
+                      <InfoBoard
+                        icon={
+                          <LevelIconFill
+                            className="h-3.5 w-3.5 md:h-4 md:w-4"
+                            weight="bold"
+                          />
+                        }
+                        label="Level"
+                        value={String(level)}
+                        tone="mint"
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+            </div>
+
+            {bio && (
+              <div className="mx-auto w-full max-w-[420px] px-6 md:max-w-[560px] md:px-12">
+                <div
+                  className={`flex min-h-[74px] w-full min-w-0 flex-col justify-center rounded-2xl p-2.5 shadow-[0_6px_12px_-4px_rgba(43,40,32,0.35)] md:rounded-[32px] md:p-6 ${BOARD_TONE.lavender}`}
+                >
+                  <span className="flex items-center gap-1 opacity-60 md:gap-1.5">
+                    <EditIconFill
+                      className="h-3.5 w-3.5 md:h-4 md:w-4"
+                      weight="bold"
+                    />
+                    <span className="font-nunito text-[7px] font-semibold uppercase leading-tight md:text-sm md:tracking-wider">
+                      Bio
+                    </span>
+                  </span>
+                  <p className="mt-0.5 block break-words text-center font-nunito text-[11px] font-medium italic leading-snug md:mt-2 md:text-lg">
+                    {bio}
+                  </p>
                 </div>
-              </motion.div>
-            )}
-            {majorName && (
-              <motion.div
-                className="min-w-0 flex-1 md:flex-none"
-                initial={{ y: 40, opacity: 0, scale: 0.5 }}
-                animate={majorControls}
-              >
-                <div className="rotate-2">
-                  <InfoBoard
-                    icon={<MajorIconFill className="h-3.5 w-3.5 md:h-4 md:w-4" weight="bold" />}
-                    label="Major"
-                    value={majorName}
-                    tone="gold"
-                  />
-                </div>
-              </motion.div>
-            )}
-            {level != null && (
-              <motion.div
-                className="min-w-0 flex-1 md:flex-none"
-                initial={{ y: 40, opacity: 0, scale: 0.5 }}
-                animate={levelControls}
-              >
-                <div className="-rotate-2">
-                  <InfoBoard
-                    icon={<LevelIconFill className="h-3.5 w-3.5 md:h-4 md:w-4" weight="bold" />}
-                    label="Level"
-                    value={String(level)}
-                    tone="mint"
-                  />
-                </div>
-              </motion.div>
+              </div>
             )}
           </div>
-        </div>
 
-        {bio && (
-          <p className="mx-auto flex max-w-[420px] items-center justify-center gap-2.5 px-6 text-center md:max-w-[560px] md:px-12">
-            {bio.length <= BIO_DASH_MAX_CHARS && (
-              <span aria-hidden className="shrink-0 font-nunito text-sm font-bold text-line md:text-lg">
-                —
-              </span>
-            )}
-            <span className="font-nunito text-sm italic text-ink md:text-lg">{bio}</span>
-            {bio.length <= BIO_DASH_MAX_CHARS && (
-              <span aria-hidden className="shrink-0 font-nunito text-sm font-bold text-line md:text-lg">
-                —
-              </span>
-            )}
-          </p>
-        )}
-        </div>
-
-        {/* Below the bio, the page splits into two columns on desktop —
+          {/* Below the bio, the page splits into two columns on desktop —
             gists on the left, a sticky comment panel on the right, same
             component and width the gist page's own comment panel already
             uses. The split only starts HERE, not any higher up the page:
@@ -680,96 +840,116 @@ export function ProfileView({
             the two columns — CommentPanel already draws its own left
             border as the seam, matching the gist page exactly, where the
             panel sits flush against the true right edge of the screen. */}
-        <div className="mt-8 md:mt-12 md:flex md:items-stretch">
-          {/* justify-center + a capped inner block, not a flex-1 block that
+          <div className="mt-8 md:mt-12 md:flex md:items-stretch">
+            {/* justify-center + a capped inner block, not a flex-1 block that
               just stretches — same trick GistStack uses for its own card
               (max-w-[740px], centered in whatever width is actually left
               over next to the fixed comment column) so a gist card doesn't
               read any differently here than it does on the gist page. */}
-          <div className="flex min-w-0 flex-1 justify-center px-4 pb-8 sm:px-6 md:px-12">
-            <div className="w-full max-w-[740px]">
-            {loadingGists ? (
-              <ul className="flex flex-col gap-3">
-                {SKELETON_VARIANTS.map((variant, i) => (
-                  <li key={i}>
-                    <ProfileGistCardSkeleton variant={variant} />
-                  </li>
-                ))}
-              </ul>
-            ) : gistsError ? (
-              <p className="py-8 text-center font-nunito text-sm text-danger">{gistsError}</p>
-            ) : gists.length === 0 ? (
-              <p className="py-8 text-center font-nunito text-sm text-muted">No gists yet.</p>
-            ) : (
-              <>
-                {/* Same "count + label" pattern CommentPanel already uses right
-                    above its own list — a count means something specific
-                    sitting next to what it's actually counting. */}
-                <p className="mb-3 font-nunito text-base font-bold text-ink md:text-lg">
-                  {gists.length} {gists.length === 1 ? "Gist" : "Gists"}
-                </p>
-                <ul className="flex flex-col gap-3">
-                  {gists.map((g) => (
-                    <li
-                      key={g.gist_id}
-                      data-gist-id={g.gist_id}
-                      ref={(el) => {
-                        if (el) cardRefs.current.set(g.gist_id, el);
-                        else cardRefs.current.delete(g.gist_id);
-                      }}
-                    >
-                      <ProfileGistCard
-                        gist={g}
-                        active={commentsOpen && g.gist_id === activeGistId}
-                        onToggleComments={() => handleToggleComments(g.gist_id)}
-                        onDeleted={handleGistDeleted}
-                        onEdited={handleGistEdited}
-                      />
-                    </li>
-                  ))}
-                </ul>
-                {/* Invisible trigger for the next page — see the
-                    IntersectionObserver effect above. Not shown once
-                    exhausted, so there's nothing left to ever re-trigger it. */}
-                {!exhausted && <div ref={sentinelRef} aria-hidden className="h-1 w-full" />}
-                {loadingMore && (
-                  <ul className="mt-3 flex flex-col gap-3">
-                    {LOAD_MORE_SKELETON_VARIANTS.map((variant, i) => (
+            <div className="flex min-w-0 flex-1 justify-center px-4 pb-8 sm:px-6 md:px-12">
+              <div className="w-full max-w-[740px]">
+                {loadingGists ? (
+                  <ul className="flex flex-col gap-3">
+                    {SKELETON_VARIANTS.map((variant, i) => (
                       <li key={i}>
                         <ProfileGistCardSkeleton variant={variant} />
                       </li>
                     ))}
                   </ul>
+                ) : gistsError ? (
+                  <p className="py-8 text-center font-nunito text-sm text-danger">
+                    {gistsError}
+                  </p>
+                ) : gists.length === 0 ? (
+                  <p className="py-8 text-center font-nunito text-sm text-muted">
+                    No gists yet.
+                  </p>
+                ) : (
+                  <>
+                    {/* Same "count + label" pattern CommentPanel already uses right
+                    above its own list — a count means something specific
+                    sitting next to what it's actually counting. */}
+                    <p className="mb-3 font-nunito text-base font-bold text-ink md:text-lg">
+                      {gists.length} {gists.length === 1 ? "Gist" : "Gists"}
+                    </p>
+                    <ul className="flex flex-col gap-3">
+                      {gists.map((g) => (
+                        <li
+                          key={g.gist_id}
+                          data-gist-id={g.gist_id}
+                          ref={(el) => {
+                            if (el) cardRefs.current.set(g.gist_id, el);
+                            else cardRefs.current.delete(g.gist_id);
+                          }}
+                        >
+                          <ProfileGistCard
+                            gist={g}
+                            active={commentsOpen && g.gist_id === activeGistId}
+                            onToggleComments={() =>
+                              handleToggleComments(g.gist_id)
+                            }
+                            onDeleted={handleGistDeleted}
+                            onEdited={handleGistEdited}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                    {/* Invisible trigger for the next page — see the
+                    IntersectionObserver effect above. Not shown once
+                    exhausted, so there's nothing left to ever re-trigger it. */}
+                    {!exhausted && (
+                      <div
+                        ref={sentinelRef}
+                        aria-hidden
+                        className="h-1 w-full"
+                      />
+                    )}
+                    {loadingMore && (
+                      <ul className="mt-3 flex flex-col gap-3">
+                        {LOAD_MORE_SKELETON_VARIANTS.map((variant, i) => (
+                          <li key={i}>
+                            <ProfileGistCardSkeleton variant={variant} />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {loadMoreError && (
+                      <p className="py-4 text-center font-nunito text-xs text-danger">
+                        {loadMoreError}
+                      </p>
+                    )}
+                  </>
                 )}
-                {loadMoreError && (
-                  <p className="py-4 text-center font-nunito text-xs text-danger">{loadMoreError}</p>
-                )}
-              </>
-            )}
+              </div>
             </div>
-          </div>
 
-          {/* commentsOpen gates this whole column, not just the panel inside
+            {/* commentsOpen gates this whole column, not just the panel inside
               it — with only the left column left in the flex row, its own
               flex-1 + justify-center naturally reclaims the full width and
               recenters, no separate "closed" layout to maintain. */}
-          {commentsOpen && !loadingGists && !gistsError && gists.length > 0 && (
-            <div className="hidden md:block md:w-[360px] md:shrink-0">
-              {/* bg-surface: CommentPanel's own background is a barely-there
+            {commentsOpen &&
+              !loadingGists &&
+              !gistsError &&
+              gists.length > 0 && (
+                <div className="hidden md:block md:w-[360px] md:shrink-0">
+                  {/* bg-surface: CommentPanel's own background is a barely-there
                   4% brand tint — deliberately subtle, and fine on the gist
                   page where nothing sits behind it. Here the page's doodle
                   background scrolls past underneath this STICKY box as the
                   page moves, so without an opaque base of its own, that
                   moving doodle showed straight through the tint. */}
-              <div className="sticky top-0 flex h-dvh flex-col bg-surface">
-                <ActiveGistStrip gist={activeGist} onClose={() => setCommentsOpen(false)} />
-                <div className="min-h-0 flex-1">
-                  <CommentPanel gist={activeGist} />
+                  <div className="sticky top-0 flex h-dvh flex-col bg-surface">
+                    <ActiveGistStrip
+                      gist={activeGist}
+                      onClose={() => setCommentsOpen(false)}
+                    />
+                    <div className="min-h-0 flex-1">
+                      <CommentPanel gist={activeGist} />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          )}
-        </div>
+              )}
+          </div>
         </div>
       </div>
 
@@ -789,7 +969,11 @@ export function ProfileView({
       />
 
       {imageUrl && (
-        <AvatarLightbox open={avatarLightboxOpen} src={imageUrl} onClose={() => setAvatarLightboxOpen(false)} />
+        <AvatarLightbox
+          open={avatarLightboxOpen}
+          src={imageUrl}
+          onClose={() => setAvatarLightboxOpen(false)}
+        />
       )}
     </AppShell>
   );

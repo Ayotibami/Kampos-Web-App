@@ -15,8 +15,8 @@ import type { Account } from "@/types";
  * forward it verbatim to the backend (a server-to-server fetch isn't
  * subject to CORS, so this needs no special handling beyond the header).
  *
- * Never throws — an unreachable backend or a missing session both resolve
- * to "guest", matching resolveAuthState's own behavior.
+ * Never throws — an unreachable backend or a missing/dead session both
+ * resolve cleanly (to "unknown" and "guest" respectively, see below).
  */
 export async function resolveServerAuthState(): Promise<{
   state: AuthGateState;
@@ -32,7 +32,18 @@ export async function resolveServerAuthState(): Promise<{
       cache: "no-store",
     });
     if (!res.ok) {
-      return { state: "guest", account: null, profiles: [] };
+      // 401/403 = the backend explicitly says "not authenticated" — the
+      // session is genuinely gone and the user really does need to log in.
+      if (res.status === 401 || res.status === 403) {
+        return { state: "guest", account: null, profiles: [] };
+      }
+      // 5xx (or any other non-auth error) = backend temporarily unavailable
+      // (e.g. Render free-tier cold-starting). The middleware already tried
+      // to refresh; returning "guest" here would log the user out for what
+      // is actually just a momentary server blip. Return "unknown" instead
+      // so gateServer lets the request through and the client can re-verify
+      // once the backend finishes waking up.
+      return { state: "unknown", account: null, profiles: [] };
     }
     const json = (await res.json()) as { data?: AccountProfileResponse };
     const account = json.data?.account ?? null;
@@ -44,7 +55,9 @@ export async function resolveServerAuthState(): Promise<{
     else state = "active";
     return { state, account, profiles };
   } catch {
-    return { state: "guest", account: null, profiles: [] };
+    // Network error / timeout — the backend is unreachable, same treatment
+    // as 5xx above. Don't log the user out for a transient connectivity blip.
+    return { state: "unknown", account: null, profiles: [] };
   }
 }
 
@@ -54,9 +67,18 @@ export async function resolveServerAuthState(): Promise<{
  * this page is ever sent — no client-side flash, no spinner, no round trip
  * after the fact. Returns the resolved data so the page can hand it to
  * <HydrateAuth> and skip a second, redundant client-side fetch.
+ *
+ * "unknown" (backend temporarily unreachable) is intentionally not
+ * redirected — the page renders without server-verified account data and
+ * HydrateAuth re-resolves client-side once the backend recovers. This
+ * prevents Render cold-start blips from logging users out.
  */
 export async function gateServer(allow: AuthGateState[]) {
   const result = await resolveServerAuthState();
+  // Backend was unreachable during this render — don't redirect. The page
+  // renders without confirmed account data; HydrateAuth will re-verify
+  // client-side once the backend finishes waking up.
+  if (result.state === "unknown") return result;
   if (!allow.includes(result.state)) {
     redirect(destinationFor(result.state));
   }

@@ -13,6 +13,8 @@ import { Illustration } from "@/components/brand/illustrations";
 import { Avatar } from "@/components/ui/Avatar";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { Plus, RefreshCw, CommentIconFill } from "@/components/ui/icons";
+import { NewGistsPill } from "@/components/gist/NewGistsPill";
+import { PullIndicator, usePullToRefresh } from "@/components/ui/PullToRefresh";
 import { AnimatePresence } from "framer-motion";
 import { useGistStore } from "@/stores/gistStore";
 import { useCommentStore } from "@/stores/commentStore";
@@ -30,41 +32,48 @@ type Tab = "Gist" | "Amebo";
 // was left on-screen to show that rotation once the trigger shrank down to
 // a bare plus button).
 const PROMPTS = [
-  'Oya gist us',
-  'Feel free to rant',
-  'Wetin dey your mind?',
-  'Give us hot gist',
-  'Wetin dey sup',
-  'Oya we are listening',
-  'Yarn some matter for us',
+  "Oya gist us",
+  "Feel free to rant",
+  "Wetin dey your mind?",
+  "Give us hot gist",
+  "Wetin dey sup",
+  "Oya we are listening",
+  "Yarn some matter for us",
   "What's happening on campus?",
-  'Tell us a story',
-  'Any random gist?',
-  'Any departmental gist',
-  'Wetin dey sup for school',
-  'Oya banter anybody!'
+  "Tell us a story",
+  "Any random gist?",
+  "Any departmental gist",
+  "Wetin dey sup for school",
+  "Oya banter anybody!",
 ];
 
 let lastPromptIndex = -1;
 function pickRandomPrompt(): string {
   let idx = Math.floor(Math.random() * PROMPTS.length);
   if (PROMPTS.length > 1) {
-    while (idx === lastPromptIndex) idx = Math.floor(Math.random() * PROMPTS.length);
+    while (idx === lastPromptIndex)
+      idx = Math.floor(Math.random() * PROMPTS.length);
   }
   lastPromptIndex = idx;
   return PROMPTS[idx];
 }
 
-export function FeedContent() {
+export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   const listGists = useGistStore((s) => s.list);
   const prefetchComments = useCommentStore((s) => s.prefetchBatch);
   const myAvitag = useAuthStore((s) => s.avitag);
   const myImageUrl = useAuthStore(
-    (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null
+    (s) =>
+      (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as
+        | string
+        | undefined) ?? null,
   );
 
-  const [gists, setGists] = useState<Gist[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Start with server-fetched gists (if any) — no skeleton on first render.
+  // Only fall back to a client-side fetch if the server couldn't deliver
+  // (backend was down during SSR).
+  const [gists, setGists] = useState<Gist[]>(initialGists);
+  const [loading, setLoading] = useState(initialGists.length === 0);
   // Distinct from a genuinely empty feed — an empty list because the fetch
   // itself failed (backend down, network hiccup) needs its own "something
   // went wrong, retry" UI, not the same "be the first to gist" copy a truly
@@ -125,9 +134,12 @@ export function FeedContent() {
   }, []);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    // Only show loading skeleton if the feed is actually empty — when SSR
+    // already delivered gists, they stay visible while load() refreshes in
+    // the background (cachedRead with onFresh + pill handles the update).
+    if (gists.length === 0) setLoading(true);
     try {
-      const data = await listGists();
+      const data = await listGists({ limit: 30 });
       setGists(data);
       setExhausted(false);
       setLoadError(false);
@@ -141,7 +153,23 @@ export function FeedContent() {
     } finally {
       setLoading(false);
     }
-  }, [listGists, prefetchComments]);
+  }, [listGists, prefetchComments, gists.length]);
+
+  const { pull, state, onTouchStart, onTouchMove, onTouchEnd } = usePullToRefresh(load);
+
+  // Prefetch comments for server-fetched gists on mount — same as load()
+  // does after a client-side fetch, so the first cards already have
+  // comment counts ready without a separate round trip per card.
+  useEffect(() => {
+    if (initialGists.length > 0) {
+      void prefetchComments(initialGists.map((g) => g.gist_id));
+    }
+    // Warm the IndexedDB cache silently — no UI update, just saves SSR
+    // gists to cache so the NEXT visit shows them instantly. Also kicks
+    // off the background refresh + pill pipeline in list()'s onFresh.
+    void listGists({ limit: 30 }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || exhausted || gists.length === 0) return;
@@ -149,7 +177,7 @@ export function FeedContent() {
     if (!cursor) return;
     setLoadingMore(true);
     try {
-      const more = await listGists({ cursor });
+      const more = await listGists({ cursor, limit: 30 });
       if (more.length) {
         setGists((prev) => [...prev, ...more]);
         void prefetchComments(more.map((g) => g.gist_id));
@@ -167,10 +195,6 @@ export function FeedContent() {
       setLoadingMore(false);
     }
   }, [exhausted, gists, listGists, loadingMore, prefetchComments]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   // YouTube-style chip row: each filter is its own independent pill (not a
   // shared sliding-indicator track), so adding a 3rd, 6th, or 10th tab later
@@ -229,7 +253,10 @@ export function FeedContent() {
                 <Avatar src={myImageUrl} />
               </Link>
 
-              <Wordmark accentClassName="text-brand" className="justify-self-center text-lg sm:text-xl" />
+              <Wordmark
+                accentClassName="text-brand"
+                className="justify-self-center text-lg sm:text-xl"
+              />
 
               {/* Compose trigger — squeezed onto the wordmark's row (which
                   had height to spare) instead of its own full row below.
@@ -259,7 +286,10 @@ export function FeedContent() {
                       transition={{ duration: 0.25 }}
                       className="absolute right-0 top-full z-20 mt-1.5 flex flex-col items-end"
                     >
-                      <span aria-hidden className="mr-3 h-2 w-2 rotate-45 bg-brand-ink" />
+                      <span
+                        aria-hidden
+                        className="mr-3 h-2 w-2 rotate-45 bg-brand-ink"
+                      />
                       <span className="-mt-1 whitespace-nowrap rounded-full bg-brand-ink px-3 py-1.5 font-nunito text-xs font-medium text-white shadow-lg">
                         Tap here make you gist!
                       </span>
@@ -270,7 +300,9 @@ export function FeedContent() {
             </div>
 
             <div className="mx-auto flex max-w-[740px] items-center px-4 pb-2.5 pt-1 sm:px-6">
-              <div className="inline-flex items-center gap-2 overflow-x-auto no-scrollbar">{tabButtons}</div>
+              <div className="inline-flex items-center gap-2 overflow-x-auto no-scrollbar">
+                {tabButtons}
+              </div>
             </div>
           </header>
 
@@ -315,7 +347,14 @@ export function FeedContent() {
                 </div>
               </div>
             ) : gists.length ? (
-              <div className="relative z-10 flex min-h-0 flex-1 w-full flex-col">
+              <div
+                className="relative z-10 flex min-h-0 flex-1 w-full flex-col"
+                onTouchStart={onTouchStart}
+                onTouchMove={onTouchMove}
+                onTouchEnd={onTouchEnd}
+              >
+                <PullIndicator pull={pull} state={state} />
+                <NewGistsPill onLoad={load} />
                 {/* On mobile the card no longer fills the whole remaining
                     height — a compact comment input sits below it, flush,
                     with zero forced gap either side. The input takes only
@@ -333,10 +372,16 @@ export function FeedContent() {
                     gists={gists}
                     onCurrentChange={setCurrent}
                     onGistDeleted={(gistId) =>
-                      setGists((prev) => prev.filter((g) => g.gist_id !== gistId))
+                      setGists((prev) =>
+                        prev.filter((g) => g.gist_id !== gistId),
+                      )
                     }
                     onGistEdited={(fresh) =>
-                      setGists((prev) => prev.map((g) => (g.gist_id === fresh.gist_id ? fresh : g)))
+                      setGists((prev) =>
+                        prev.map((g) =>
+                          g.gist_id === fresh.gist_id ? fresh : g,
+                        ),
+                      )
                     }
                     onNearEnd={loadMore}
                     mediaPaused={showCreate || showCommentSheet}
@@ -406,7 +451,10 @@ export function FeedContent() {
               </div>
             ) : (
               <div className="relative z-10 flex flex-1 w-full flex-col items-center justify-center gap-3 text-center">
-                <Illustration name="Kappymagnifyingglass" className="h-40 w-auto" />
+                <Illustration
+                  name="Kappymagnifyingglass"
+                  className="h-40 w-auto"
+                />
                 <p className="font-nunito text-sm text-muted">
                   No gist dey here yet. Be the first to gist!
                 </p>
@@ -436,7 +484,9 @@ export function FeedContent() {
             // insertion position (the backend's own ordering/pagination is
             // untouched). Falls back to the front of the list on the rare
             // chance nothing's currently in view (e.g. an empty feed).
-            const idx = current ? prev.findIndex((g) => g.gist_id === current.gist_id) : -1;
+            const idx = current
+              ? prev.findIndex((g) => g.gist_id === current.gist_id)
+              : -1;
             if (idx === -1) return [fresh, ...prev];
             return [...prev.slice(0, idx + 1), fresh, ...prev.slice(idx + 1)];
           })

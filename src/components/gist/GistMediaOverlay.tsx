@@ -52,11 +52,19 @@ const chromeButton =
 export function GistMediaOverlay({
   media,
   startIndex,
+  startTime,
   onClose,
 }: {
   media: GistMediaType[];
   startIndex: number;
-  onClose: () => void;
+  /** Playback position (seconds) to resume from when the overlay opens —
+   *  passed from the in-card video so the overlay picks up exactly where
+   *  the card left off. */
+  startTime?: number;
+  /** Called when the overlay closes. If the current item is a video,
+   *  receives its currentTime so the caller can sync the in-card video
+   *  to the same position. */
+  onClose?: (currentTime?: number) => void;
 }) {
   const items = media.slice(0, 2);
   const [index, setIndex] = useState(startIndex);
@@ -89,6 +97,17 @@ export function GistMediaOverlay({
   const hasPrev = index > 0;
   const hasNext = index < items.length - 1;
 
+  const current = items[index];
+  const isVideo = current.media_type?.toLowerCase().includes("video");
+
+  // Close handler that captures the video's current playback position so
+  // the caller can sync the in-card video to the same timestamp.
+  const handleClose = () => {
+    const v = videoRef.current;
+    const time = v && isVideo ? v.currentTime : undefined;
+    onClose?.(time);
+  };
+
   const onDragEnd = (_: unknown, info: PanInfo) => {
     if (info.offset.x < -80 && hasNext) go(1);
     else if (info.offset.x > 80 && hasPrev) go(-1);
@@ -105,7 +124,7 @@ export function GistMediaOverlay({
       // move the text cursor, not silently swap media in the background.
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") handleClose();
       else if (e.key === "ArrowRight" && hasNext) go(1);
       else if (e.key === "ArrowLeft" && hasPrev) go(-1);
     };
@@ -113,9 +132,6 @@ export function GistMediaOverlay({
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasNext, hasPrev, onClose]);
-
-  const current = items[index];
-  const isVideo = current.media_type?.toLowerCase().includes("video");
 
   const togglePlay = () => {
     const v = videoRef.current;
@@ -137,14 +153,14 @@ export function GistMediaOverlay({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      onClick={onClose}
+      onClick={handleClose}
     >
       {/* Close — its own dedicated top-right corner, clear of the media
           stage's bounds (which starts well below/inset of this). */}
       <button
         type="button"
         aria-label="Close"
-        onClick={onClose}
+        onClick={handleClose}
         className={`${chromeButton} absolute right-4 top-4 z-20 h-10 w-10 sm:right-6 sm:top-6`}
       >
         <X className="h-5 w-5" />
@@ -212,7 +228,14 @@ export function GistMediaOverlay({
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
               onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-              onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+              onLoadedMetadata={(e) => {
+                setDuration(e.currentTarget.duration);
+                // Resume from the in-card video's position — seamless
+                // handoff, no jump back to 0:00.
+                if (startTime && startTime > 0) {
+                  e.currentTarget.currentTime = startTime;
+                }
+              }}
               // h-full/w-full (not just max-h/max-w) so a low-resolution
               // video actually grows to fill the available space instead of
               // rendering at its small native pixel size — max-h/max-w alone
