@@ -31,7 +31,7 @@ const csp = [
   // uploadToCloudinaryDirect) — without it in connect-src the browser
   // silently blocks that XHR, which surfaces as a bare "network error",
   // not a CSP violation, making it look like a connectivity problem.
-  `connect-src 'self' ${API_ORIGIN} ${WS_ORIGIN} https://api.giphy.com https://api.cloudinary.com https://res.cloudinary.com`,
+  `connect-src 'self' ${API_ORIGIN} ${WS_ORIGIN} https://api.giphy.com https://api.cloudinary.com https://res.cloudinary.com https://*.giphy.com`,
   `frame-ancestors 'none'`,
   `base-uri 'self'`,
   `form-action 'self'`,
