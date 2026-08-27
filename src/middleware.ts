@@ -44,9 +44,18 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
+    // Proxy/middleware runs in front of every matched request and isn't
+    // meant for slow data fetching (see Next's own proxy.md) — a Render
+    // free-tier cold start or a dead DB can otherwise hang this fetch well
+    // past Vercel's own execution limit, which kills the whole request with
+    // a hard 504 (MIDDLEWARE_INVOCATION_TIMEOUT) before the catch below, or
+    // the page's own already-safe "unknown state, don't log out" fallback
+    // (see serverAuth.ts), ever get a chance to run. Failing fast here lets
+    // that existing fallback do its job instead.
     const refreshRes = await fetch(`${env.API_BASE}/auth/refresh`, {
       method: "POST",
       headers: { Cookie: request.headers.get("cookie") ?? "" },
+      signal: AbortSignal.timeout(5000),
     });
 
     if (!refreshRes.ok) return NextResponse.next();
@@ -81,8 +90,12 @@ export async function middleware(request: NextRequest) {
     }
     return response;
   } catch {
-    // Backend unreachable — let the request through as-is; the page's own
-    // gate check falls back to "guest", same as it always has.
+    // Backend unreachable, or the timeout above fired — let the request
+    // through as-is with its existing (possibly stale) cookies. The page's
+    // own gate check (see resolveServerAuthState in serverAuth.ts) treats a
+    // backend it can't reach as "unknown," not "guest" — it does NOT log
+    // the user out for this, it just renders the page and re-verifies
+    // client-side once the backend responds.
     return NextResponse.next();
   }
 }
