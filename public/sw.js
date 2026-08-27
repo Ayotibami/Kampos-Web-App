@@ -1,15 +1,55 @@
 // Kampos PWA Service Worker
-// Caches static assets (cache-first), HTML pages (stale-while-revalidate),
-// and external images from Cloudinary/Giphy (cache-first).
+// Precaches a small public app shell at install time, then caches static
+// assets (cache-first), HTML pages (stale-while-revalidate), and external
+// images from Cloudinary/Giphy (cache-first) as they're actually visited.
 // API data is NOT cached here — that lives in a client-side IndexedDB layer
-// (see the upcoming data-cache module).
+// (see src/lib/dataCache.ts).
 
-const STATIC = "kampos-static-v1";
+const STATIC = "kampos-static-v2";
 const IMAGES = "kampos-images-v1";
+
+// A small, deliberately conservative app shell, precached at install time
+// so a fresh install that goes offline before ever really using the app
+// still has something real to show instead of falling straight to the
+// bare offline-fallback HTML below. Only stable, non-personalized URLs —
+// NOT /feed, /settings, /profile, or any other authenticated route. Those
+// are per-session/per-user; precaching one visitor's authenticated HTML
+// (or a redirect-to-login for whoever isn't signed in yet) would risk
+// serving stale or flat-out wrong content offline, especially on a shared
+// device. Everything here is either genuinely static or identical for
+// every visitor, so there's nothing session-specific to get stale or wrong.
+const APP_SHELL = [
+  "/",
+  "/login",
+  "/manifest.json",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/icons/icon-180.png",
+];
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────
 
-self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("install", (e) => {
+  e.waitUntil(
+    caches
+      .open(STATIC)
+      .then((cache) =>
+        Promise.all(
+          APP_SHELL.map((url) =>
+            fetch(url)
+              .then((res) => {
+                if (res.ok) return cache.put(url, res);
+              })
+              // A single flaky/unreachable URL shouldn't fail the whole
+              // install — it just stays uncached until cacheFirst/
+              // staleWhileRevalidate picks it up on a real visit instead.
+              .catch(() => {}),
+          ),
+        ),
+      )
+      .then(() => self.skipWaiting()),
+  );
+});
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(

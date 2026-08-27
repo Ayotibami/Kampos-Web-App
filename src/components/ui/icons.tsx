@@ -27,6 +27,11 @@ export {
   LogOut,
   Sticker,
   Lock,
+  Wifi,
+  WifiOff,
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle,
 } from "lucide-react";
 
 // Phosphor, fill-weight — bolder/playfuller than lucide's thin stroke. This
@@ -75,4 +80,10 @@ export {
   GraduationCap as CampusIconFill,
   BookOpen as MajorIconFill,
   TrendUp as LevelIconFill,
+  // The actual iOS share-sheet glyph (box, arrow pointing up out of it) —
+  // deliberately not ShareIconFill (a paper plane) for the install-prompt
+  // instructions, since that icon needs to visually match what someone
+  // sees in their own Safari toolbar, not just mean "share" abstractly.
+  Export as ShareBoxIconFill,
+  PlusSquare as AddToHomeIconFill,
 } from "@phosphor-icons/react";

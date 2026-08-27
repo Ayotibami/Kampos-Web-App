@@ -115,15 +115,15 @@ export function StepScaffold({
 
   return (
     <div className="relative flex h-dvh w-full flex-col overflow-hidden bg-surface">
-      {/* Subtle desktop-only backdrop, same restrained treatment as
+      {/* Subtle backdrop, same restrained treatment as
           AuthShell — a bit of visual life without competing with the
           form/list content. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 hidden bg-brand/[0.04] md:block dark:bg-brand/[0.06]"
+        className="pointer-events-none absolute inset-0 bg-brand/[0.04] dark:bg-brand/[0.06]"
       >
         <div
-          className="absolute inset-0 opacity-20 dark:opacity-15 dark:invert"
+          className="absolute inset-0 opacity-90 dark:opacity-80 dark:invert"
           style={{
             backgroundImage: "url('/brand/doodles.svg')",
             backgroundRepeat: "repeat",

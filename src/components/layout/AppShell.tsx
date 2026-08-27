@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Illustration } from "@/components/brand/illustrations";
 import { Wordmark } from "@/components/brand/Wordmark";
 
 /**
@@ -146,10 +145,21 @@ export function AppShell({
               "radial-gradient(1200px 600px at 50% -10%, #2f74e0 0%, var(--color-brand) 38%, var(--color-brand-dark) 100%)",
           }}
         >
-          <Illustration
-            name="Doodles"
+          {/* Plain static file, not the <Illustration name="Doodles">
+              SVGR-inlined component — that ships the same artwork as a
+              440KB JS chunk (the largest single chunk in the whole app),
+              bundled into every page using this shell (including feed,
+              the most-visited one), just to paint a 6%-opacity texture.
+              This is the identical file (public/brand/doodles.svg is a
+              byte-for-byte copy of src/assets/illustrations/doodles.svg),
+              loaded as a normal cached network request instead — same
+              object-fit:cover crop-to-fill behavior a plain <img> already
+              gives for free, no SVG-specific preserveAspectRatio needed. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/doodles.svg"
+            alt=""
             className="absolute inset-0 h-full w-full object-cover opacity-[0.06]"
-            preserveAspectRatio="xMidYMid slice"
           />
         </div>
       )}

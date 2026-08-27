@@ -115,16 +115,29 @@ export interface ApiEnvelope<T> {
   data?: T;
 }
 
-/** Pull a human-friendly message out of an axios error, with a fallback. */
+/**
+ * Pull a human-friendly message out of an error, with a fallback — and
+ * only ever a curated one. `data?.message` is safe to show verbatim
+ * because the backend's own error handler guarantees it's always a
+ * friendly, authored string, never a raw driver/exception message (see
+ * KamposBackend's errorHandler/GENERIC_MESSAGE). Everything past that is
+ * text axios or the JS runtime generated on its own — a raw driver/network
+ * message ("timeout of 30000ms exceeded", "Request failed with status code
+ * 502", a CORS/proxy failure with no JSON body at all, some browser API's
+ * own internal exception text) — none of which was ever written for a
+ * real user to read. Previously this fell through to that raw text
+ * whenever it existed, which defeated the whole point of callers passing
+ * their own `fallback`; now every one of those cases uses it instead.
+ */
 export function apiErrorMessage(error: unknown, fallback: string): string {
   if (axios.isAxiosError(error)) {
     const data = error.response?.data as ApiEnvelope<unknown> | undefined;
     if (data?.message) return data.message;
-    if (error.message === "Network Error")
+    if (error.message === "Network Error" || error.code === "ECONNABORTED") {
       return "Abeg check your internet connection";
-    return error.message || fallback;
+    }
+    return fallback;
   }
-  if (error instanceof Error) return error.message || fallback;
   return fallback;
 }
 

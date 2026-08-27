@@ -1,14 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
 import { GistStack } from "@/components/gist/GistStack";
 import { GistCardSkeleton } from "@/components/gist/GistCardSkeleton";
-import { CreateGistSheet } from "@/components/gist/CreateGistSheet";
 import { CommentPanel } from "@/components/comment/CommentPanel";
-import { CommentSheet } from "@/components/comment/CommentSheet";
+
+// Both are controlled dialogs (an `open` boolean, never actually gone from
+// the tree) rather than conditionally mounted, so this doesn't defer *when*
+// their code loads — it still starts as soon as the feed does — but it does
+// pull compose (+ its own nested GiphyPicker/WebcamCapture) and the comment
+// sheet out of the feed's own synchronous bundle into their own chunks,
+// loaded in parallel instead of blocking the feed's initial parse/hydrate.
+// ssr:false is correct for both — pure interactive chrome, no content a
+// crawler would ever need from the server-rendered HTML.
+const CreateGistSheet = dynamic(
+  () => import("@/components/gist/CreateGistSheet").then((m) => m.CreateGistSheet),
+  { ssr: false },
+);
+const CommentSheet = dynamic(
+  () => import("@/components/comment/CommentSheet").then((m) => m.CommentSheet),
+  { ssr: false },
+);
 import { Illustration } from "@/components/brand/illustrations";
 import { Avatar } from "@/components/ui/Avatar";
 import { Wordmark } from "@/components/brand/Wordmark";
@@ -16,13 +32,18 @@ import { Plus, RefreshCw, CommentIconFill } from "@/components/ui/icons";
 import { NewGistsPill } from "@/components/gist/NewGistsPill";
 import { PullIndicator, usePullToRefresh } from "@/components/ui/PullToRefresh";
 import { AnimatePresence } from "framer-motion";
-import { useGistStore } from "@/stores/gistStore";
+import { useGistStore, getFreshFeedSnapshot } from "@/stores/gistStore";
 import { useCommentStore } from "@/stores/commentStore";
 import { useAuthStore } from "@/stores/authStore";
 import { compactNumber } from "@/lib/format";
 import type { Gist } from "@/types";
 
-type Tab = "Gist" | "Amebo";
+// "Gist" | "Amebo" | a campus_tag (one of the trending-school pills) — a
+// plain string rather than a richer union so the existing tab-as-string
+// plumbing (useState, the tabButtons render loop) didn't need reshaping;
+// real campus tags are lowercase abbreviations ("unilag", "oau") so they
+// never collide with the two fixed, capitalized tab names.
+type Tab = string;
 
 // Compose-trigger animation timing. The "notice me" pulse used to run on its
 // own faster interval, independent of the prompt text changing — now it
@@ -60,6 +81,7 @@ function pickRandomPrompt(): string {
 
 export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   const listGists = useGistStore((s) => s.list);
+  const primeFromServer = useGistStore((s) => s.primeFromServer);
   const prefetchComments = useCommentStore((s) => s.prefetchBatch);
   const myAvitag = useAuthStore((s) => s.avitag);
   const myImageUrl = useAuthStore(
@@ -69,11 +91,37 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
         | undefined) ?? null,
   );
 
+  // Captured once, at mount, from whatever gistStore.feedSnapshot holds —
+  // see that field's own docstring for why this exists at all (surviving a
+  // full unmount/remount, e.g. tapping into a profile and back, is the
+  // whole point). `useState`'s lazy-initializer form (a function, not a
+  // value) guarantees this reads the store exactly once, not on every
+  // render — every piece of state below that restores from it needs to see
+  // the SAME snapshot, not each independently re-read a store that a later
+  // save (see the effect further down) may have already overwritten.
+  const [restoredSnapshot] = useState(getFreshFeedSnapshot);
+
+  // Which tab was active is part of the snapshot too, not just which gist —
+  // restoring the gists themselves while silently defaulting back to "Gist"
+  // would be visibly wrong for anyone who'd switched to Amebo or a school
+  // pill before tapping away. Falls back to "Gist" exactly like a genuinely
+  // fresh visit does when there's nothing (or nothing fresh enough) to
+  // restore.
+  const [tab, setTab] = useState<Tab>(() => {
+    if (!restoredSnapshot) return "Gist";
+    if (restoredSnapshot.feedMode === "amebo") return "Amebo";
+    if (restoredSnapshot.feedMode === "school" && restoredSnapshot.schoolTag) return restoredSnapshot.schoolTag;
+    return "Gist";
+  });
+
   // Start with server-fetched gists (if any) — no skeleton on first render.
   // Only fall back to a client-side fetch if the server couldn't deliver
-  // (backend was down during SSR).
-  const [gists, setGists] = useState<Gist[]>(initialGists);
-  const [loading, setLoading] = useState(initialGists.length === 0);
+  // (backend was down during SSR). A fresh-enough restoredSnapshot wins
+  // over both: it's a truer picture of "what this exact browser tab was
+  // just showing" than a brand new SSR fetch, which has no idea you were
+  // ever here before and would otherwise reset you to the very top.
+  const [gists, setGists] = useState<Gist[]>(() => restoredSnapshot?.gists ?? initialGists);
+  const [loading, setLoading] = useState(() => (restoredSnapshot ? false : initialGists.length === 0));
   // Distinct from a genuinely empty feed — an empty list because the fetch
   // itself failed (backend down, network hiccup) needs its own "something
   // went wrong, retry" UI, not the same "be the first to gist" copy a truly
@@ -90,8 +138,24 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   // identity changes each time loadingMore toggles, which re-triggers
   // GistStack's near-end effect even though nothing about the list moved).
   const [exhausted, setExhausted] = useState(false);
-  const [tab, setTab] = useState<Tab>("Gist");
+  // See load()'s own comment for the full race this guards against —
+  // bumped at the start of every load(), read (not bumped) by loadMore().
+  const requestGenRef = useRef(0);
   const [current, setCurrent] = useState<Gist>();
+  // Where GistStack should open — the restored gist's position in the
+  // restored list, not always the front. Computed once, at mount, same as
+  // everything else derived from restoredSnapshot; GistStack itself only
+  // ever reads its own initialIndex prop once (see its own docstring), so
+  // this never needs to be reactive after the first render.
+  const [initialGistIndex] = useState(() => {
+    if (!restoredSnapshot) return 0;
+    const idx = restoredSnapshot.gists.findIndex((g) => g.gist_id === restoredSnapshot.currentGistId);
+    return idx >= 0 ? idx : 0;
+  });
+  // Bumped whenever a pull-to-refresh completes — GistStack watches this and
+  // snaps back to the first card (see its own docstring for why a plain
+  // list swap isn't enough on its own).
+  const [resetToTopSignal, setResetToTopSignal] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [showCommentSheet, setShowCommentSheet] = useState(false);
   // The icon+count trigger just opens the sheet to look — it shouldn't pop
@@ -133,51 +197,289 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const load = useCallback(async () => {
-    // Only show loading skeleton if the feed is actually empty — when SSR
-    // already delivered gists, they stay visible while load() refreshes in
-    // the background (cachedRead with onFresh + pill handles the update).
+  // "Gist" = your own school's students + every non-student poster.
+  // "Amebo" = everyone, no campus filtering. Any other tab value is one of
+  // the trending-school pills — a specific OTHER campus's students only.
+  // The backend derives your own campus itself from your session for
+  // "gist" — this is just telling it which rule to apply plus, for
+  // "school", which campus (see gist.controller.ts's list handler).
+  const isSchoolTab = tab !== "Gist" && tab !== "Amebo";
+  const feedMode = tab === "Amebo" ? "amebo" : isSchoolTab ? "school" : "gist";
+  const setActiveFeedMode = useGistStore((s) => s.setActiveFeedMode);
+  const trendingSchools = useGistStore((s) => s.trendingSchools);
+  const fetchTrendingSchools = useGistStore((s) => s.fetchTrendingSchools);
+
+  // Keeps gistStore's own copy of "which tab is active" current — that
+  // store-level flag exists purely for the module-level feed.global/
+  // GIST_APPROVED WS handler (see its own comment), which has no way to
+  // read this component's local `tab` state directly. Deliberately not
+  // skipped on mount like the tab-switch effect below — the store needs
+  // the real value from the very first render, not just from the second
+  // tab switch onward.
+  useEffect(() => {
+    setActiveFeedMode(feedMode, isSchoolTab ? tab : null);
+  }, [feedMode, isSchoolTab, tab, setActiveFeedMode]);
+
+  // Trending schools refresh independently of the currently-selected tab —
+  // fetched on mount and re-polled every 5 minutes so the row reflects the
+  // backend's own ~20-minute cache reasonably promptly without hammering
+  // it. A school pill can silently vanish between polls (no minimum-
+  // activity floor, by design — see the backend's getTrendingSchools); if
+  // that happens to be the one currently selected, fall back to Gist
+  // rather than leaving the feed showing a school with no matching pill
+  // left to indicate it. This can only ever fire once a school tab has
+  // actually been selected, which itself requires trendingSchools to have
+  // already been non-empty — so it never mis-fires against the initial []
+  // before the first fetch resolves.
+  useEffect(() => {
+    void fetchTrendingSchools();
+    const interval = window.setInterval(() => void fetchTrendingSchools(), 5 * 60 * 1000);
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (isSchoolTab && !trendingSchools.some((s) => s.campus_tag === tab)) {
+      setTab("Gist");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trendingSchools]);
+
+  const load = useCallback(async (opts?: { resetToTop?: boolean }) => {
+    // Bumped synchronously (before the first await) every time a fresh
+    // fetch starts — tab switch, pull-to-refresh, retry, initial load, all
+    // of it. loadMore() below captures whichever value is current when IT
+    // starts, and refuses to apply its own results if this has moved on by
+    // the time it resolves. Without this, a loadMore() from a tab you've
+    // since switched away from could resolve after the new tab's own load()
+    // and append its stale results onto the new feed via setGists's
+    // functional updater — invisible with a large feed (near-end rarely
+    // fires early enough to race a tab switch), but a 3-gist school feed
+    // trips onNearEnd (GistStack, NEAR_END_THRESHOLD=5) on literally the
+    // first card, making the race trivial to hit by switching tabs quickly.
+    // A gist visible on more than one tab (e.g. also shows on Amebo) would
+    // then land twice in the same array — the exact "two children with the
+    // same key" this was caught from.
+    const gen = ++requestGenRef.current;
+    // Only show loading skeleton if the feed is actually empty — list()
+    // always asks the server directly when online now, no cache in the way.
     if (gists.length === 0) setLoading(true);
     try {
-      const data = await listGists({ limit: 30 });
+      const params: Record<string, unknown> = { limit: 30, feed_mode: feedMode };
+      if (isSchoolTab) params.school = tab;
+      const data = await listGists(params);
+      if (gen !== requestGenRef.current) return; // superseded — discard
       setGists(data);
       setExhausted(false);
       setLoadError(false);
       void prefetchComments(data.map((g) => g.gist_id));
+      if (opts?.resetToTop) setResetToTopSignal((n) => n + 1);
     } catch {
       // Backend unreachable/request failed — leave whatever gists were
       // already loaded in place (don't wipe a working feed over a single
       // failed refresh) but flag it so an empty list renders as "failed to
       // load, retry" instead of silently passing for "no gists exist".
-      setLoadError(true);
+      if (gen === requestGenRef.current) setLoadError(true);
     } finally {
-      setLoading(false);
+      if (gen === requestGenRef.current) setLoading(false);
     }
-  }, [listGists, prefetchComments, gists.length]);
+  }, [listGists, prefetchComments, gists.length, feedMode, isSchoolTab, tab]);
 
-  const { pull, state, onTouchStart, onTouchMove, onTouchEnd } = usePullToRefresh(load);
-
-  // Prefetch comments for server-fetched gists on mount — same as load()
-  // does after a client-side fetch, so the first cards already have
-  // comment counts ready without a separate round trip per card.
+  // Switching tabs changes which pool of gists the feed draws from, so the
+  // whole list has to start over — old-tab gists left on screen while the
+  // new tab's data loads would flash the wrong content under the newly
+  // active pill. Skipped when `tab` hasn't actually changed from what it
+  // was the last time this effect ran (covers both the genuine first mount
+  // AND React Strict Mode's dev-only mount→cleanup→remount replay, which
+  // re-runs this effect a second time with the exact same `tab` — an
+  // invocation-COUNT guard (a plain "have I run once yet" ref) can't tell
+  // that replay apart from a real tab change, since the ref's mutated value
+  // survives the simulated remount; comparing the actual VALUE can, since
+  // nothing about `tab` differs between the two passes). Firing this
+  // spuriously would mean fetching the base feed twice on every page load —
+  // and, worse, discarding a freshly-restored feedSnapshot position (see
+  // that field's own docstring) for a pointless reset back to the top.
+  const prevTabRef = useRef(tab);
   useEffect(() => {
+    if (prevTabRef.current === tab) return;
+    prevTabRef.current = tab;
+    setGists([]);
+    setExhausted(false);
+    setLoadError(false);
+    setLoading(true);
+    void load({ resetToTop: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  // Only the very first card is a safe place to arm this gesture — on any
+  // other card, a downward drag already means "go to the previous gist"
+  // (useOverscrollNav, attached per-card). Native touch events bubble past
+  // that handler's own preventDefault() up to this one regardless of which
+  // gesture "claimed" it first, so without this gate, a longer/slower
+  // swipe-to-previous could fire a full feed reload at the same time it
+  // navigates — two unrelated things happening on one motion. Index 0 is
+  // the one place "go to previous" is already a no-op, so nothing is lost
+  // by letting pull-to-refresh live there instead.
+  const atFirstGist = !current || (gists.length > 0 && current.gist_id === gists[0]?.gist_id);
+  const { pull, state, onTouchStart, onTouchMove, onTouchEnd } = usePullToRefresh(
+    () => load({ resetToTop: true }),
+    atFirstGist,
+  );
+
+  // Prefetch comments for whichever gists are actually on screen at mount,
+  // and — only when there was nothing fresh enough to restore — seed the
+  // store from SSR data the same way this always has. A restoredSnapshot
+  // already fully seeded local `gists`/`tab` state above; running
+  // primeFromServer(initialGists) on top of that would just overwrite the
+  // store's cache with the wrong (top-of-feed, not-where-you-were) data
+  // for no benefit, and prefetching comments for initialGists instead of
+  // the gists actually being shown would warm the wrong cache entries.
+  useEffect(() => {
+    if (restoredSnapshot) {
+      void prefetchComments(restoredSnapshot.gists.map((g) => g.gist_id));
+      return;
+    }
     if (initialGists.length > 0) {
       void prefetchComments(initialGists.map((g) => g.gist_id));
+      // Seed the store + cache directly from what SSR already fetched — no
+      // network round trip (we already have the freshest possible data),
+      // and no comparison against a stale cache entry from a previous
+      // visit. That comparison used to run through list() here and could
+      // flag "new gists" moments after a reload that had already shown
+      // them from the very first paint — it was comparing the real fresh
+      // data against a stale leftover snapshot, not against what was
+      // actually on screen.
+      primeFromServer(initialGists, { limit: 30 });
+    } else {
+      // SSR delivered nothing — either the backend was unreachable during
+      // SSR, or the feed is genuinely empty. Either way, fall back to a
+      // real client-side fetch so the skeleton actually resolves instead
+      // of hanging forever (load() is the only path that ever flips the
+      // local `loading`/`gists` state — the cache-warm call above never
+      // touches them).
+      void load();
     }
-    // Warm the IndexedDB cache silently — no UI update, just saves SSR
-    // gists to cache so the NEXT visit shows them instantly. Also kicks
-    // off the background refresh + pill pipeline in list()'s onFresh.
-    void listGists({ limit: 30 }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keeps gistStore's feedSnapshot current so the NEXT mount (e.g. tapping
+  // back after checking a profile) can restore straight to this exact spot
+  // instead of resetting to the top — see that field's own docstring for
+  // the full reasoning. Fires whenever the front-and-center gist changes
+  // (swiping) or the list itself does (pagination, a refresh) — cheap, and
+  // correctness matters more than the extra writes: missing one just means
+  // the next restore is one swipe behind, not visibly broken.
+  useEffect(() => {
+    if (!current) return;
+    useGistStore.getState().saveFeedSnapshot({
+      gists,
+      currentGistId: current.gist_id,
+      feedMode,
+      schoolTag: isSchoolTab ? tab : null,
+    });
+  }, [current, gists, feedMode, isSchoolTab, tab]);
+
+  // A background offline-queue flush (see OfflineSync, mounted globally)
+  // just landed one or more real gists on the server — patch them into the
+  // visible feed so they stop showing as local-only optimistic entries.
+  // Patches in place (swap the offline- placeholder's gist_id for the real
+  // one at the SAME array slot, drop anything that got deleted) rather than
+  // calling load() for a full re-fetch — a full re-fetch replaces the whole
+  // array with a freshly re-sorted page one, which used to cause two
+  // separate visible bugs: the front-and-center card would jump to whatever
+  // unrelated gist now landed at the same numeric index (this component's
+  // own `current` is just gists[index] under the hood — see GistStack's own
+  // reconciliation, which handles the "index now points somewhere new"
+  // half of this, but only an in-place patch avoids the reorder that causes
+  // it in the first place), and the fresh fetch could overlap with this
+  // feed's own separate pagination cursor once loadMore continued past it,
+  // showing the same gist twice. gistStore only ever dispatches this event
+  // when something list-shaped actually changed (see its own comment), so
+  // no debouncing/no-op guard is needed here.
+  useEffect(() => {
+    const onSynced = (e: Event) => {
+      const detail = (
+        e as CustomEvent<
+          { syncedCreates?: { oldId: string; newId: string; gist?: Gist }[]; deletedGistIds?: string[] } | undefined
+        >
+      ).detail;
+      if (!detail || (!detail.syncedCreates?.length && !detail.deletedGistIds?.length)) {
+        // No usable detail (e.g. only an edit synced, which already applied
+        // its content locally at edit time — see gistStore's update()) —
+        // nothing for this feed to patch.
+        return;
+      }
+      // Prefer the fully-hydrated real gist when it came back (real
+      // Cloudinary media URLs) — swapping in just the new id and leaving
+      // the placeholder's old `media` behind would keep pointing at its
+      // local blob: preview URLs, which gistStore has already revoked by
+      // the time this fires (see its own comment on why that URL doesn't
+      // survive the sync). Falls back to an id-only patch on the rare
+      // chance the re-fetch itself failed — better than leaving it stuck
+      // on "offline-" forever.
+      const byOldId = new Map((detail.syncedCreates ?? []).map((c) => [c.oldId, c]));
+      const deleted = new Set(detail.deletedGistIds ?? []);
+      setGists((prev) =>
+        prev
+          .filter((g) => !deleted.has(g.gist_id))
+          .map((g) => {
+            const synced = byOldId.get(g.gist_id);
+            if (!synced) return g;
+            return synced.gist ?? { ...g, gist_id: synced.newId };
+          }),
+      );
+    };
+    window.addEventListener("kampos:gists-synced", onSynced);
+    return () => window.removeEventListener("kampos:gists-synced", onSynced);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Live counts (reactions/comments/views ticking up from other people's
+  // activity, not just your own) and live moderation removal — both fired
+  // by gistStore's own module-level WS subscriptions, which patch the
+  // store's `items` for anything that reads from there but can't reach
+  // this component's own local `gists` array directly (see primeFromServer
+  // for why that split exists in the first place).
+  useEffect(() => {
+    const onCounts = (e: Event) => {
+      const { gist_id, counts } = (e as CustomEvent<{ gist_id: string; counts: Partial<Gist["counts"]> }>).detail;
+      setGists((prev) =>
+        prev.map((g) => (g.gist_id === gist_id ? { ...g, counts: { ...g.counts, ...counts } as Gist["counts"] } : g)),
+      );
+    };
+    const onRejected = (e: Event) => {
+      const { gist_id } = (e as CustomEvent<{ gist_id: string }>).detail;
+      setGists((prev) => prev.filter((g) => g.gist_id !== gist_id));
+    };
+    window.addEventListener("kampos:gist-counts-updated", onCounts);
+    window.addEventListener("kampos:gist-rejected", onRejected);
+    return () => {
+      window.removeEventListener("kampos:gist-counts-updated", onCounts);
+      window.removeEventListener("kampos:gist-rejected", onRejected);
+    };
   }, []);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || exhausted || gists.length === 0) return;
-    const cursor = gists[gists.length - 1]?.gist_id;
+    // The feed is ranked, not sorted by created_at alone, so the last
+    // gist's own id isn't enough to resume from — _feed_cursor is the
+    // opaque token that actually encodes its position in that ranking
+    // (see gist.repo.ts's listRecent for what's really inside it). Treated
+    // as a black box here, same as a plain gist_id used to be before
+    // ranking existed.
+    const cursor = gists[gists.length - 1]?._feed_cursor;
     if (!cursor) return;
+    // Captured, not bumped — this call is a continuation of whatever load()
+    // most recently started, not a fresh one of its own. If a tab switch
+    // (or pull-to-refresh/retry) starts a newer load() before this resolves,
+    // requestGenRef will have moved on and the results below are discarded
+    // instead of appending stale gists onto the now-current feed.
+    const gen = requestGenRef.current;
     setLoadingMore(true);
     try {
-      const more = await listGists({ cursor, limit: 30 });
+      const params: Record<string, unknown> = { cursor, limit: 30, feed_mode: feedMode };
+      if (isSchoolTab) params.school = tab;
+      const more = await listGists(params);
+      if (gen !== requestGenRef.current) return; // superseded — discard
       if (more.length) {
         setGists((prev) => [...prev, ...more]);
         void prefetchComments(more.map((g) => g.gist_id));
@@ -194,27 +496,41 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     } finally {
       setLoadingMore(false);
     }
-  }, [exhausted, gists, listGists, loadingMore, prefetchComments]);
+  }, [exhausted, gists, listGists, loadingMore, prefetchComments, feedMode, isSchoolTab, tab]);
 
   // YouTube-style chip row: each filter is its own independent pill (not a
   // shared sliding-indicator track), so adding a 3rd, 6th, or 10th tab later
   // (My Major, Kreators, Trending, ...) is just another chip in the scroll —
   // the pattern doesn't strain or need rethinking as the set grows, unlike a
-  // segmented control which only really reads well at 2-3 items.
-  const tabButtons = (["Gist", "Amebo"] as Tab[]).map((t) => {
-    const isActive = tab === t;
+  // segmented control which only really reads well at 2-3 items. Gist/Amebo
+  // are always present; the trending-school pills after them are dynamic —
+  // up to 3, fewer (or none) if fewer schools currently qualify, never
+  // padded (see gistStore's fetchTrendingSchools/the backend's
+  // getTrendingSchools for how "trending" is computed).
+  const fixedTabs: Array<{ id: string; label: string }> = [
+    { id: "Gist", label: "Gist" },
+    { id: "Amebo", label: "Amebo" },
+  ];
+  const schoolTabs = trendingSchools.map((s) => ({ id: s.campus_tag, label: s.campus_tag.toUpperCase() }));
+  const tabButtons = [
+    ...fixedTabs.map((t) => ({ ...t, isSchool: false })),
+    ...schoolTabs.map((t) => ({ ...t, isSchool: true })),
+  ].map(({ id, label, isSchool }) => {
+    const isActive = tab === id;
     return (
       <button
-        key={t}
+        key={id}
         type="button"
-        onClick={() => setTab(t)}
-        className={`shrink-0 rounded-full px-4 py-1.5 font-nunito text-[14px] transition ${
+        onClick={() => setTab(id)}
+        className={`inline-flex min-w-[60px] shrink-0 items-center justify-center rounded-full px-4 py-1.5 text-center font-nunito text-[14px] transition active:scale-95 ${
+          isSchool ? "tracking-wide" : ""
+        } ${
           isActive
             ? "bg-brand text-white font-semibold shadow-sm shadow-brand/30"
-            : "bg-brand/[0.06] text-faint font-medium hover:bg-brand/10 hover:text-brand"
+            : "bg-brand/[0.06] text-faint font-medium ring-1 ring-line/50 hover:bg-brand/10 hover:text-brand"
         }`}
       >
-        {t}
+        {label}
       </button>
     );
   });
@@ -354,7 +670,23 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                 onTouchEnd={onTouchEnd}
               >
                 <PullIndicator pull={pull} state={state} />
-                <NewGistsPill onLoad={load} />
+                <NewGistsPill
+                  onLoad={async () => {
+                    // Instant path: the background refresh already cached
+                    // the fresh list — swap it in with zero network wait.
+                    // Only fall back to a real fetch if nothing was cached
+                    // (shouldn't normally happen; hasNewGists implies it was).
+                    const fresh = await useGistStore.getState().loadNewGists();
+                    if (fresh) {
+                      setGists(fresh);
+                      setExhausted(false);
+                      setLoadError(false);
+                      void prefetchComments(fresh.map((g) => g.gist_id));
+                    } else {
+                      void load();
+                    }
+                  }}
+                />
                 {/* On mobile the card no longer fills the whole remaining
                     height — a compact comment input sits below it, flush,
                     with zero forced gap either side. The input takes only
@@ -370,6 +702,9 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                 <div className="flex min-h-0 w-full flex-1">
                   <GistStack
                     gists={gists}
+                    initialIndex={initialGistIndex}
+                    resetToTopSignal={resetToTopSignal}
+                    showCampusTag={feedMode === "amebo"}
                     onCurrentChange={setCurrent}
                     onGistDeleted={(gistId) =>
                       setGists((prev) =>
@@ -443,7 +778,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                 </p>
                 <button
                   type="button"
-                  onClick={load}
+                  onClick={() => load()}
                   className="rounded-full bg-brand px-4 py-2 font-nunito text-sm font-semibold text-white transition hover:bg-brand-dark"
                 >
                   Try again

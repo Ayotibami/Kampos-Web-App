@@ -2,10 +2,16 @@ import type { Metadata, Viewport } from "next";
 import { Nunito } from "next/font/google";
 import Script from "next/script";
 import { SessionWatcher } from "@/components/auth/SessionWatcher";
+import { WebVitals } from "@/components/layout/WebVitals";
 import { AuthPromptModal } from "@/components/auth/AuthPromptModal";
 import { OfflineSync } from "@/components/auth/OfflineSync";
+import { ConnectivityPill } from "@/components/layout/ConnectivityPill";
+import { GistActionToast } from "@/components/gist/GistActionToast";
+import { AuthToast } from "@/components/auth/AuthToast";
 import { ThemeRouteSync } from "@/components/theme/ThemeRouteSync";
 import { FeedScrollLock } from "@/components/layout/FeedScrollLock";
+import { InstallPrompt } from "@/components/pwa/InstallPrompt";
+import { SplashScreen } from "@/components/brand/SplashScreen";
 import { env } from "@/lib/env";
 import "./globals.css";
 
@@ -42,6 +48,36 @@ export const metadata: Metadata = {
     capable: true,
     title: "Kampos",
     statusBarStyle: "black-translucent",
+    // iOS has no equivalent of Android's auto-generated splash from the
+    // manifest — these are real, pre-rendered full-screen PNGs (see
+    // scripts/generate-ios-splash.mjs) that iOS shows the instant the
+    // installed app launches, before any of this page's own JS has run.
+    startupImage: [
+      {
+        url: "/splash/iphone-se.png",
+        media: "(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)",
+      },
+      {
+        url: "/splash/iphone-11-xr.png",
+        media: "(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)",
+      },
+      {
+        url: "/splash/iphone-12-13-14.png",
+        media: "(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)",
+      },
+      {
+        url: "/splash/iphone-14pro-15-16.png",
+        media: "(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)",
+      },
+      {
+        url: "/splash/iphone-11pro-max-xsmax.png",
+        media: "(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)",
+      },
+      {
+        url: "/splash/iphone-pro-max.png",
+        media: "(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)",
+      },
+    ],
   },
   icons: {
     icon: "/icons/icon-192.png",
@@ -97,11 +133,17 @@ export default function RootLayout({
         <Script id="kampos-sw" strategy="afterInteractive">
           {`if('serviceWorker' in navigator&&location.hostname!=='localhost'){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').then(function(r){console.log('[SW] registered',r.scope)},function(e){console.log('[SW] failed',e)})})}`}
         </Script>
+        <SplashScreen />
+        <WebVitals />
         <SessionWatcher />
         <ThemeRouteSync />
         <FeedScrollLock />
         <OfflineSync />
+        <ConnectivityPill />
+        <GistActionToast />
+        <AuthToast />
         <AuthPromptModal />
+        <InstallPrompt />
         {children}
       </body>
     </html>

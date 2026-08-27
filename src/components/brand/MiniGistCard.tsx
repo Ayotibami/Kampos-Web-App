@@ -1,4 +1,3 @@
-import { Illustration } from "@/components/brand/illustrations";
 import { CommentIconFill, ReactionIconFill, ViewIconFill } from "@/components/ui/icons";
 import { gistColorFor } from "@/lib/brand";
 
@@ -40,9 +39,7 @@ export function MiniGistCard({
   return (
     <div className={`w-full overflow-hidden rounded-2xl bg-surface-2 p-3.5 shadow-xl ring-1 ring-black/5 ${className}`}>
       <div className="flex items-start gap-2">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line">
-          <Illustration name="Kamill" className="h-full w-full" />
-        </div>
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line" />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1">
             <span className="min-w-0 shrink truncate font-nunito text-[12px] font-bold text-ink">{name}</span>

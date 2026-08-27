@@ -25,7 +25,19 @@ export function SettingsHeader({ title, backHref }: { title: string; backHref: s
         aria-label="Go back"
         onClick={(e) => {
           e.preventDefault();
-          runGuardedNavigation(() => router.push(backHref));
+          // replace, not push — this always lands on a known parent route
+          // (safe even if someone opened this page directly, e.g. a
+          // bookmark, with no real "back" to return to), but a *push* here
+          // was quietly growing the history stack every time: Profile →
+          // Settings → back landed you on Profile again looking fine, but
+          // left a duplicate Profile entry sitting right behind Settings.
+          // Profile's own back button falls back to a real router.back()
+          // when it has no fresher route to jump to, so it popped into
+          // that duplicate and bounced straight back to Settings instead
+          // of reaching Feed — a Profile/Settings loop that only replace
+          // (updates the current entry instead of adding a new one)
+          // actually fixes.
+          runGuardedNavigation(() => router.replace(backHref));
         }}
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand md:hidden"
       >

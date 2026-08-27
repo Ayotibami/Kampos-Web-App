@@ -71,6 +71,57 @@ export function MobileReactionBadge({
   const lastExternalNonce = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // Someone ELSE reacting live spawns a little ghost of that emoji at its
+  // satellite that drifts further outward and fades — see the render pass
+  // below for how "someone else" is told apart from our own tap landing.
+  const [liveBursts, setLiveBursts] = useState<{ id: number; type: ReactionType }[]>([]);
+  const nextBurstId = useRef(0);
+
+  // `counts` gets a new object reference on EVERY counts:updated broadcast
+  // for this gist — including ones about a view, a share, or a comment
+  // that have nothing to do with reactions, since the backend always
+  // includes the full reactions_by_type breakdown regardless of what
+  // actually changed. Resetting localDelta on any reference change would
+  // wipe our own still-pending optimistic bump early if one of those
+  // unrelated broadcasts happened to land first. So this clears per-type,
+  // only for whichever type's real number actually moved — that's the
+  // one signal that specific bump has genuinely been absorbed; an
+  // untouched type (including the other half of a same-total type switch)
+  // keeps its pending delta. Doing this during render rather than in a
+  // useEffect avoids a committed frame where the fresh prop and the
+  // stale delta are both still visible together (the "1 → 2 → 1" flicker)
+  // before an effect could catch up a tick later.
+  //
+  // Same pass also tells apart, per type, WHY the real number moved: if we
+  // had a pending delta for it, that's our own tap being confirmed (already
+  // animated by selectReaction's hero pop — no burst needed). If we didn't,
+  // and the number went UP, that's someone else's reaction landing live —
+  // that's the one that gets the outward-fading ghost.
+  const prevCountsRef = useRef(counts);
+  if (prevCountsRef.current !== counts) {
+    const prevCounts = prevCountsRef.current;
+    prevCountsRef.current = counts;
+    let deltaChanged = false;
+    const nextDelta: typeof localDelta = {};
+    const spawned: { id: number; type: ReactionType }[] = [];
+    for (const type of REACTIONS) {
+      const before = prevCounts?.[type] ?? 0;
+      const after = counts?.[type] ?? 0;
+      const ownDelta = localDelta[type];
+      if (before === after) {
+        if (ownDelta) nextDelta[type] = ownDelta;
+        continue;
+      }
+      if (ownDelta) {
+        deltaChanged = true;
+      } else if (after > before && type !== active) {
+        spawned.push({ id: nextBurstId.current++, type });
+      }
+    }
+    if (deltaChanged) setLocalDelta(nextDelta);
+    if (spawned.length) setLiveBursts((prev) => [...prev, ...spawned]);
+  }
+
   const countFor = (type: ReactionType): number =>
     Math.max(0, (counts?.[type] ?? 0) + (localDelta[type] ?? 0));
   const bump = (type: ReactionType, delta: number) =>
@@ -120,9 +171,10 @@ export function MobileReactionBadge({
   const rest = REACTIONS.filter((type) => type !== active);
   const positions = orbitPositions(rest.length);
   const span = ORBIT_RADIUS * 2 + SATELLITE_SIZE;
+  const total = REACTIONS.reduce((sum, type) => sum + countFor(type), 0);
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="relative flex flex-col items-center">
       {/* Vertical tray — every reaction, each with its own live count
           underneath, rising from the hero button. Grows upward into open
           card space rather than sideways into the footer's stats row. */}
@@ -186,6 +238,44 @@ export function MobileReactionBadge({
           </div>
         ))}
 
+        {/* Live-reaction ghosts — a copy of the emoji that just ticked up
+            from someone else's tap, drifting further out along the exact
+            same line its satellite already sits on (same x/y, just scaled
+            past 1) and fading as it goes, so the burst reads as "coming
+            from" that specific satellite rather than a generic pop
+            anywhere on the cluster. Self-removes via onAnimationComplete —
+            nothing else ever needs to know these existed. */}
+        <AnimatePresence>
+          {liveBursts.map((burst) => {
+            const idx = rest.indexOf(burst.type);
+            if (idx === -1) return null;
+            const pos = positions[idx];
+            return (
+              <motion.div
+                key={burst.id}
+                className="pointer-events-none absolute"
+                style={{
+                  left: `calc(50% + ${pos.x}px)`,
+                  top: `calc(50% + ${pos.y}px)`,
+                  width: SATELLITE_SIZE,
+                  height: SATELLITE_SIZE,
+                  marginLeft: -SATELLITE_SIZE / 2,
+                  marginTop: -SATELLITE_SIZE / 2,
+                  zIndex: 15,
+                }}
+                initial={{ x: 0, y: 0, scale: 0.9, opacity: 0.85 }}
+                animate={{ x: pos.x * 0.9, y: pos.y * 0.9, scale: 1.4, opacity: 0 }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
+                onAnimationComplete={() =>
+                  setLiveBursts((prev) => prev.filter((b) => b.id !== burst.id))
+                }
+              >
+                <Lottie animationData={REACTION_ANIMATIONS[burst.type]} loop={false} autoplay className="h-full w-full" />
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -212,6 +302,20 @@ export function MobileReactionBadge({
           </motion.span>
         </button>
       </div>
+
+      {/* Total reaction count, under the cluster — not pinned to a corner of
+          the hero, because there isn't a clean one: once you've reacted, the
+          remaining 4 satellites sit at exactly the four diagonal corners
+          (see orbitPositions above), including both corners a notification-
+          style badge would normally claim. Same "small faint number under an
+          icon" language the open tray already uses per-emoji (see the count
+          span inside the tray button above), just applied to the cluster as
+          a whole, at rest. */}
+      {total > 0 && (
+        <span className="mt-1 font-nunito text-[10px] font-semibold leading-none text-faint">
+          {compactNumber(total)}
+        </span>
+      )}
     </div>
   );
 }

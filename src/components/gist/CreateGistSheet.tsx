@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
+import { MediaImage, MediaVideo } from "@/components/ui/MediaFrame";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
-import { WebcamCapture } from "./WebcamCapture";
-import { GiphyPicker } from "./GiphyPicker";
 import { CameraIconFill, ImageIconFill, PaletteIconFill, X, Video, Sticker } from "@/components/ui/icons";
-import { useGistStore, MediaUploadError } from "@/stores/gistStore";
+import { useGistStore, MediaUploadError, buildOfflineGistMedia, notifyActionSucceeded } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { apiErrorMessage } from "@/lib/api";
 import { LIMITS, GIST_CARD_PALETTE, GIST_COLOR_KEYS, type GistColorKey } from "@/lib/brand";
@@ -23,6 +23,21 @@ import {
   readVideoDurationSeconds,
 } from "@/lib/mediaValidation";
 import type { Gist } from "@/types";
+
+// Both are only ever mounted while their own trigger state is true
+// (`{showCamera && <WebcamCapture .../>}`, `<GiphyPicker open={showGifPicker}
+// .../>` — see their call sites below), so unlike the controlled dialogs
+// this component's own callers dynamic()-wrap, these two genuinely defer
+// their chunk fetch until someone actually taps the camera/GIF button, not
+// just until the compose sheet opens. No refs on either, both take plain
+// callback props, so there's nothing for next/dynamic's ref-forwarding gap
+// to break.
+const WebcamCapture = dynamic(() => import("./WebcamCapture").then((m) => m.WebcamCapture), {
+  ssr: false,
+});
+const GiphyPicker = dynamic(() => import("./GiphyPicker").then((m) => m.GiphyPicker), {
+  ssr: false,
+});
 
 interface PickedMedia {
   id: string;
@@ -508,6 +523,55 @@ export function CreateGistSheet({
     // just upload in this attempt gets rolled back immediately, nothing
     // in the compose sheet is cleared, and the user can just hit Post
     // again with the exact same text and picks still sitting there.
+    // Offline: a real Cloudinary upload genuinely can't happen with no
+    // connection, but the picked file itself can — IndexedDB (what the
+    // offline queue is built on) persists a real Blob natively, same as
+    // any other value, not just plain JSON. So instead of dropping media
+    // and warning about it, the raw picked file goes into the queue
+    // alongside the text, and the optimistic gist shown right now reuses
+    // the exact local preview PickedMedia already has (see
+    // buildOfflineGistMedia in gistStore.ts) — it looks fully posted,
+    // media included, immediately. The real upload happens for real once
+    // back online (flushOfflineQueue), swapping the local preview for the
+    // real hosted version invisibly.
+    const offline = typeof navigator !== "undefined" && !navigator.onLine;
+    if (offline) {
+      const toQueuedMedia = (items: PickedMedia[]) =>
+        items.map((m) => ({
+          kind: m.kind,
+          name: m.name,
+          blob: m.blob,
+          remoteUrl: m.remoteUrl,
+          width: m.width ?? null,
+          height: m.height ?? null,
+        }));
+      try {
+        if (isEditing) {
+          const gistId = editGist!.gist_id;
+          const newMedia = toQueuedMedia(media.filter((m) => !m.existingId));
+          await update(gistId, clean, { newMedia, removedMediaIds });
+          reset();
+          const keptMedia = (editGist!.media ?? []).filter((m) => !removedMediaIds.includes(m.media_id));
+          const addedMedia = buildOfflineGistMedia(gistId, newMedia) ?? [];
+          onPosted?.({ ...editGist!, gist_text: clean, media: [...keptMedia, ...addedMedia] }, "edited");
+        } else {
+          const gist = await create({
+            gist_text: clean,
+            color_key: colorPickerEligible ? pickedColor : null,
+            media: toQueuedMedia(media),
+          });
+          reset();
+          if (gist) onPosted?.(gist, "created");
+        }
+        onClose();
+      } catch (err) {
+        setError(apiErrorMessage(err, isEditing ? "Failed to save changes" : "Failed to create gist"));
+        setShowError(true);
+      } finally {
+        setPosting(false);
+      }
+      return;
+    }
     try {
       if (isEditing) {
         const gistId = editGist!.gist_id;
@@ -544,6 +608,7 @@ export function CreateGistSheet({
         const fresh = await getGist(gistId).catch(() => undefined);
         reset();
         if (fresh) onPosted?.(fresh, "edited");
+        notifyActionSucceeded("edited");
         onClose();
       } else {
         // Text creates the gist row first (unavoidable with the current
@@ -573,6 +638,7 @@ export function CreateGistSheet({
         const fresh = await getGist(gistId).catch(() => undefined);
         reset();
         if (fresh) onPosted?.(fresh, "created");
+        notifyActionSucceeded("created");
         onClose();
       }
     } catch (err) {
@@ -686,10 +752,9 @@ export function CreateGistSheet({
                     className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-black/5"
                   >
                     {m.kind === "video" ? (
-                      <video src={m.url} className="h-full w-full object-cover" muted />
+                      <MediaVideo src={m.url} className="h-full w-full object-cover" muted />
                     ) : (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={m.url} alt="" className="h-full w-full object-cover" />
+                      <MediaImage src={m.url} alt="" className="h-full w-full object-cover" />
                     )}
                     {m.kind === "video" && (
                       <Video className="absolute left-1 top-1 h-4 w-4 text-white drop-shadow" />
@@ -816,10 +881,11 @@ export function CreateGistSheet({
               <Button
                 onClick={handlePost}
                 disabled={!text.trim() || remaining < 0 || posting}
+                loading={posting}
                 fullWidth={false}
                 className="w-80 px-10"
               >
-                {posting ? (isEditing ? "Saving…" : "Creating gist…") : isEditing ? "Save Changes" : "Create Gist"}
+                {posting ? null : isEditing ? "Save Changes" : "Create Gist"}
               </Button>
             </div>
           </div>

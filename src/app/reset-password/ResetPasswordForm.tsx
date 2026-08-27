@@ -8,6 +8,7 @@ import { TextInput } from "@/components/ui/TextInput";
 import { OtpInputs } from "@/components/ui/OtpInputs";
 import { LinkText } from "@/components/ui/LinkText";
 import { ErrorModal, SuccessModal } from "@/components/ui/FeedbackModal";
+import { notifyAuthToast } from "@/components/auth/AuthToast";
 import { useAuthStore } from "@/stores/authStore";
 import {
   sanitizeInput,
@@ -99,8 +100,12 @@ function ResetPasswordInner() {
   const handleResend = async () => {
     try {
       await forgotPassword(email);
-      setSuccessText("A new password reset code has been sent to your email.");
-      setShowSuccess(true);
+      // Toast, not the modal — this is the same "we sent you a code" moment
+      // AuthToast already covers for the initial forgot-password request,
+      // just happening again. The modal stays reserved for the one trigger
+      // on this page that's a genuinely different kind of event: the
+      // password actually being reset.
+      notifyAuthToast("code-sent");
       setResendIn(30);
       setDigits(Array(LIMITS.otp).fill(""));
       setWrong(false);

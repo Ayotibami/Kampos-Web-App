@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { OtpInputs } from "@/components/ui/OtpInputs";
 import { LinkText } from "@/components/ui/LinkText";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
+import { notifyAuthToast } from "@/components/auth/AuthToast";
 import { useAuthStore } from "@/stores/authStore";
 import { destinationFor } from "@/lib/authGate";
 import { apiErrorMessage } from "@/lib/api";
@@ -63,6 +64,7 @@ export function VerifyOtpForm() {
   const handleVerify = async () => {
     try {
       const state = await verifyOtp({ email, code });
+      notifyAuthToast("otp-verified");
       router.replace(destinationFor(state));
     } catch (err) {
       const msg = apiErrorMessage(err, "Invalid code");

@@ -1,9 +1,72 @@
 import { create } from "zustand";
 import { api, apiGet, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
 import { wsClient } from "@/lib/ws";
+import { enqueue, getQueuedActions } from "@/lib/offlineQueue";
+import { useAuthStore } from "@/stores/authStore";
 import type { Comment, ReactionType } from "@/types";
 
 const COMMENTS_PAGE_SIZE = 20; // matches the backend's own default page size
+
+/** Builds the same optimistic placeholder shape whether it's coming from
+ *  create()'s own offline branch (a comment you're posting right now) or
+ *  the pending-comment overlay below (rebuilding one after a reload found
+ *  it still sitting in the offline queue) — same fields, same look. `idKey`
+ *  is whatever makes this call's id stable: create() uses a fresh
+ *  crypto.randomUUID() since it's a genuinely new comment; the overlay
+ *  uses the queued action's own id so re-running the overlay (e.g. a pull-
+ *  to-refresh while still offline) produces the exact same comment_id
+ *  instead of a new one each time. */
+function buildOfflineComment(gistId: string, text: string, idKey: string, createdAtMs: number): Comment {
+  const { avitag: myAvitag, profiles } = useAuthStore.getState();
+  const myProfile = profiles.find((p) => p.avitag === myAvitag);
+  return {
+    comment_id: `offline-${idKey}`,
+    gist_id: gistId,
+    text,
+    avitag: myAvitag ?? undefined,
+    // The moment it was actually queued, not "now" — see gistStore's
+    // buildOfflineGist for the identical reasoning. Without this, a
+    // comment reconstructed after a reload well after the fact would show
+    // as posted "just now" instead of however long ago it really was.
+    commented_at: new Date(createdAtMs).toISOString(),
+    reactions_count: 0,
+    my_reaction: null,
+    first_name: (myProfile?.first_name as string | undefined) ?? null,
+    last_name: (myProfile?.last_name as string | undefined) ?? null,
+    campus_tag: (myProfile?.campus_tag as string | undefined) ?? null,
+    major_tag: (myProfile?.major_tag as string | undefined) ?? null,
+    level: (myProfile?.level as number | undefined) ?? null,
+    image_url: (myProfile?.image_url as string | undefined) ?? null,
+  };
+}
+
+/** Mirrors gistStore's applyPendingReactionOverlay — a comment posted while
+ *  offline lives only in the queue (durable) and, until now, component
+ *  state (gone on reload). Groups every still-queued create-comment action
+ *  by gist_id, newest first per gist to match the real feed's own newest-
+ *  first order, so callers can prepend them onto whatever real comments
+ *  they already have. */
+async function getPendingCommentsByGist(): Promise<Map<string, Comment[]>> {
+  const map = new Map<string, Comment[]>();
+  try {
+    const queued = await getQueuedActions();
+    for (const action of queued) {
+      if (action.type !== "create-comment") continue;
+      const gistId = action.payload.gist_id;
+      const text = action.payload.text;
+      if (typeof gistId !== "string" || typeof text !== "string") continue;
+      const comment = buildOfflineComment(gistId, text, action.id, action.ts);
+      // Queue is oldest-first; unshift so the final per-gist array ends up
+      // newest-first, same convention the real /comments/gist endpoint uses.
+      const list = map.get(gistId);
+      if (list) list.unshift(comment);
+      else map.set(gistId, [comment]);
+    }
+  } catch {
+    // IndexedDB unavailable — skip the overlay rather than fail the fetch.
+  }
+  return map;
+}
 
 interface CommentState {
   /** Keyed by gist_id — comments are never thrown away on switching gists,
@@ -75,12 +138,18 @@ export const useCommentStore = create<CommentState>((set, get) => ({
     try {
       const data =
         (await apiGet<Comment[]>(`/comments/gist/${encodeURIComponent(gistId)}`, { params })) ?? [];
+      // Rebuild any comment still sitting in the offline queue for this
+      // gist — real data always wins underneath it, this just puts the
+      // still-pending one back on top of it, same as it looked before a
+      // reload wiped the in-memory copy.
+      const pending = (await getPendingCommentsByGist()).get(gistId) ?? [];
+      const withPending = pending.length ? [...pending, ...data] : data;
       set((s) => ({
-        itemsByGist: { ...s.itemsByGist, [gistId]: data },
+        itemsByGist: { ...s.itemsByGist, [gistId]: withPending },
         loadingByGist: { ...s.loadingByGist, [gistId]: false },
         hasMoreByGist: { ...s.hasMoreByGist, [gistId]: data.length >= COMMENTS_PAGE_SIZE },
       }));
-      return data;
+      return withPending;
     } catch (err) {
       // Leave itemsByGist untouched on failure (not "cached" as empty) —
       // errorByGist is what actually tells the panel this was a real
@@ -106,12 +175,24 @@ export const useCommentStore = create<CommentState>((set, get) => ({
         params: { gist_ids: uncached.join(","), limit },
       });
       if (res) {
+        // Same overlay as listByGist — a prefetched gist populates
+        // itemsByGist too, so without this, opening a comment panel for a
+        // gist that was only ever prefetched (not individually fetched via
+        // listByGist) would skip the pending-comment overlay entirely,
+        // since listByGist's own cache check returns early once this has
+        // already filled the slot.
+        const pendingByGist = await getPendingCommentsByGist();
+        const withPending: Record<string, Comment[]> = {};
+        for (const [id, comments] of Object.entries(res)) {
+          const pending = pendingByGist.get(id);
+          withPending[id] = pending?.length ? [...pending, ...comments] : comments;
+        }
         set((s) => {
           const hasMoreByGist = { ...s.hasMoreByGist };
           for (const [id, comments] of Object.entries(res)) {
             hasMoreByGist[id] = comments.length >= limit;
           }
-          return { itemsByGist: { ...s.itemsByGist, ...res }, hasMoreByGist };
+          return { itemsByGist: { ...s.itemsByGist, ...withPending }, hasMoreByGist };
         });
       }
     } catch {
@@ -149,16 +230,46 @@ export const useCommentStore = create<CommentState>((set, get) => ({
   },
 
   create: async (payload) => {
+    // Offline — queue it and show an optimistic comment immediately, same
+    // pattern as gistStore.create(). No error, no "still saving" caveat
+    // needed here the way an offline gist gets one: unlike a gist (which
+    // needs its own real gist_id to be shareable/reactable before it's
+    // synced), a comment has nothing else waiting on it, so it can just
+    // look sent.
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      const queued = await enqueue({ type: "create-comment", payload: { gist_id: payload.gist_id, text: payload.text } });
+      const optimistic = buildOfflineComment(payload.gist_id, payload.text, queued.id, queued.ts);
+      set((s) => ({
+        itemsByGist: {
+          ...s.itemsByGist,
+          [payload.gist_id]: [optimistic, ...(s.itemsByGist[payload.gist_id] ?? [])],
+        },
+      }));
+      return optimistic;
+    }
     try {
       const res = await api.post<ApiEnvelope<Comment>>("/comments", payload);
       const created = res.data?.data;
       if (created) {
-        set((s) => ({
-          itemsByGist: {
-            ...s.itemsByGist,
-            [payload.gist_id]: [created, ...(s.itemsByGist[payload.gist_id] ?? [])],
-          },
-        }));
+        // The backend fires the `comment:created` WS broadcast BEFORE it
+        // even sends this REST response back (see comment.controller.ts) —
+        // a plain WS push reaching the browser is typically faster than a
+        // full HTTP response round trip, so the module-level subscriber
+        // below can easily insert this exact comment first. Its own dedup
+        // check only protects that direction; without the same check
+        // here too, whichever of the two arrives second re-inserts the
+        // same comment_id a second time — a real duplicate in the list,
+        // not just a technicality.
+        set((s) => {
+          const existing = s.itemsByGist[payload.gist_id] ?? [];
+          if (existing.some((c) => c.comment_id === created.comment_id)) return s;
+          return {
+            itemsByGist: {
+              ...s.itemsByGist,
+              [payload.gist_id]: [created, ...existing],
+            },
+          };
+        });
       }
       return created;
     } catch (err) {
@@ -257,8 +368,19 @@ export const useCommentStore = create<CommentState>((set, get) => ({
 // else, on a gist you already have open/cached, slides straight into the
 // list instead of waiting for you to leave and come back. Module-level (not
 // component-level) so it keeps working regardless of which panel is mounted.
+//
+// Dev-mode Fast Refresh re-runs this module every time this file is
+// edited — wsClient is a separate, stable singleton, so without this
+// guard each reload would leave one more stale listener attached to it
+// permanently (same issue fixed in gistStore.ts's own WS subscriptions —
+// see its comment for the full reasoning). Storing the unsubscribe on
+// globalThis, which survives a module reload unlike a plain module-level
+// variable, means each reload tears down its predecessor first.
+const commentWsHandles = globalThis as unknown as { __kamposCommentCreatedUnsub?: () => void };
+commentWsHandles.__kamposCommentCreatedUnsub?.();
+
 if (typeof window !== "undefined") {
-  wsClient.subscribe("comment:created", (payload) => {
+  commentWsHandles.__kamposCommentCreatedUnsub = wsClient.subscribe("comment:created", (payload) => {
     const comment = (payload as { comment?: Comment } | undefined)?.comment;
     if (!comment?.gist_id || !comment?.comment_id) return;
 

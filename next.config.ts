@@ -43,6 +43,22 @@ const csp = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
+  // Every page in this app reads the session cookie (gateServer/
+  // resolveServerAuthState), which makes all of them "dynamic" — Next's
+  // client-side Router cache defaults dynamic pages to a 0s TTL (changed
+  // from 30s as of v15), meaning even the back button re-runs the full
+  // auth-check + data fetch instead of reusing what was already fetched
+  // moments ago. 5 minutes matches DEFAULT_CACHE_TTL_MS in dataCache.ts —
+  // this app already treats 5 minutes as its feed freshness window, so
+  // this doesn't trade away anything reactions/comments/counts don't
+  // already cover live over the websocket, or a genuinely new gist doesn't
+  // already surface through the separate "new gists" pill regardless.
+  experimental: {
+    staleTimes: {
+      dynamic: 5 * 60,
+    },
+  },
+
   // Import `.svg` files as React components (SVGR) under both Turbopack (dev) and webpack (build).
   turbopack: {
     rules: {

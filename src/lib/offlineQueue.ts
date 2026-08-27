@@ -1,12 +1,13 @@
 /**
  * Offline mutation queue — persists write operations (create/update/delete
- * gist) in IndexedDB when the network is unavailable, then replays them in
- * order when connectivity returns.
+ * gist, react/unreact, create-comment) in IndexedDB when the network is
+ * unavailable, then replays them in order when connectivity returns.
  *
  * Integration points:
- *  - gistStore.create / update / delete check `navigator.onLine` and fall
- *    through to `enqueue()` when offline, returning an optimistic result so
- *    the UI updates immediately.
+ *  - gistStore.create/update/delete/react/unreact and commentStore.create
+ *    check `navigator.onLine` and fall through to `enqueue()` when offline,
+ *    returning an optimistic result so the UI updates immediately with no
+ *    error shown — offline is a queue, not a failure.
  *  - useNetworkStatus detects a reconnection and calls `flush()`.
  *  - flush() replays queued items oldest-first, invalidating the gist cache
  *    after each successful mutation so the next feed/profile read fetches
@@ -21,7 +22,7 @@ const VERSION = 1;
 
 export interface QueuedAction {
   id: string;
-  type: "create-gist" | "update-gist" | "delete-gist";
+  type: "create-gist" | "update-gist" | "delete-gist" | "react-gist" | "unreact-gist" | "create-comment" | "report-gist";
   payload: Record<string, unknown>;
   ts: number;
   retries: number; // incremented each failed flush, capped at 5
@@ -80,6 +81,29 @@ export async function queueSize(): Promise<number> {
   return p(store.count());
 }
 
+/** Read-only snapshot of everything currently queued, oldest first — same
+ *  ordering flush() itself replays in. Used to reconstruct optimistic UI
+ *  (a pending reaction, a pending comment) after a reload that happened
+ *  while still offline, when the in-memory state those UIs normally read
+ *  from has been wiped but the queue itself (durable, in IndexedDB) hasn't.
+ *  Never mutates the queue — this is purely a read. */
+export async function getQueuedActions(): Promise<QueuedAction[]> {
+  const store = await tx("readonly");
+  const all = await p<QueuedAction[]>(store.getAll());
+  return all.sort((a, b) => a.ts - b.ts);
+}
+
+// A flaky connection can fire the browser's `online` event more than once
+// in quick succession — each one calls flush() independently (see
+// OfflineSync). Without this guard, two overlapping passes could both read
+// the same queued items before either deletes them, then both replay them:
+// harmless for idempotent actions (react/unreact upsert-or-delete by
+// avitag), but a real problem for create-comment/create-gist, which have
+// no dedup key on the server — a double-flush there means genuinely
+// posting the same comment or gist twice. A concurrent caller just awaits
+// the pass already in flight instead of starting a second one.
+let inFlight: Promise<void> | null = null;
+
 /** Replay all queued mutations in FIFO order. Each successful mutation is
  *  removed from the queue. A failing mutation is skipped (its error is
  *  logged) so it doesn't block the rest of the queue.
@@ -87,45 +111,53 @@ export async function queueSize(): Promise<number> {
  *  `executor` is the store's real network method (e.g. gistStore.create).
  *  `onProgress` fires after each item so the UI can update.
  */
-export async function flush(
+export function flush(
   executor: (action: QueuedAction) => Promise<unknown>,
   onProgress?: (remaining: number) => void,
 ): Promise<void> {
-  // Read all queued items under a fast readonly transaction, then close
-  // it before making any network calls — holding a readwrite txn across
-  // a potentially slow API request would cause the txn to auto-close,
-  // leaving items permanently stuck in the queue.
-  const all = await (async () => {
-    const store = await tx("readonly");
-    return p<QueuedAction[]>(store.getAll());
-  })();
-  all.sort((a, b) => a.ts - b.ts);
-
-  let remaining = all.length;
-  for (const action of all) {
+  if (inFlight) return inFlight;
+  inFlight = (async () => {
     try {
-      await executor(action);
-      const delStore = await tx("readwrite");
-      await p(delStore.delete(action.id));
-    } catch (err) {
-      console.error("[offline-queue] replay failed:", action.type, err);
-      // Increment retries and drop if it's failed too many times (stale
-      // token, deleted gist it references, etc.). Otherwise leave in queue
-      // for the next flush attempt.
-      action.retries++;
-      if (action.retries >= MAX_RETRIES) {
-        const delStore = await tx("readwrite");
-        await p(delStore.delete(action.id));
-      } else {
-        const updStore = await tx("readwrite");
-        await p(updStore.put(action));
-      }
-    }
-    remaining--;
-    onProgress?.(remaining);
-  }
+      // Read all queued items under a fast readonly transaction, then close
+      // it before making any network calls — holding a readwrite txn across
+      // a potentially slow API request would cause the txn to auto-close,
+      // leaving items permanently stuck in the queue.
+      const all = await (async () => {
+        const store = await tx("readonly");
+        return p<QueuedAction[]>(store.getAll());
+      })();
+      all.sort((a, b) => a.ts - b.ts);
 
-  await cacheDeleteMatching(/^GET:\/gists/);
+      let remaining = all.length;
+      for (const action of all) {
+        try {
+          await executor(action);
+          const delStore = await tx("readwrite");
+          await p(delStore.delete(action.id));
+        } catch (err) {
+          console.error("[offline-queue] replay failed:", action.type, err);
+          // Increment retries and drop if it's failed too many times (stale
+          // token, deleted gist it references, etc.). Otherwise leave in
+          // queue for the next flush attempt.
+          action.retries++;
+          if (action.retries >= MAX_RETRIES) {
+            const delStore = await tx("readwrite");
+            await p(delStore.delete(action.id));
+          } else {
+            const updStore = await tx("readwrite");
+            await p(updStore.put(action));
+          }
+        }
+        remaining--;
+        onProgress?.(remaining);
+      }
+
+      await cacheDeleteMatching(/^GET:\/gists/);
+    } finally {
+      inFlight = null;
+    }
+  })();
+  return inFlight;
 }
 
 /** Clear the queue entirely (e.g. on logout). */

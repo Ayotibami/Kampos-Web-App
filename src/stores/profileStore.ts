@@ -104,7 +104,7 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     const key = `GET:/profiles/students/${avitag}`;
     set({ loading: true, error: null });
     try {
-      // Cache-first: if we have a fresh cached profile (≤30s), return it
+      // Cache-first: if we have a fresh cached profile (≤5min), return it
       // immediately and refresh in the background.
       const cached = await cacheGet<Profile>(key);
       if (cached) {

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/FeedbackModal";
+import { LogOut } from "@/components/ui/icons";
 import { useAuthStore } from "@/stores/authStore";
 
 /** The logout trigger + its confirm modal, shared by the mobile Settings
@@ -30,6 +31,7 @@ export function LogoutAction({ fullWidth = false }: { fullWidth?: boolean }) {
         message="You go need login again next time you wan gist."
         confirmLabel="Log Out"
         loading={loggingOut}
+        icon={<LogOut size={24} strokeWidth={2} />}
       />
       <Button
         variant="secondary"

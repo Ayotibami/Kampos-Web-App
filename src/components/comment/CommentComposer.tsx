@@ -84,6 +84,17 @@ export function CommentComposer({
     const clean = sanitizeForSubmit(text);
     if (!clean || !gistId) return;
     if (!requireAuth("leave a comment")) return;
+    // Same reasoning as GistCard's isPending guard on react/share/delete —
+    // an offline-prefixed gist doesn't have a real id on the server yet,
+    // so a comment queued against it now would replay later pointing at
+    // an id that never existed. Queueing comments on gists that were
+    // already synced is fine (handled in commentStore.create); this is
+    // only about the narrower case of commenting on your own post that's
+    // itself still waiting to sync.
+    if (gistId.startsWith("offline-")) {
+      setSendError("Still saving this gist — you can comment once it's back online and synced.");
+      return;
+    }
     setSending(true);
     try {
       await create({ gist_id: gistId, text: clean });

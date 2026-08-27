@@ -9,16 +9,27 @@ import {
 } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { motion, useAnimationControls } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
 import { Avatar } from "@/components/ui/Avatar";
+import { MediaImage } from "@/components/ui/MediaFrame";
 import { Modal } from "@/components/ui/Modal";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ProfileGistCard } from "@/components/gist/ProfileGistCard";
 import { ProfileGistCardSkeleton } from "@/components/gist/ProfileGistCardSkeleton";
-import { CreateGistSheet } from "@/components/gist/CreateGistSheet";
 import { CommentPanel } from "@/components/comment/CommentPanel";
-import { CommentSheet } from "@/components/comment/CommentSheet";
+
+// See FeedContent.tsx's identical dynamic() calls for the full reasoning —
+// same controlled-dialog pattern, same split-out-of-the-main-chunk benefit.
+const CreateGistSheet = dynamic(
+  () => import("@/components/gist/CreateGistSheet").then((m) => m.CreateGistSheet),
+  { ssr: false },
+);
+const CommentSheet = dynamic(
+  () => import("@/components/comment/CommentSheet").then((m) => m.CommentSheet),
+  { ssr: false },
+);
 import {
   ArrowLeft,
   Plus,
@@ -46,7 +57,12 @@ const BOARD_TONE = {
 // The three info boards' one-time entrance ("jump" into place) and their
 // recurring little re-bounce afterward, every BOUNCE_INTERVAL_MS — a small
 // idle nudge to keep the pinboard feeling alive, not just a static entrance.
-const JUMP_IN_SPRING = { type: "spring", stiffness: 380, damping: 14 } as const;
+// Tighter/less bouncy than a "textbook" spring feel (higher damping relative
+// to stiffness) specifically so the entrance reads as snappy rather than
+// floaty — the original 380/14 pairing was underdamped enough that each
+// card visibly overshot and settled slowly, which is what made the whole
+// staggered sequence feel like it was "taking time" rather than popping in.
+const JUMP_IN_SPRING = { type: "spring", stiffness: 500, damping: 28 } as const;
 const REBOUNCE = {
   y: [0, -6, 0],
   scale: [1, 1.05, 1],
@@ -211,8 +227,7 @@ function AvatarLightbox({
       >
         <X className="h-4 w-4" />
       </button>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
+      <MediaImage
         src={src}
         alt=""
         onClick={onClose}
@@ -243,11 +258,15 @@ export function ProfileView({
   profile,
   isOwnProfile,
   initialGists,
+  initialGistTotal,
 }: {
   avitag: string;
   profile: Profile;
   isOwnProfile: boolean;
   initialGists: Gist[];
+  /** The real total behind initialGists' pagination (see gist.repo.ts's
+   * countByUser) — undefined only if the server-side fetch itself failed. */
+  initialGistTotal?: number;
 }) {
   const router = useRouter();
   const byUser = useGistStore((s) => s.byUser);
@@ -269,6 +288,19 @@ export function ProfileView({
   // Only fall back to a client-side fetch if the server couldn't deliver
   // (backend was down during SSR).
   const [gists, setGists] = useState<Gist[]>(initialGists);
+  // Mirrors `gists` for the moderation-rejection listener below, which
+  // deliberately has an empty dependency array (see its own comment) and
+  // so would otherwise only ever see the `gists` value from first mount.
+  const gistsRef = useRef(gists);
+  useEffect(() => {
+    gistsRef.current = gists;
+  }, [gists]);
+  // The real total, not gists.length — that's only ever "however many
+  // pages happen to be loaded so far". Falls back to gists.length itself
+  // only if a total was never available at all (e.g. the very first
+  // server-side fetch failed), so the count still shows *something*
+  // sensible rather than blanking out.
+  const [gistTotal, setGistTotal] = useState<number>(initialGistTotal ?? initialGists.length);
   const [gistsError, setGistsError] = useState<string | null>(null);
   // Which avitag `gists`/`gistsError` actually reflect — lets "loading" be
   // derived instead of an explicit synchronous reset at the top of the
@@ -303,9 +335,10 @@ export function ProfileView({
 
     let cancelled = false;
     byUser(avitag, { limit: 30 })
-      .then((data) => {
+      .then(({ items, total }) => {
         if (cancelled) return;
-        setGists(data);
+        setGists(items);
+        setGistTotal(total ?? items.length);
         setGistsError(null);
         setLoadedAvitag(avitag);
         setExhausted(false);
@@ -320,13 +353,65 @@ export function ProfileView({
     };
   }, [avitag, byUser, initialGists, loadedAvitag]);
 
+  // Same live counts/moderation-removal wiring as the main feed — see
+  // FeedContent's own version of this for the full reasoning. This page
+  // keeps its own local `gists` copy too, so it needs the same patching.
+  useEffect(() => {
+    const onCounts = (e: Event) => {
+      const { gist_id, counts } = (e as CustomEvent<{ gist_id: string; counts: Partial<Gist["counts"]> }>).detail;
+      setGists((prev) =>
+        prev.map((g) => (g.gist_id === gist_id ? { ...g, counts: { ...g.counts, ...counts } as Gist["counts"] } : g)),
+      );
+    };
+    const onRejected = (e: Event) => {
+      const { gist_id } = (e as CustomEvent<{ gist_id: string }>).detail;
+      // Only actually decrement if this gist was still in the list —
+      // moderation can broadcast a rejection for a gist this page never had
+      // loaded at all (e.g. it was rejected before ever scrolling that
+      // far), and the total shouldn't drop for a gist it never counted as
+      // visible to begin with. Read from gistsRef, not `gists` — this
+      // listener is mounted once (empty deps below) and would otherwise
+      // only ever see the very first render's gists.
+      const wasPresent = gistsRef.current.some((g) => g.gist_id === gist_id);
+      setGists((prev) => prev.filter((g) => g.gist_id !== gist_id));
+      if (wasPresent) setGistTotal((t) => Math.max(0, t - 1));
+    };
+    window.addEventListener("kampos:gist-counts-updated", onCounts);
+    window.addEventListener("kampos:gist-rejected", onRejected);
+    return () => {
+      window.removeEventListener("kampos:gist-counts-updated", onCounts);
+      window.removeEventListener("kampos:gist-rejected", onRejected);
+    };
+  }, []);
+
+  // Same signal FeedContent listens for (see its own comment) — an
+  // offline-queue flush just landed one or more real reacts/comments/gists
+  // on the server. This page keeps its own local `gists` copy too and
+  // isn't guaranteed to have an open WS connection that caught the
+  // resulting counts:updated broadcast (a long offline stretch can leave
+  // the socket's own reconnect lagging behind the network coming back), so
+  // re-fetch this profile's gists directly rather than relying on that
+  // broadcast alone.
+  useEffect(() => {
+    const onSynced = () => {
+      byUser(avitag, { limit: 30 })
+        .then(({ items, total }) => {
+          setGists(items);
+          setGistTotal(total ?? items.length);
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("kampos:gists-synced", onSynced);
+    return () => window.removeEventListener("kampos:gists-synced", onSynced);
+  }, [avitag, byUser]);
+
   const loadMoreGists = useCallback(async () => {
     if (loadingMore || exhausted || gists.length === 0) return;
     const cursor = gists[gists.length - 1]?.gist_id;
     if (!cursor) return;
     setLoadingMore(true);
     try {
-      const more = await byUser(avitag, { cursor, limit: 30 });
+      const { items: more } = await byUser(avitag, { cursor, limit: 30 });
       if (more.length) setGists((prev) => [...prev, ...more]);
       else setExhausted(true);
       setLoadMoreError(null);
@@ -363,8 +448,10 @@ export function ProfileView({
   // The list itself owns these gists, not any single card — ProfileGistCard
   // fires these after a real delete/edit succeeds so the list reflects it
   // immediately instead of waiting on a refetch.
-  const handleGistDeleted = (gistId: string) =>
+  const handleGistDeleted = (gistId: string) => {
     setGists((prev) => prev.filter((g) => g.gist_id !== gistId));
+    setGistTotal((t) => Math.max(0, t - 1));
+  };
   const handleGistEdited = (fresh: Gist) =>
     setGists((prev) =>
       prev.map((g) => (g.gist_id === fresh.gist_id ? fresh : g)),
@@ -460,7 +547,9 @@ export function ProfileView({
   const levelControls = useAnimationControls();
 
   useEffect(() => {
-    // Staggered on the way in (each card jumps a beat after the last)...
+    // Staggered on the way in (each card jumps a beat after the last) —
+    // halved from the original 0/0.1/0.2s spacing so the full sequence
+    // reads as quick and cascading rather than drawn-out.
     campusControls.start({
       y: 0,
       opacity: 1,
@@ -471,13 +560,13 @@ export function ProfileView({
       y: 0,
       opacity: 1,
       scale: 1,
-      transition: { ...JUMP_IN_SPRING, delay: 0.1 },
+      transition: { ...JUMP_IN_SPRING, delay: 0.05 },
     });
     levelControls.start({
       y: 0,
       opacity: 1,
       scale: 1,
-      transition: { ...JUMP_IN_SPRING, delay: 0.2 },
+      transition: { ...JUMP_IN_SPRING, delay: 0.1 },
     });
 
     // ...but the recurring re-bounce fires all three from the SAME interval
@@ -603,14 +692,16 @@ export function ProfileView({
               behind this wrapper's own plain in-flow children — a
               positioned sibling with z-index:auto would otherwise paint
               ABOVE ordinary in-flow content, not below it, per the normal
-              CSS stacking order. The SVG's own paths are drawn at 8%
-              fill-opacity internally — stacking a low wrapper opacity on
-              top of that compounds to basically nothing; AppShell's
-              "landscape" variant solves this the same way (wrapper opacity
-              in the 45-55% range). */}
+              CSS stacking order. The SVG's own paths are drawn at 14%
+              fill-opacity internally — a wrapper opacity was previously
+              stacked on top of that at 50%, compounding to a barely-visible
+              ~7%, well below every other doodle usage in the app (feed and
+              feed-loading run the wrapper at 100%, comments at 90%). Matched
+              to feed's 100% here instead — no good reason for the profile
+              page specifically to be the faintest one. */}
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-0 -z-10 opacity-[0.5] dark:opacity-[0.4] dark:invert"
+            className="pointer-events-none absolute inset-0 -z-10 opacity-100 dark:opacity-90 dark:invert"
             style={{
               backgroundImage: "url('/brand/doodles.svg')",
               backgroundRepeat: "repeat",
@@ -633,7 +724,31 @@ export function ProfileView({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => router.back()}
+                  onClick={() => {
+                    // Always Feed, deterministically — no router.back()
+                    // fallback. This page can be reached from a lot of
+                    // places (feed, a comment's avatar, another profile,
+                    // Settings, a shared gist link, ...), and back() just
+                    // pops whatever's sitting on top of the real browser
+                    // history stack, which depends on the exact path taken
+                    // to get here — including entries other pages push for
+                    // their own reasons (e.g. Settings' own back button).
+                    // That's what caused a real Profile <-> Settings loop
+                    // before. A fixed destination can't loop.
+                    //
+                    // replace, not push — router.back() is the one
+                    // navigation type Next's App Router skips the
+                    // Suspense/loading.tsx fallback for (avoids a
+                    // scroll-position flash on real history traversal),
+                    // which would otherwise skip past /feed's own
+                    // snapshot-aware loading.tsx (see its own comment) and
+                    // show a multi-second frozen wait instead of the instant
+                    // restore. push/replace are both ordinary client-side
+                    // navigations and go through that path identically —
+                    // replace just does it without also growing the history
+                    // stack on every single visit to a profile.
+                    router.replace("/feed");
+                  }}
                   aria-label="Back"
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
                 >
@@ -870,7 +985,7 @@ export function ProfileView({
                     above its own list — a count means something specific
                     sitting next to what it's actually counting. */}
                     <p className="mb-3 font-nunito text-base font-bold text-ink md:text-lg">
-                      {gists.length} {gists.length === 1 ? "Gist" : "Gists"}
+                      {gistTotal} {gistTotal === 1 ? "Gist" : "Gists"}
                     </p>
                     <ul className="flex flex-col gap-3">
                       {gists.map((g) => (
@@ -957,7 +1072,10 @@ export function ProfileView({
         <CreateGistSheet
           open={showCreate}
           onClose={() => setShowCreate(false)}
-          onPosted={(fresh) => setGists((prev) => [fresh, ...prev])}
+          onPosted={(fresh) => {
+            setGists((prev) => [fresh, ...prev]);
+            setGistTotal((t) => t + 1);
+          }}
         />
       )}
 

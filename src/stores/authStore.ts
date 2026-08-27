@@ -42,6 +42,16 @@ interface AuthState {
   profileType: ProfileType | null;
   loading: boolean;
   error: string | null;
+  /** True when the most recent resolution found NO account, but this
+   * browser had a persisted avitag from a previously real, profile-bound
+   * session — i.e. this isn't a fresh visitor, their session genuinely
+   * died (refresh token revoked, or — the case that surfaced this — the
+   * account itself no longer exists on whatever database the backend is
+   * currently pointed at). Lets the UI say something honest ("your session
+   * expired") instead of the generic first-time-visitor prompt, which is
+   * actively misleading for someone who very much already has an account.
+   * Cleared the moment a real resolution finds an account again. */
+  sessionExpired: boolean;
 
   setProfileMeta: (meta: {
     avitag?: string | null;
@@ -107,6 +117,7 @@ export const useAuthStore = create<AuthState>()(
       profileType: null,
       loading: false,
       error: null,
+      sessionExpired: false,
 
       setProfileMeta: (meta) =>
         set({
@@ -114,8 +125,24 @@ export const useAuthStore = create<AuthState>()(
           profileType: normalizeProfileType(meta.profileType),
         }),
 
-      hydrateFromServer: ({ state, account, profiles }) =>
-        set({ user: account, profiles, authState: state, loading: false }),
+      hydrateFromServer: ({ state, account, profiles }) => {
+        // avitag is the one field that survives a reload (persisted to
+        // localStorage) — a non-null value here means this browser
+        // previously completed a real, profile-bound login. If the server
+        // just resolved "no account" anyway, that's not a fresh visitor,
+        // it's a session that died out from under them. Consumed once
+        // (avitag cleared) so it doesn't keep re-flagging on every
+        // subsequent guest-page visit.
+        const wasOrphaned = !account && get().avitag !== null;
+        set({
+          user: account,
+          profiles,
+          authState: state,
+          loading: false,
+          sessionExpired: wasOrphaned,
+          ...(wasOrphaned ? { avitag: null, profileType: null } : {}),
+        });
+      },
 
       register: async (payload) => {
         set({ loading: true, error: null });
@@ -146,6 +173,10 @@ export const useAuthStore = create<AuthState>()(
       },
 
       resolveAuthState: async () => {
+        // Captured before anything below can overwrite it — see
+        // hydrateFromServer's own comment for why a persisted avitag is
+        // the reliable "this browser had a real session" signal.
+        const hadPersistedAvitag = get().avitag !== null;
         set({ loading: true, error: null });
         try {
           // skipUnauthorizedEvent: a 401 here just means "not logged in" —
@@ -200,6 +231,10 @@ export const useAuthStore = create<AuthState>()(
             avitag,
             profileType,
             loading: false,
+            // Cleared the instant a real account resolves again (e.g. a
+            // fresh login right after), flagged when one that used to be
+            // real just vanished — never both at once.
+            sessionExpired: !account && hadPersistedAvitag,
           });
           return authState;
         } catch (err) {
@@ -227,7 +262,10 @@ export const useAuthStore = create<AuthState>()(
                 user: null,
                 profiles: [],
                 authState: "guest",
+                avitag: null,
+                profileType: null,
                 loading: false,
+                sessionExpired: hadPersistedAvitag,
               });
               return "guest";
             }
@@ -347,6 +385,18 @@ export const useAuthStore = create<AuthState>()(
         } catch {
           /* best-effort */
         }
+        // Same reasoning as logout()'s own clearQueue — doubly so here,
+        // since the account itself is gone: nothing queued under it should
+        // ever flush later under whoever uses this browser next.
+        import("@/lib/offlineQueue")
+          .then((m) => m.clearQueue())
+          .catch(() => {});
+        // Same reasoning as logout()'s own feedSnapshot clear below — a
+        // deleted account's campus-filtered Gist-tab snapshot should never
+        // get restored for whoever uses this browser next.
+        import("@/stores/gistStore")
+          .then((m) => m.useGistStore.setState({ feedSnapshot: null }))
+          .catch(() => {});
         set({
           user: null,
           profiles: [],
@@ -355,6 +405,7 @@ export const useAuthStore = create<AuthState>()(
           profileType: null,
           loading: false,
           error: null,
+          sessionExpired: false,
         });
       },
 
@@ -367,6 +418,26 @@ export const useAuthStore = create<AuthState>()(
            * but the local store treating the session as gone is still the
            * right call from the UI's perspective. */
         }
+        // The offline queue has no per-account scoping — it's keyed by
+        // device, not by who was logged in when something got queued.
+        // Without clearing it here, a still-pending reaction/comment from
+        // this account would flush under whoever logs in next on this same
+        // browser, and — since gistStore/commentStore now reconstruct
+        // pending actions visually from the queue after a reload — the
+        // next person could even *see* this account's unsent comment
+        // displayed as their own before it ever sends. Best-effort: a
+        // failure here shouldn't block logout itself.
+        import("@/lib/offlineQueue")
+          .then((m) => m.clearQueue())
+          .catch(() => {});
+        // A restored feed snapshot is tied to whoever was logged in when it
+        // was saved (the Gist tab is filtered to their own campus server-
+        // side) — without clearing this, the next person to log in on this
+        // browser could land on a feed silently scoped to a campus that
+        // isn't theirs, never having actually fetched it themselves.
+        import("@/stores/gistStore")
+          .then((m) => m.useGistStore.setState({ feedSnapshot: null }))
+          .catch(() => {});
         set({
           user: null,
           profiles: [],
@@ -374,6 +445,7 @@ export const useAuthStore = create<AuthState>()(
           avitag: null,
           profileType: null,
           error: null,
+          sessionExpired: false,
         });
       },
     }),

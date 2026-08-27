@@ -6,6 +6,7 @@ import { SettingsPageShell } from "@/components/settings/SettingsPageShell";
 import { TextInput } from "@/components/ui/TextInput";
 import { Button } from "@/components/ui/Button";
 import { ErrorModal, SuccessModal, ConfirmModal } from "@/components/ui/FeedbackModal";
+import { AlertTriangle } from "@/components/ui/icons";
 import { PasswordChecklist, isPasswordValid } from "@/components/ui/PasswordChecklist";
 import { validatePassword, passwordsMatch, sanitizeInput } from "@/lib/validation";
 import { apiErrorMessage } from "@/lib/api";
@@ -101,6 +102,7 @@ export function AccountManagementForm() {
         title="Deactivate your account?"
         message="This go log you out and deactivate your Kampos account. Nothing dey delete right away — reach out to us if you change your mind."
         confirmLabel="Deactivate"
+        icon={<AlertTriangle size={24} strokeWidth={2} />}
         loading={deactivating}
       />
       <SettingsPageShell title="Account" backHref="/settings">

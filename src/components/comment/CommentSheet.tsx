@@ -32,6 +32,12 @@ export function CommentSheet({
   const itemsByGist = useCommentStore((s) => s.itemsByGist);
   const errorByGist = useCommentStore((s) => s.errorByGist);
   const items = (gist?.gist_id && itemsByGist[gist.gist_id]) || [];
+  // The gist's own backend-authoritative total, not how many happen to be
+  // loaded into the store yet — this list only ever loads one page (20) at
+  // a time, so items.length alone under-counts the moment a gist has more
+  // than that. Falls back to items.length only for a gist with no counts
+  // yet at all (e.g. a freshly-created offline-queued gist).
+  const commentCount = gist?.counts?.comments_count ?? items.length;
   // Same distinction CommentPanel draws (see its own comment) — cached
   // means a fetch actually resolved for this gist, so a bare
   // `items.length === 0` can't be trusted as "truly empty" while still loading.
@@ -63,7 +69,7 @@ export function CommentSheet({
           {/* Header */}
           <div className="relative flex shrink-0 items-center justify-center border-b border-line bg-brand/[0.04] px-5 py-4 backdrop-blur-sm dark:border-white/10 dark:bg-brand-ink/85">
             <span className="font-nunito text-sm font-medium text-ink dark:text-white">
-              {items.length} {items.length === 1 ? "Comment" : "Comments"}
+              {commentCount} {commentCount === 1 ? "Comment" : "Comments"}
             </span>
             <button
               type="button"

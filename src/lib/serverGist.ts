@@ -101,9 +101,14 @@ export async function fetchFeedGists(): Promise<Gist[]> {
 /**
  * Server-side fetch for a profile page's first page of gists — same pattern
  * as fetchFeedGists but scoped to a specific user's avitag. Returns an empty
- * array on any failure so the client component can fall back gracefully.
+ * array (and no total) on any failure so the client component can fall back
+ * gracefully. `total` is the backend's real count behind this avitag's
+ * pagination (see gist.repo.ts's countByUser) — only present because this is
+ * always the first, cursor-less page.
  */
-export async function fetchUserGists(avitag: string): Promise<Gist[]> {
+export async function fetchUserGists(
+  avitag: string,
+): Promise<{ gists: Gist[]; total?: number }> {
   try {
     const cookieStore = await cookies();
     const cookieHeader = cookieStore.toString();
@@ -114,10 +119,10 @@ export async function fetchUserGists(avitag: string): Promise<Gist[]> {
         cache: "no-store",
       },
     );
-    if (!res.ok) return [];
-    const json = (await res.json()) as { data?: Gist[] };
-    return normalizeGists(json.data ?? []);
+    if (!res.ok) return { gists: [] };
+    const json = (await res.json()) as { data?: Gist[]; total?: number };
+    return { gists: normalizeGists(json.data ?? []), total: json.total };
   } catch {
-    return [];
+    return { gists: [] };
   }
 }

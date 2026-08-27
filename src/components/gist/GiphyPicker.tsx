@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { MediaImage } from "@/components/ui/MediaFrame";
 import { Illustration } from "@/components/brand/illustrations";
 import { X, Search, Check } from "@/components/ui/icons";
 import { fetchTrending, searchGiphy, type GiphyItem } from "@/lib/giphy";
@@ -183,12 +184,16 @@ export function GiphyPicker({
                         onClick={() => toggle(item)}
                         className="relative mb-2 block w-full overflow-hidden rounded-xl transition active:scale-95"
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
+                        <MediaImage
                           src={item.previewUrl}
                           alt={item.description}
                           loading="lazy"
-                          className={`w-full rounded-xl transition ${isSelected ? "ring-4 ring-brand" : ""}`}
+                          // Sized from GIPHY's own reported dimensions before the
+                          // thumbnail loads — gives the grey placeholder a real
+                          // box in this masonry grid instead of collapsing to 0
+                          // height, and avoids a layout jump once it loads.
+                          style={item.width && item.height ? { aspectRatio: `${item.width} / ${item.height}` } : undefined}
+                          className={`block w-full rounded-xl object-cover transition ${isSelected ? "ring-4 ring-brand" : ""}`}
                         />
                         {isSelected && (
                           <span className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-brand shadow">

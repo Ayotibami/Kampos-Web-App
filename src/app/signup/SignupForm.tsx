@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 import { LinkText } from "@/components/ui/LinkText";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
+import { notifyAuthToast } from "@/components/auth/AuthToast";
 import { PasswordChecklist, isPasswordValid } from "@/components/ui/PasswordChecklist";
 import { useAuthStore } from "@/stores/authStore";
 import { destinationFor } from "@/lib/authGate";
@@ -67,6 +68,7 @@ export function SignupForm() {
       // cookies on this response) — just unverified, so this always lands
       // on /verify-otp next, no separate re-login step needed.
       const state = await register({ email: cleanEmail, password: cleanPassword });
+      notifyAuthToast("signup");
       router.replace(destinationFor(state));
     } catch (err) {
       fail(apiErrorMessage(err, "Registration failed"));

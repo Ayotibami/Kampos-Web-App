@@ -19,7 +19,10 @@ import type { Comment, Gist } from "@/types";
  * name/handle, time/course, body lines) so the list previews "comments are
  * coming" instead of generic pulsing blocks.
  */
-function CommentSkeletonItem({ short }: { short?: boolean }) {
+/** Exported so route-level loading.tsx files (feed, profile) can build a
+ * pixel-matching CommentPanel skeleton without duplicating this markup —
+ * see CommentPanelSkeleton.tsx. */
+export function CommentSkeletonItem({ short }: { short?: boolean }) {
   return (
     <li className="relative ml-3 animate-pulse">
       <svg
@@ -259,6 +262,15 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
 
   const handleCommentReact = async (commentId: string, gistId: string, alreadyReacted: boolean) => {
     if (!requireAuth("react to comments")) return;
+    // Same reasoning as GistCard's isPending guard on an offline-created
+    // gist: this comment doesn't have a real id on the server yet (it's a
+    // placeholder rebuilt from the offline queue — see commentStore's
+    // buildOfflineComment), so a reaction against it right now would just
+    // 404 against an id that doesn't exist anywhere but this tab.
+    if (commentId.startsWith("offline-")) {
+      setReactError("Still sending this comment — you can react to it once it's back online and synced.");
+      return;
+    }
     try {
       if (alreadyReacted) await unreactComment(commentId, gistId);
       else await reactComment(commentId, gistId, "LOVE");

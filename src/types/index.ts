@@ -111,6 +111,20 @@ export interface Gist {
   /** Whether the viewer already reported this gist — persisted server-side,
    * survives reloads (unlike the old session-only "reported" UI state). */
   my_report?: boolean;
+  /** Only present on gists from the ranked main-feed endpoint (listRecent)
+   * — true once the viewer has already reacted to or commented on this
+   * gist, i.e. it's past the "unseen" tier. Used to draw a one-time
+   * "you're caught up" divider at the point the feed crosses from fresh
+   * content into reruns. Absent (not false) on gists from any other
+   * endpoint (a profile page, a shared link, etc.), which aren't ranked
+   * this way at all. */
+  _feed_seen?: boolean;
+  /** Only present on gists from the ranked main-feed endpoint — an opaque
+   * pagination token for this gist's position in the ranked order. Treat
+   * it as a black box: read it off the last gist in a page and hand it
+   * back verbatim as the next page's `cursor`, same as a plain gist_id
+   * used to be handed back before the feed was ranked. */
+  _feed_cursor?: string;
   [key: string]: unknown;
 }
 

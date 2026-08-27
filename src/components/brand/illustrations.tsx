@@ -4,8 +4,16 @@ import type { FC, SVGProps } from "react";
 // True vector art — genuinely worth importing as inline SVG components
 // (SVGR) so it scales crisply and can be styled/animated. Source files
 // copied from the mobile app.
-import Kamill from "@/assets/illustrations/Kamill.svg";
-import Doodles from "@/assets/illustrations/doodles.svg";
+//
+// doodles.svg is deliberately NOT registered here even though it's real
+// vector art too — at 152KB, SVGR inlining it made it the single largest
+// JS chunk in the whole app (440KB+ once bundled), shipped to every page
+// using this registry even for callers that render a totally different
+// name. Every current use of it (AppShell's feed backdrop, CommentPanel/
+// CommentSheet's tiled pattern) just points a plain <img>/CSS
+// background-image at public/brand/doodles.svg (a byte-identical copy)
+// instead — a normal cached network request, not JS bundle weight.
+
 import Doodlecard from "@/assets/illustrations/doddlecard.svg";
 import Commentmodal from "@/assets/illustrations/commentmodal.svg";
 import Commenticon from "@/assets/illustrations/commenticon.svg";
@@ -26,10 +34,9 @@ import Kappywithphone from "@/assets/illustrations/Kappywithphone.webp";
 import Kappywithfood from "@/assets/illustrations/Kappywithfood.webp";
 import Kappywithwire from "@/assets/illustrations/Kappywithwire.webp";
 import Kappymagnifyingglass from "@/assets/illustrations/Kappymagnifyingglass.webp";
+import KappyWaving from "@/assets/illustrations/KappyWaving.webp";
 
 const VECTOR_ILLUSTRATIONS = {
-  Kamill,
-  Doodles,
   Doodlecard,
   Commentmodal,
   Commenticon,
@@ -43,13 +50,16 @@ const RASTER_ILLUSTRATIONS = {
   Kappywithfood,
   Kappywithwire,
   Kappymagnifyingglass,
+  KappyWaving,
 };
 
-export type IllustrationName = keyof typeof VECTOR_ILLUSTRATIONS | keyof typeof RASTER_ILLUSTRATIONS;
+export type IllustrationName =
+  | keyof typeof VECTOR_ILLUSTRATIONS
+  | keyof typeof RASTER_ILLUSTRATIONS;
 
 type IllustrationProps = SVGProps<SVGSVGElement> & { name: IllustrationName };
 
-/** Render a brand illustration by name: <Illustration name="Kamill" className="h-64" /> */
+/** Render a brand illustration by name: <Illustration name="Bad" className="h-64" /> */
 export function Illustration({ name, className, ...props }: IllustrationProps) {
   if (name in RASTER_ILLUSTRATIONS) {
     const src = RASTER_ILLUSTRATIONS[name as keyof typeof RASTER_ILLUSTRATIONS];

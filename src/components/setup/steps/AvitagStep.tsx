@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { TextInput } from "@/components/ui/TextInput";
 import { Avatar } from "@/components/ui/Avatar";
 import { Check, X } from "@/components/ui/icons";
-import { ErrorModal, SuccessModal } from "@/components/ui/FeedbackModal";
+import { ErrorModal } from "@/components/ui/FeedbackModal";
+import { WelcomeSheet } from "@/components/setup/WelcomeSheet";
 import { useSetupProfileStore } from "@/stores/setupProfileStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { validateAvitag, normalizeAvitag } from "@/lib/validation";
@@ -191,13 +192,7 @@ export function AvitagStep({
         onClose={() => setShowError(false)}
         message={message}
       />
-      <SuccessModal
-        open={showSuccess}
-        onClose={() => router.replace("/feed")}
-        onConfirm={() => router.replace("/feed")}
-        confirmLabel="Let's Gist"
-        message="Your profile don ready! Welcome to Kampos."
-      />
+      <WelcomeSheet open={showSuccess} onConfirm={() => router.replace("/feed")} />
       <div className="flex flex-col gap-4">
         <TextInput
           value={avitag}

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, type PanInfo } from "framer-motion";
+import { MediaImage, MediaVideo } from "@/components/ui/MediaFrame";
 import {
   X,
   ChevronLeft,
@@ -214,7 +215,7 @@ export function GistMediaOverlay({
           onClick={(e) => e.stopPropagation()}
         >
           {isVideo ? (
-            <video
+            <MediaVideo
               ref={videoRef}
               src={current.media_url}
               poster={current.thumbnail_url}
@@ -244,8 +245,7 @@ export function GistMediaOverlay({
               className="h-full w-full rounded-xl object-contain shadow-2xl shadow-black/60"
             />
           ) : (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <MediaImage
               src={current.media_url}
               alt=""
               className="h-full w-full rounded-xl object-contain shadow-2xl shadow-black/60"

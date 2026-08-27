@@ -1,16 +1,17 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import Lottie from "lottie-react";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
 import { GistMediaOverlay } from "./GistMediaOverlay";
 import { ShortGist, PopActionButton, SHORT_TEXT } from "./GistCard";
 import { ReactionButton } from "./ReactionButton";
-import { CreateGistSheet } from "./CreateGistSheet";
 import { ReportModal } from "./ReportModal";
 import { ShareModal } from "./ShareModal";
 import { ErrorModal, ConfirmModal } from "@/components/ui/FeedbackModal";
+import { MediaImage, MediaVideo } from "@/components/ui/MediaFrame";
 import { apiErrorMessage } from "@/lib/api";
 import { useGistStore } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
@@ -32,7 +33,7 @@ import {
   MuteIconFill,
 } from "@/components/ui/icons";
 import type { Gist, GistMedia, ReactionType } from "@/types";
-import { cloudinarySmartCrop } from "@/lib/cloudinary";
+import { cloudinarySmartCrop, cloudinarySrcSet } from "@/lib/cloudinary";
 import { friendlyDateTime, compactNumber } from "@/lib/format";
 
 // A single photo/video keeps its own real proportions instead of being
@@ -56,6 +57,18 @@ import { friendlyDateTime, compactNumber } from "@/lib/format";
 // know this ahead of time from the gist payload alone (no stored
 // width/height), so MediaTile/VideoTile measure the real element once it
 // loads and only switch to the cropped layout past this point.
+// Controlled dialog, same reasoning as FeedContent.tsx's own dynamic()
+// calls — pulls the compose/edit sheet (+ its nested GiphyPicker/
+// WebcamCapture) out of the profile page's main chunk. Lottie stays eager
+// here on purpose — unlike GistCard.tsx's single, always-gated burst
+// usage, this file also has always-visible resting-state Lottie icons
+// (the mobile satellite cluster, the reaction hero icon) that render as
+// part of every card's default paint; lazy-loading those would show a
+// blank gap on first load instead of the icon.
+const CreateGistSheet = dynamic(() => import("./CreateGistSheet").then((m) => m.CreateGistSheet), {
+  ssr: false,
+});
+
 const EXTREME_ASPECT_RATIO = 0.45;
 
 // Mobile's own reaction set — same 5 as everywhere else, just listed here
@@ -164,6 +177,14 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   const hasMedia = !!gist.media && gist.media.length > 0;
   const isOwn = gist.avitag === avitag;
   const short = (gist.gist_text?.length ?? 0) < SHORT_TEXT && !hasMedia;
+  // Still sitting in the offline queue, not a real gist on the server yet
+  // — same reasoning as GistCard's own isPending (see its comment there).
+  // Missing here until now was a real gap: byUser() overlays a pending
+  // gist onto your own profile the exact same way list() overlays it onto
+  // the feed, but nothing here was guarding react/share against it, so
+  // tapping either would have hit the backend with an id that doesn't
+  // exist — a confusing raw error instead of GistCard's friendly one.
+  const isPending = gist.gist_id.startsWith("offline-");
 
   // Double-tap-to-react — same 300ms window as the feed. Excludes buttons/
   // links AND anything inside the media block (`[data-media-block]`), which
@@ -198,18 +219,54 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     }
   };
 
+  // Left-hand metrics row's reactions_count, same fix as GistCard's own
+  // version — see its comment for the full reasoning. `localReaction`
+  // tracks "have I reacted" independent of which UI actually triggered it
+  // (desktop's ReactionButton or the mobile picker below both call
+  // handleReact/handleUnreact), and the delta reset happens during render
+  // (not in a useEffect) specifically to avoid the "1 → 2 → 1" flicker.
+  const [localReaction, setLocalReaction] = useState<ReactionType | null>(
+    gist.my_reaction ?? null,
+  );
+  const [reactionDelta, setReactionDelta] = useState(0);
+
+  useEffect(() => {
+    setLocalReaction(gist.my_reaction ?? null);
+  }, [gist.my_reaction]);
+
+  const prevReactionsCountRef = useRef(gist.counts?.reactions_count);
+  if (prevReactionsCountRef.current !== gist.counts?.reactions_count) {
+    prevReactionsCountRef.current = gist.counts?.reactions_count;
+    if (reactionDelta !== 0) setReactionDelta(0);
+  }
+
   const handleReact = async (type: ReactionType) => {
+    if (isPending) {
+      setReactError("Still saving — this'll be reactable once it's back online and synced.");
+      return;
+    }
+    const isFirstReaction = localReaction === null;
+    setLocalReaction(type);
+    if (isFirstReaction) setReactionDelta((d) => d + 1);
     try {
       await reactGist(gist.gist_id, type);
     } catch (err) {
+      setLocalReaction(gist.my_reaction ?? null);
+      if (isFirstReaction) setReactionDelta((d) => d - 1);
       setReactError(apiErrorMessage(err, "Failed to react — try again"));
     }
   };
 
   const handleUnreact = async () => {
+    if (isPending) return;
+    const hadReaction = localReaction !== null;
+    setLocalReaction(null);
+    if (hadReaction) setReactionDelta((d) => d - 1);
     try {
       await unreactGist(gist.gist_id);
     } catch (err) {
+      setLocalReaction(gist.my_reaction ?? null);
+      if (hadReaction) setReactionDelta((d) => d + 1);
       setReactError(
         apiErrorMessage(err, "Failed to remove reaction — try again"),
       );
@@ -234,6 +291,37 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   const [mobileDelta, setMobileDelta] = useState<
     Partial<Record<ReactionType, number>>
   >({});
+  // Same fix as MobileReactionBadge/ReactionButton — gist.counts.reactions_by_type
+  // gets a new object reference on EVERY counts:updated broadcast for this
+  // gist, including ones about a view/share/comment that have nothing to
+  // do with reactions (the backend always includes the full breakdown
+  // regardless of what changed). Clearing on any reference change would
+  // wipe a still-pending optimistic bump early if one of those unrelated
+  // broadcasts landed first, so this clears per-type — only for whichever
+  // type's real number actually moved, which also correctly handles a
+  // same-total type switch (both halves move, both clear) without
+  // touching an untouched type. During render, not in a useEffect: an
+  // effect would still commit one visible frame with the fresh prop AND
+  // the stale delta added together first (the "1 → 2 → 1" flicker) before
+  // fixing itself a tick later.
+  const prevReactionsByTypeRef = useRef(gist.counts?.reactions_by_type);
+  if (prevReactionsByTypeRef.current !== gist.counts?.reactions_by_type) {
+    const prevByType = prevReactionsByTypeRef.current;
+    const nowByType = gist.counts?.reactions_by_type;
+    prevReactionsByTypeRef.current = nowByType;
+    let changed = false;
+    const next: typeof mobileDelta = {};
+    for (const type of MOBILE_REACTIONS) {
+      const delta = mobileDelta[type];
+      if (!delta) continue;
+      if ((prevByType?.[type] ?? 0) === (nowByType?.[type] ?? 0)) {
+        next[type] = delta;
+      } else {
+        changed = true;
+      }
+    }
+    if (changed) setMobileDelta(next);
+  }
   const mobileCountFor = (type: ReactionType) =>
     Math.max(
       0,
@@ -303,6 +391,12 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   const shareText = `${shareCaption}\n\n${shareUrl}`;
 
   const handleShare = async () => {
+    // The shareUrl above points at /gist/<offline-id>, which doesn't exist
+    // server-side yet — nothing to share until this post has actually synced.
+    if (isPending) {
+      setReactError("Still saving — you can share this once it's back online and synced.");
+      return;
+    }
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
         await navigator.share({ text: shareText });
@@ -410,7 +504,13 @@ export const ProfileGistCard = memo(function ProfileGistCard({
           {friendlyDateTime(gist.created_at)}
         </span>
 
-        <div ref={actionsRef} className="relative z-20 shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
+          {isPending && (
+            <span className="shrink-0 rounded-full bg-warning/15 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-warning md:text-[11px]">
+              Pending
+            </span>
+          )}
+          <div ref={actionsRef} className="relative z-20 shrink-0">
           <motion.button
             type="button"
             aria-label={showActions ? "Close actions" : "More actions"}
@@ -473,6 +573,7 @@ export const ProfileGistCard = memo(function ProfileGistCard({
               </motion.div>
             )}
           </AnimatePresence>
+          </div>
         </div>
       </div>
 
@@ -540,7 +641,7 @@ export const ProfileGistCard = memo(function ProfileGistCard({
         <div className="no-scrollbar flex min-w-0 items-center gap-3 overflow-x-auto text-faint">
           <span className="flex shrink-0 items-center gap-1 font-nunito text-xs md:text-[13px]">
             <ReactionIconFill size={14} weight="regular" />
-            {compactNumber(gist.counts?.reactions_count)}
+            {compactNumber((gist.counts?.reactions_count ?? 0) + reactionDelta)}
           </span>
           <span className="flex shrink-0 items-center gap-1 font-nunito text-xs md:text-[13px]">
             <ViewIconFill size={14} weight="regular" />
@@ -672,6 +773,7 @@ export const ProfileGistCard = memo(function ProfileGistCard({
         title="Delete this gist?"
         message="This can't be undone — it'll be gone for everyone."
         confirmLabel="Delete"
+        icon={<DeleteIconFill size={26} weight="fill" />}
       />
 
       <ReportModal
@@ -932,9 +1034,12 @@ function MediaTile({
   }
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
+    <MediaImage
       src={cloudinarySmartCrop(item.media_url)}
+      srcSet={cloudinarySrcSet(item.media_url)}
+      // Same real-width cap this tile's column renders at everywhere in the
+      // app: max-w-[740px] from md (768px) up, full viewport width below.
+      sizes="(min-width: 768px) 740px, 100vw"
       alt=""
       onClick={onOpenOverlay}
       onLoad={
@@ -1069,7 +1174,7 @@ function VideoTile({
       }
       onClick={() => setPlaying((p) => !p)}
     >
-      <video
+      <MediaVideo
         ref={videoRef}
         src={item.media_url}
         poster={item.thumbnail_url}

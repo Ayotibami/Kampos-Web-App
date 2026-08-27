@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, type MotionValue } from "framer-motion";
+import { MediaImage, MediaVideo } from "@/components/ui/MediaFrame";
 import { useOverscrollNav } from "@/lib/useOverscrollNav";
 import {
   ChevronDown,
@@ -12,7 +13,7 @@ import {
   ExpandIconFill,
 } from "@/components/ui/icons";
 import type { GistMedia as GistMediaType } from "@/types";
-import { cloudinarySmartCrop } from "@/lib/cloudinary";
+import { cloudinarySmartCrop, cloudinarySrcSet } from "@/lib/cloudinary";
 import { useIsMobile } from "@/lib/useIsMobile";
 
 // Chars are tuned per breakpoint so the slice actually fits within that
@@ -138,9 +139,13 @@ function MediaFrame({
 
   if (!isVideo) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
+      <MediaImage
         src={cloudinarySmartCrop(item.media_url)}
+        srcSet={cloudinarySrcSet(item.media_url)}
+        // Matches the card's own real width: max-w-[740px] from md (768px)
+        // up, full viewport width below it (see GistStack.tsx's own
+        // max-w-[620px] md:max-w-[740px] on the card frame this fills).
+        sizes="(min-width: 768px) 740px, 100vw"
         alt=""
         className={className}
         // <img> is natively draggable by default — on iOS Safari that can
@@ -173,7 +178,7 @@ function MediaFrame({
           : undefined
       }
     >
-      <video
+      <MediaVideo
         ref={videoRef}
         src={item.media_url}
         poster={item.thumbnail_url}
@@ -292,6 +297,7 @@ export function GistMediaBackdrop({
   onNext,
   onPrev,
   touchSurfaceRef,
+  dragY,
 }: {
   media: GistMediaType[];
   blurred?: boolean;
@@ -313,6 +319,10 @@ export function GistMediaBackdrop({
   /** Same shared touch surface (the whole card frame) as GistCard's own
    * call — see useOverscrollNav's docs. */
   touchSurfaceRef: RefObject<HTMLElement | null>;
+  /** Same shared live-position value as GistCard's own call — see
+   * useOverscrollNav's docstring for why one value has to reach every
+   * call site instead of each owning its own. */
+  dragY?: MotionValue<number>;
 }) {
   const items = media.slice(0, 2);
   const isDuo = items.length === 2;
@@ -376,6 +386,7 @@ export function GistMediaBackdrop({
     onNext,
     onPrev,
     enabled: interactive,
+    dragY,
   });
 
   return (
@@ -431,6 +442,7 @@ export function GistMediaBodyPanel({
   onNext,
   onPrev,
   touchSurfaceRef,
+  dragY,
 }: {
   mode: "media" | "text";
   onModeChange: (mode: "media" | "text") => void;
@@ -442,6 +454,9 @@ export function GistMediaBodyPanel({
   /** Same shared touch surface (the whole card frame) as GistMediaBackdrop's
    * own call — see useOverscrollNav's docs. */
   touchSurfaceRef: RefObject<HTMLElement | null>;
+  /** Same shared live-position value as GistMediaBackdrop's own call — see
+   * useOverscrollNav's docstring. */
+  dragY?: MotionValue<number>;
 }) {
   const previewChars = usePreviewChars();
   const { preview, truncated } = previewText(text, previewChars);
@@ -450,6 +465,7 @@ export function GistMediaBodyPanel({
     onNext,
     onPrev,
     enabled: mode === "text",
+    dragY,
   });
 
   return (

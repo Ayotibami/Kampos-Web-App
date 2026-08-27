@@ -83,6 +83,38 @@ export function ReactionButton({
     LAUGH: laughRef,
   };
 
+  // `counts` gets a new object reference on EVERY counts:updated broadcast
+  // for this gist — including ones about a view, a share, or a comment
+  // that have nothing to do with reactions, since the backend always
+  // includes the full reactions_by_type breakdown regardless of what
+  // actually changed. Resetting localDelta on any reference change would
+  // wipe our own still-pending optimistic bump early if one of those
+  // unrelated broadcasts happened to land first. So this clears per-type,
+  // only for whichever type's real number actually moved — that's the
+  // one signal that specific bump has genuinely been absorbed; an
+  // untouched type (including the other half of a same-total type switch)
+  // keeps its pending delta. Doing this during render rather than in a
+  // useEffect avoids a committed frame where the fresh prop and the
+  // stale delta are both still visible together (the "1 → 2 → 1" flicker)
+  // before an effect could catch up a tick later.
+  const prevCountsRef = useRef(counts);
+  if (prevCountsRef.current !== counts) {
+    const prevCounts = prevCountsRef.current;
+    prevCountsRef.current = counts;
+    let changed = false;
+    const next: typeof localDelta = {};
+    for (const { type } of REACTIONS) {
+      const delta = localDelta[type];
+      if (!delta) continue;
+      if ((prevCounts?.[type] ?? 0) === (counts?.[type] ?? 0)) {
+        next[type] = delta;
+      } else {
+        changed = true;
+      }
+    }
+    if (changed) setLocalDelta(next);
+  }
+
   const countFor = (type: ReactionType): number =>
     Math.max(0, (counts?.[type] ?? 0) + (localDelta[type] ?? 0));
 

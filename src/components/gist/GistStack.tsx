@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence, type PanInfo } from "framer-motion";
+import { motion, useMotionValue, useTransform, animate, type PanInfo } from "framer-motion";
 import { GistCard } from "./GistCard";
+import { MediaImage } from "@/components/ui/MediaFrame";
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from "@/components/ui/icons";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { EXIT_DISTANCE_PX, COMMIT_EXIT_S } from "@/lib/useOverscrollNav";
 import type { Gist } from "@/types";
 
 const SWIPE_THRESHOLD = 90; // px of horizontal drag to advance — desktop only, see isMobile below
@@ -16,7 +18,8 @@ const HINT_SEEN_KEY = "kampos-swipe-hint-seen";
 // shrinks the card's own height too. Desktop, with room to spare on both
 // axes, keeps the peek. Mobile only ever mounts the one front card (see
 // GistStack's render below) — no neighbor sits behind it to peek at — but
-// see fallRiseVariants for the transition that plays when it changes.
+// see GistStackCard's own mobile branch for the live-tracked transition
+// that plays when it changes.
 
 /** Resting transform for a card at a given stack offset from the front (0). */
 function slotFor(offset: number) {
@@ -34,29 +37,6 @@ function slotFor(offset: number) {
   const s = slots[Math.min(offset, slots.length - 1)];
   return { ...s, zIndex: 40 - offset };
 }
-
-/**
- * Mobile's whole transition, in three fixed poses — no live tracking, no
- * shared value between cards. `direction` (+1 for "next", -1 for "prev") is
- * fed in via each element's own `custom` prop; Framer runs the outgoing
- * card's `exit` pose and the incoming card's `enter`→`center` transition
- * at the same instant, entirely on its own — see GistStack's use of
- * AnimatePresence below.
- *  - "next": the outgoing card topples left (falling), the incoming card
- *    rises in from the right, straightening as it settles.
- *  - "prev": the mirror image — outgoing topples right, incoming rises
- *    in from the left.
- */
-const fallRiseVariants = {
-  enter: (direction: number) => ({ x: `${direction * 130}%`, rotate: direction * 20 }),
-  center: { x: "0%", rotate: 0 },
-  exit: (direction: number) => ({ x: `${direction * -130}%`, rotate: direction * -20 }),
-};
-// Deliberately quick — a fast, repeated swipe should always feel like it's
-// keeping up, not queuing up a backlog of slow transitions — but not so
-// quick the rotate+translate stops reading as motion at all (tried as low
-// as 100ms; below ~150ms it starts reading as a snap, not a fall/rise).
-const FALL_RISE_TRANSITION = { duration: 0.18, ease: "easeOut" as const };
 
 /**
  * The signature Kampos feed: a horizontal card stack. The front gist can be
@@ -80,6 +60,8 @@ export function GistStack({
   onGistEdited,
   onNearEnd,
   mediaPaused = false,
+  resetToTopSignal,
+  showCampusTag = true,
 }: {
   gists: Gist[];
   /** Opens the stack on a specific gist instead of always the front (index
@@ -103,18 +85,60 @@ export function GistStack({
    * pause for the same reason it already pauses for peeking/inactive cards,
    * not stay playing (and audible) underneath a modal that has focus. */
   mediaPaused?: boolean;
+  /** Bump this (any new value) to snap back to the first card — e.g. after
+   * a pull-to-refresh, where a freshly-fetched list at the same numeric
+   * position you were on would otherwise show a completely different,
+   * effectively random gist with no explanation. A plain length change
+   * doesn't catch this: the refreshed list is usually the same size, just
+   * different contents, so the existing length-based clamp below never
+   * fires for it. */
+  resetToTopSignal?: number;
+  /** Passed straight through to every GistCard — see its own doc comment.
+   * Amebo mixes schools so the campus chip is real information there;
+   * Gist is already scoped to one school, so the feed page passes false
+   * to drop the redundant chip on every card. */
+  showCampusTag?: boolean;
 }) {
   const [index, setIndex] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(gists.length - 1, 0)));
   const isMobile = useIsMobile();
 
-  // The gist list is owned by the parent (feed page) and can shrink out from
-  // under the stack (a delete) — clamped during render (not an effect,
-  // avoiding a synchronous setState-in-effect cascade) so `index` never
-  // points past the new end of the array.
-  const [prevGistsLength, setPrevGistsLength] = useState(gists.length);
-  if (gists.length !== prevGistsLength) {
-    setPrevGistsLength(gists.length);
-    if (index > gists.length - 1) setIndex(Math.max(gists.length - 1, 0));
+  // The gist list is owned by the parent (feed page) and its identity can
+  // change out from under the stack for reasons that have nothing to do
+  // with the user navigating — most notably a background refresh after the
+  // offline queue syncs (see FeedContent's kampos:gists-synced listener),
+  // which re-fetches page one fresh and can land the same gists in a
+  // different order (decay-score re-ranking, a newly-synced gist inserted
+  // near the top). Re-pointing `index` at wherever the card the user was
+  // actually looking at ended up keeps that card on screen through a
+  // reorder instead of silently swapping in whatever now sits at the same
+  // numeric slot — which is what was producing the "why did the feed just
+  // scroll to something else" jump on reconnect. Falls back to the old
+  // length-based clamp when the gist genuinely isn't in the new list at all
+  // (it fell out of a fresh page-one fetch, or was deleted) — same as
+  // before. Render-phase, not an effect, to avoid a setState-in-effect
+  // cascade, same as the resetToTopSignal clamp below.
+  const [prevGists, setPrevGists] = useState(gists);
+  if (gists !== prevGists) {
+    const priorId = prevGists[index]?.gist_id;
+    setPrevGists(gists);
+    if (priorId !== undefined && gists[index]?.gist_id !== priorId) {
+      const newPos = gists.findIndex((g) => g.gist_id === priorId);
+      if (newPos !== -1) {
+        setIndex(newPos);
+      } else if (index > gists.length - 1) {
+        setIndex(Math.max(gists.length - 1, 0));
+      }
+    } else if (index > gists.length - 1) {
+      setIndex(Math.max(gists.length - 1, 0));
+    }
+  }
+
+  // Same render-phase-clamp pattern as above, not an effect — snaps back
+  // to the first card whenever the parent bumps resetToTopSignal.
+  const [prevResetSignal, setPrevResetSignal] = useState(resetToTopSignal);
+  if (resetToTopSignal !== undefined && resetToTopSignal !== prevResetSignal) {
+    setPrevResetSignal(resetToTopSignal);
+    if (index !== 0) setIndex(0);
   }
 
   const [showHint, setShowHint] = useState(false);
@@ -174,11 +198,16 @@ export function GistStack({
   const lastNavAtRef = useRef(0);
   const NAV_DEBOUNCE_MS = 150;
 
-  // Mobile-only: which way the fall/rise transition should play (see
-  // fallRiseVariants) — +1 for next, -1 for prev. Set in the same event
+  // Mobile-only: which side the incoming card's entrance animation rises
+  // in from (see GistStackCard's own mobile branch) — +1 for next (rises
+  // from below), -1 for prev (rises from above). Set in the same event
   // handler as setIndex, so React 18's automatic batching applies both in
   // the same render — the render that shows the new gist always sees the
-  // direction that produced it.
+  // direction that produced it. Only actually consulted on MOUNT (a fresh
+  // gist_id key means a fresh component instance), since a drag-committed
+  // transition already knows its own direction from the drag itself —
+  // this only matters for how the new card enters, never how the old one
+  // leaves.
   const [direction, setDirection] = useState(1);
 
   const next = useCallback(() => {
@@ -252,29 +281,30 @@ export function GistStack({
     >
       <div className="relative h-full w-full max-w-[620px] md:max-w-[740px]">
         {isMobile ? (
-          // Mobile: exactly one card, wrapped in AnimatePresence so the
-          // outgoing gist (removed from the tree the instant `index`
-          // changes) still gets to play its own exit pose instead of just
-          // vanishing, while the incoming one mounts and animates in at
-          // the same time — see fallRiseVariants.
-          <AnimatePresence initial={false} custom={direction}>
-            {gists[index] && (
-              <GistStackCard
-                key={gists[index].gist_id}
-                gist={gists[index]}
-                offset={0}
-                isMobile
-                direction={direction}
-                mediaPaused={mediaPaused}
-                handleOverlayOpenChange={handleOverlayOpenChange}
-                onGistDeleted={onGistDeleted}
-                onGistEdited={onGistEdited}
-                next={next}
-                prev={prev}
-                handleDragEnd={handleDragEnd}
-              />
-            )}
-          </AnimatePresence>
+          // Mobile: exactly one card. No AnimatePresence needed here
+          // anymore — a committed swipe now finishes its own exit
+          // animation FIRST (see useOverscrollNav) and only calls next()/
+          // prev() once that's done, so `gists[index]` (and therefore
+          // this card) doesn't actually change until the outgoing card is
+          // already fully off-screen. Nothing ever needs to stay mounted
+          // past its own removal to finish animating out.
+          gists[index] && (
+            <GistStackCard
+              key={gists[index].gist_id}
+              gist={gists[index]}
+              offset={0}
+              isMobile
+              direction={direction}
+              mediaPaused={mediaPaused}
+              showCampusTag={showCampusTag}
+              handleOverlayOpenChange={handleOverlayOpenChange}
+              onGistDeleted={onGistDeleted}
+              onGistEdited={onGistEdited}
+              next={next}
+              prev={prev}
+              handleDragEnd={handleDragEnd}
+            />
+          )
         ) : (
           // Desktop: unchanged — the whole cascading peek (WINDOW_AHEAD deep).
           gists.map((gist, i) => {
@@ -288,6 +318,7 @@ export function GistStack({
                 isMobile={false}
                 direction={1}
                 mediaPaused={mediaPaused}
+                showCampusTag={showCampusTag}
                 handleOverlayOpenChange={handleOverlayOpenChange}
                 onGistDeleted={onGistDeleted}
                 onGistEdited={onGistEdited}
@@ -308,10 +339,17 @@ export function GistStack({
 /**
  * A single card's slot in the stack. Desktop: the signature dragged/rotated
  * peek-stack (unchanged — see slotFor). Mobile: only the front card is ever
- * mounted here (see GistStack's own render), wrapped in AnimatePresence —
- * this is what plays the fall/rise transition (see fallRiseVariants) when
- * `gist` changes, both cards animating in parallel, on their own, with no
- * shared value between them.
+ * mounted here (see GistStack's own render) — its own `dragY` motion value
+ * (shared down into GistCard and, for a media gist, further into
+ * GistMediaBackdrop/GistMediaBodyPanel — see useOverscrollNav's own
+ * docstring) drives its position live: it follows a claimed drag frame by
+ * frame, springs back if the drag didn't cross the swipe threshold, or
+ * finishes flying off-screen if it did — all owned by useOverscrollNav,
+ * this component just renders wherever that value currently is. The one
+ * animation this component DOES own directly is the entrance: a freshly
+ * mounted card (a new gist_id key, so a fresh instance and a fresh dragY
+ * starting at 0) starts off-screen on the side `direction` points to and
+ * rises up to rest.
  */
 function GistStackCard({
   gist,
@@ -319,6 +357,7 @@ function GistStackCard({
   isMobile,
   direction,
   mediaPaused,
+  showCampusTag,
   handleOverlayOpenChange,
   onGistDeleted,
   onGistEdited,
@@ -329,10 +368,11 @@ function GistStackCard({
   gist: Gist;
   offset: number;
   isMobile: boolean;
-  /** Mobile only — which way the fall/rise transition plays. See
-   * fallRiseVariants and GistStack's own direction state. Unused on desktop. */
+  /** Mobile only — which side a freshly mounted card's entrance rises in
+   * from. See GistStack's own direction state. Unused on desktop. */
   direction: number;
   mediaPaused: boolean;
+  showCampusTag: boolean;
   handleOverlayOpenChange: (open: boolean) => void;
   onGistDeleted?: (gistId: string) => void;
   onGistEdited?: (gist: Gist) => void;
@@ -353,19 +393,40 @@ function GistStackCard({
   // (cheap), only actually used in the desktop branch below.
   const desktopSlot = slotFor(offset);
 
+  // Mobile's own live position — computed unconditionally (same reasoning
+  // as desktopSlot above) even though only the mobile branch uses it.
+  // Owned here (not inside useOverscrollNav) because it has to be shared
+  // across THREE separate call sites of that hook depending on what's
+  // currently showing (see this component's own docstring) — one value,
+  // passed down as a prop to whichever of them is actually active.
+  const dragY = useMotionValue(0);
+  // Fades out as the card nears either exit distance — derived FROM dragY
+  // rather than tracked as its own state, so it automatically stays in
+  // lockstep with wherever dragY actually is: live during a drag, back to
+  // fully opaque on a cancelled swipe, fading out on a committed one, with
+  // nothing separate to keep in sync by hand.
+  const opacity = useTransform(dragY, [-EXIT_DISTANCE_PX, 0, EXIT_DISTANCE_PX], [0, 1, 0]);
+
+  // Entrance only — a fresh mount (fresh gist_id key, fresh dragY at 0)
+  // starts off-screen on whichever side `direction` points to and rises to
+  // rest. Exit is handled entirely by useOverscrollNav, which is why this
+  // effect never needs to run again for the SAME card later on.
+  useEffect(() => {
+    if (!isMobile) return;
+    dragY.set(direction > 0 ? EXIT_DISTANCE_PX : -EXIT_DISTANCE_PX);
+    const controls = animate(dragY, 0, { duration: COMMIT_EXIT_S, ease: "easeOut" });
+    return () => controls.stop();
+    // Deliberately mount-only — `direction` describes how THIS card
+    // arrived, not something that should retrigger the entrance if it
+    // changes later for an unrelated reason.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (isMobile) {
     // Always the front card — GistStack's render loop never mounts any
     // other offset on mobile — so there's nothing to key this on.
     return (
-      <motion.div
-        className="absolute inset-0 will-change-transform"
-        custom={direction}
-        variants={fallRiseVariants}
-        initial="enter"
-        animate="center"
-        exit="exit"
-        transition={FALL_RISE_TRANSITION}
-      >
+      <motion.div className="absolute inset-0 will-change-transform" style={{ y: dragY, opacity }}>
         <div
           ref={touchSurfaceRef}
           className="relative h-full w-full overflow-hidden rounded-[32px] shadow-[0_24px_60px_-24px_rgba(9,30,66,0.55)] ring-1 ring-black/5"
@@ -373,12 +434,14 @@ function GistStackCard({
           <GistCard
             gist={gist}
             isActive={!mediaPaused}
+            showCampusTag={showCampusTag}
             onOverlayOpenChange={handleOverlayOpenChange}
             onDeleted={onGistDeleted}
             onEdited={onGistEdited}
             onNext={next}
             onPrev={prev}
             touchSurfaceRef={touchSurfaceRef}
+            dragY={dragY}
           />
         </div>
       </motion.div>
@@ -411,6 +474,7 @@ function GistStackCard({
         <GistCard
           gist={gist}
           isActive={isFront && !mediaPaused}
+          showCampusTag={showCampusTag}
           onOverlayOpenChange={handleOverlayOpenChange}
           onDeleted={onGistDeleted}
           onEdited={onGistEdited}
@@ -439,8 +503,7 @@ function GistStackCard({
           if (!previewSrc) return null;
           return (
             <div className="pointer-events-none absolute inset-y-0 right-0 w-16 overflow-hidden sm:w-20">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={previewSrc} alt="" className="h-full w-full object-cover" />
+              <MediaImage src={previewSrc} alt="" className="h-full w-full object-cover" />
               <div className="absolute inset-0 bg-gradient-to-r from-surface-2 via-surface-2/30 to-transparent" />
             </div>
           );

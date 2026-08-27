@@ -41,3 +41,49 @@ export const fetchStudentProfileByAvitag = cache(async function fetchStudentProf
     return null;
   }
 });
+
+export interface NormalizedStudentProfile {
+  displayName: string;
+  bio: string;
+  imageUrl: string | null;
+  /** Full label ("University of Lagos") when the backend sent one, else the
+   * short tag — for prose/headings. */
+  campusName: string | null;
+  majorName: string | null;
+  /** Always the short tag ("unilag"), never the full name — for compact
+   * chips, same as GistTags.tsx / the gist OG card use for the same fields. */
+  campusTag: string | null;
+  majorTag: string | null;
+  level: number | string | null;
+}
+
+/**
+ * Typed, defaulted read of Profile's otherwise-loosely-typed fields
+ * (Profile is `[key: string]: unknown` — see types/index.ts) — the same
+ * extraction ProfileView.tsx already does inline for rendering, pulled out
+ * here since generateMetadata and the profile OG image route both need the
+ * identical shape and neither one is the client component ProfileView is.
+ */
+export function normalizeStudentProfile(profile: Profile): NormalizedStudentProfile {
+  const firstName = String(profile.first_name ?? "");
+  const lastName = String(profile.last_name ?? "");
+  const bio = String(profile.bio ?? "").trim();
+  const imageUrl = (profile.image_url as string | null | undefined) ?? null;
+  const level = (profile.level as number | string | null | undefined) ?? null;
+  const displayName = [firstName, lastName].filter(Boolean).join(" ") || profile.avitag;
+  const campusName =
+    typeof profile.campus_name === "string"
+      ? profile.campus_name
+      : typeof profile.campus_tag === "string"
+        ? profile.campus_tag
+        : null;
+  const majorName =
+    typeof profile.major_name === "string"
+      ? profile.major_name
+      : typeof profile.major_tag === "string"
+        ? profile.major_tag
+        : null;
+  const campusTag = typeof profile.campus_tag === "string" ? profile.campus_tag : null;
+  const majorTag = typeof profile.major_tag === "string" ? profile.major_tag : null;
+  return { displayName, bio, imageUrl, campusName, majorName, campusTag, majorTag, level };
+}

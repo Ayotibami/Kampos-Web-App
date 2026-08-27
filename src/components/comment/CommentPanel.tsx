@@ -14,6 +14,9 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
   const itemsByGist = useCommentStore((s) => s.itemsByGist);
   const errorByGist = useCommentStore((s) => s.errorByGist);
   const items = (gist?.gist_id && itemsByGist[gist.gist_id]) || [];
+  // Same reasoning as CommentSheet's own commentCount — the gist's real
+  // backend total, not just how many comments happen to be loaded so far.
+  const commentCount = gist?.counts?.comments_count ?? items.length;
   // Same distinction CommentList draws internally (see its own hasError):
   // cached means a real fetch actually resolved for this gist, so a bare
   // `items.length === 0` can't be trusted as "truly empty" while a fetch is
@@ -51,7 +54,7 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
         {/* Header */}
         <div className="relative flex items-center justify-center border-b border-line bg-brand/[0.04] px-5 py-4 backdrop-blur-sm dark:border-white/10 dark:bg-brand-ink/85">
           <span className="font-nunito text-sm font-medium text-ink dark:text-white">
-            {items.length} {items.length === 1 ? "Comment" : "Comments"}
+            {commentCount} {commentCount === 1 ? "Comment" : "Comments"}
           </span>
         </div>
 

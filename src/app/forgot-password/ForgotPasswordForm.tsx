@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 import { LinkText } from "@/components/ui/LinkText";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
+import { notifyAuthToast } from "@/components/auth/AuthToast";
 import { useAuthStore } from "@/stores/authStore";
 import { sanitizeInput, validateEmail } from "@/lib/validation";
 import { apiErrorMessage } from "@/lib/api";
@@ -28,6 +29,7 @@ export function ForgotPasswordForm() {
     }
     try {
       await forgotPassword(clean);
+      notifyAuthToast("code-sent");
       router.replace(`/reset-password?email=${encodeURIComponent(clean)}`);
     } catch (err) {
       setMessage(apiErrorMessage(err, "Failed to send OTP code"));

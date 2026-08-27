@@ -2,8 +2,8 @@
 
 import { memo, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
-import Lottie from "lottie-react";
+import dynamic from "next/dynamic";
+import { motion, AnimatePresence, type MotionValue } from "framer-motion";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
 import { Avatar } from "@/components/ui/Avatar";
 import { GistMediaBackdrop, GistMediaBodyPanel } from "./GistMediaStage";
@@ -11,7 +11,6 @@ import { GistMediaOverlay } from "./GistMediaOverlay";
 import { CampusTag, MajorTag, LevelTag } from "./GistTags";
 import { ReactionButton } from "./ReactionButton";
 import { MobileReactionBadge } from "./MobileReactionBadge";
-import { CreateGistSheet } from "./CreateGistSheet";
 import { ReportModal } from "./ReportModal";
 import { ShareModal } from "./ShareModal";
 import { ErrorModal, ConfirmModal } from "@/components/ui/FeedbackModal";
@@ -32,8 +31,28 @@ import {
 } from "@/components/ui/icons";
 import type { Gist, ReactionType } from "@/types";
 import { gistColorForGist } from "@/lib/brand";
-import { HERO_TEXT_MAX_REM, fitHeroBlock, nominalHeroTextRem } from "@/lib/heroText";
+import { fitHeroBlock, nominalHeroTextRem } from "@/lib/heroText";
 import { timeAgo, friendlyDateTime, compactNumber } from "@/lib/format";
+
+// Controlled dialog, same reasoning as FeedContent.tsx's own dynamic()
+// calls — pulls the compose sheet (+ its nested GiphyPicker/WebcamCapture)
+// out of the main feed chunk.
+const CreateGistSheet = dynamic(() => import("./CreateGistSheet").then((m) => m.CreateGistSheet), {
+  ssr: false,
+});
+
+// The only Lottie usage in this file, and it's the center-pop reaction
+// burst — mounted exclusively inside `{centerBurst && (...)}` below, i.e.
+// strictly AFTER a reaction is actually picked, never as part of a card's
+// default/resting look. Unlike ReactionButton's row icons (which need a
+// live ref to trigger .play() on click, and lottie-react's default export
+// doesn't forward refs cleanly through next/dynamic) or the always-visible
+// satellite/hero icons in MobileReactionBadge/ProfileGistCard (which would
+// show a blank gap on first paint if lazy), this one is pure autoplay,
+// no ref, and never part of the initial render — the one Lottie usage
+// across the whole app where deferring it costs nothing and can't regress
+// anything. Left the others eager on purpose; see the perf pass notes.
+const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
 export const SHORT_TEXT = 200;
 
@@ -60,15 +79,25 @@ export const SHORT_TEXT = 200;
 export const GistCard = memo(function GistCard({
   gist,
   isActive = true,
+  showCampusTag = true,
   onOverlayOpenChange,
   onDeleted,
   onEdited,
   onNext,
   onPrev,
   touchSurfaceRef,
+  dragY,
 }: {
   gist: Gist;
   isActive?: boolean;
+  /** Amebo mixes schools together, so the campus chip is real information
+   * there — worth showing. Gist is already scoped to just your own school
+   * (see FeedContent's feed_mode), so repeating the same campus on every
+   * single card would just be noise; that tab passes false. Defaults true
+   * since every other place GistCard renders (profile page, shared-link
+   * page) isn't tab-scoped at all, and should keep showing it same as
+   * before this existed. */
+  showCampusTag?: boolean;
   /** Fires whenever the bigger media overlay opens/closes on this card, so
    * the stack above knows to stop treating keyboard/wheel as "switch gist"
    * while it's up — those should drive the overlay's own media instead. */
@@ -92,6 +121,13 @@ export const GistCard = memo(function GistCard({
    * whatever's scrollable, so the gesture works no matter where on the
    * card a thumb lands. See useOverscrollNav's own docs. */
   touchSurfaceRef: RefObject<HTMLElement | null>;
+  /** The card's own live vertical position while a swipe is in progress —
+   * only ever passed by GistStack's mobile front card (see there), shared
+   * down into whichever of this card's own useOverscrollNav call, or the
+   * media backdrop's/caption panel's, is actually the one currently
+   * listening for the gesture. See useOverscrollNav's own docstring for
+   * why this has to be one shared value rather than each owning its own. */
+  dragY?: MotionValue<number>;
 }) {
   const reactGist = useGistStore((s) => s.react);
   const unreactGist = useGistStore((s) => s.unreact);
@@ -142,6 +178,7 @@ export const GistCard = memo(function GistCard({
     onNext,
     onPrev,
     enabled: isActive && !hasMedia,
+    dragY,
   });
 
   // Double-tap-to-react (Instagram-style) — anywhere on a text-only card
@@ -190,11 +227,56 @@ export const GistCard = memo(function GistCard({
   }, [overlayIndex]);
 
   const isOwn = gist.avitag === avitag;
+  // Still sitting in the offline queue, not a real gist on the server yet
+  // (see gistStore.create/update's offline branch) — reacting/reporting/
+  // sharing/deleting against it would just hit the backend with an id that
+  // doesn't exist, so those are guarded below with a friendly message
+  // instead of a confusing network-error one.
+  const isPending = gist.gist_id.startsWith("offline-");
+
+  // The left-hand metrics row's reactions_count reads straight off
+  // gist.counts, which only ever updates once the counts:updated WS
+  // broadcast round-trips back — unlike the reaction badge/tray, which
+  // bumps its own count instantly via local state. Without this, tapping
+  // react felt laggy on the one number that's actually visible without
+  // opening the badge. Mirrors gistStore's own "grows only the first time
+  // you react" rule — switching type doesn't add a second reaction.
+  const [localReaction, setLocalReaction] = useState<ReactionType | null>(gist.my_reaction ?? null);
+  const [reactionDelta, setReactionDelta] = useState(0);
+
+  useEffect(() => {
+    setLocalReaction(gist.my_reaction ?? null);
+  }, [gist.my_reaction]);
+
+  // Reset reactionDelta the instant the real count arrives, same fix as
+  // the double-count bug in ReactionButton/MobileReactionBadge — the
+  // authoritative number already includes this reaction by the time the
+  // broadcast lands, so the delta must not still be added on top. This has
+  // to happen during render, not in a useEffect: an effect runs *after*
+  // React has already committed and painted a frame showing the fresh
+  // prop PLUS the still-stale delta added together (the visible "1 → 2 →
+  // 1" flicker), then fixes it a frame later. Resetting here instead means
+  // React throws away and redoes this render before anything paints, so
+  // there's no flicker frame to see.
+  const prevReactionsCountRef = useRef(gist.counts?.reactions_count);
+  if (prevReactionsCountRef.current !== gist.counts?.reactions_count) {
+    prevReactionsCountRef.current = gist.counts?.reactions_count;
+    if (reactionDelta !== 0) setReactionDelta(0);
+  }
 
   const handleReact = async (type: ReactionType) => {
+    if (isPending) {
+      setReactError("Still saving — this'll be reactable once it's back online and synced.");
+      return;
+    }
+    const isFirstReaction = localReaction === null;
+    setLocalReaction(type);
+    if (isFirstReaction) setReactionDelta((d) => d + 1);
     try {
       await reactGist(gist.gist_id, type);
     } catch (err) {
+      setLocalReaction(gist.my_reaction ?? null);
+      if (isFirstReaction) setReactionDelta((d) => d - 1);
       // Surfaced now instead of silently swallowed — a failed react (most
       // commonly: not actually logged in) used to look successful in the
       // UI and then just vanish on reload with no explanation.
@@ -203,9 +285,15 @@ export const GistCard = memo(function GistCard({
   };
 
   const handleUnreact = async () => {
+    if (isPending) return;
+    const hadReaction = localReaction !== null;
+    setLocalReaction(null);
+    if (hadReaction) setReactionDelta((d) => d - 1);
     try {
       await unreactGist(gist.gist_id);
     } catch (err) {
+      setLocalReaction(gist.my_reaction ?? null);
+      if (hadReaction) setReactionDelta((d) => d + 1);
       // Same reasoning as handleReact — without this a failed un-react
       // looked successful until the reaction quietly reappeared on reload.
       setReactError(apiErrorMessage(err, "Failed to remove reaction — try again"));
@@ -238,6 +326,12 @@ export const GistCard = memo(function GistCard({
   const shareText = `${shareCaption}\n\n${shareUrl}`;
 
   const handleShare = async () => {
+    // The shareUrl above points at /gist/<offline-id>, which doesn't exist
+    // server-side yet — nothing to share until this post has actually synced.
+    if (isPending) {
+      setReactError("Still saving — you can share this once it's back online and synced.");
+      return;
+    }
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
         // Mobile's real OS share sheet — already lists whatever's actually
@@ -328,38 +422,56 @@ export const GistCard = memo(function GistCard({
           action popup regardless of the popup's own z-index, since that only
           resolves against siblings inside the header, not against body. */}
       <div className="relative z-20 flex items-start gap-3">
-        {/* Avatar + name → the poster's profile. A plain Link (not wrapping
-            the Actions menu below, which is a button — nesting a button
-            inside an anchor is invalid), same /avitag route whether it's
-            your own profile or someone else's. */}
-        <Link href={`/${gist.avitag}`} className="flex min-w-0 flex-1 items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line">
+        {/* Avatar + name + avitag → the poster's profile — three separate
+            Links, not one wrapping the whole row, so the "You" badge,
+            timestamp, and campus/major/level tags stay plain, non-
+            navigating text instead of getting swept into one giant tap
+            target. Not wrapping the Actions menu below either, which is a
+            button — nesting a button inside an anchor is invalid. Same
+            /avitag route whether it's your own profile or someone else's. */}
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <Link
+            href={`/${gist.avitag}`}
+            className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line"
+          >
             <Avatar src={gist.image_url} />
-          </div>
+          </Link>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1.5">
-              <span className="min-w-0 shrink truncate font-nunito text-sm font-bold text-ink md:text-[15px]">
+              <Link
+                href={`/${gist.avitag}`}
+                className="min-w-0 shrink truncate font-nunito text-sm font-bold text-ink md:text-[15px]"
+              >
                 {gist.first_name || gist.name || gist.avitag}
-              </span>
+              </Link>
               {isOwn && (
                 <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-brand md:text-[11px]">
                   You
                 </span>
               )}
-              <span className="min-w-0 shrink truncate font-nunito text-xs text-faint md:text-[13px]">
+              <Link
+                href={`/${gist.avitag}`}
+                className="min-w-0 shrink truncate font-nunito text-xs text-faint md:text-[13px]"
+              >
                 {gist.avitag}
-              </span>
+              </Link>
               <span className="shrink-0 font-nunito text-xs text-faint md:text-[13px]">
                 · {timeAgo(gist.created_at)}
               </span>
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-              {gist.campus_tag && <CampusTag>{gist.campus_tag}</CampusTag>}
+              {showCampusTag && gist.campus_tag && <CampusTag>{gist.campus_tag}</CampusTag>}
               {gist.major_tag && <MajorTag>{gist.major_tag}</MajorTag>}
               {gist.level && <LevelTag>{gist.level}</LevelTag>}
             </div>
           </div>
-        </Link>
+        </div>
+
+        {isPending && (
+          <span className="mt-1.5 shrink-0 rounded-full bg-warning/15 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-warning md:text-[11px]">
+            Pending
+          </span>
+        )}
 
         {/* Actions — a three-dot trigger that pops share/flag out
             straight below it, each with its own distinct entrance so the
@@ -459,6 +571,7 @@ export const GistCard = memo(function GistCard({
               onNext={onNext}
               onPrev={onPrev}
               touchSurfaceRef={touchSurfaceRef}
+              dragY={dragY}
             />
             <GistMediaBodyPanel
               mode={mediaMode}
@@ -467,6 +580,7 @@ export const GistCard = memo(function GistCard({
               onNext={onNext}
               onPrev={onPrev}
               touchSurfaceRef={touchSurfaceRef}
+              dragY={dragY}
             />
           </>
         ) : (
@@ -535,7 +649,7 @@ export const GistCard = memo(function GistCard({
           <span className="shrink-0 font-nunito text-xs md:text-[13px]">{friendlyDateTime(gist.created_at)}</span>
           <span className="flex shrink-0 items-center gap-1 font-nunito text-xs md:text-[13px]">
             <ReactionIconFill size={14} weight="regular" />
-            {compactNumber(gist.counts?.reactions_count)}
+            {compactNumber((gist.counts?.reactions_count ?? 0) + reactionDelta)}
           </span>
           <span className="flex shrink-0 items-center gap-1 font-nunito text-xs md:text-[13px]">
             <ViewIconFill size={14} weight="regular" />
@@ -591,6 +705,7 @@ export const GistCard = memo(function GistCard({
         title="Delete this gist?"
         message="This can't be undone — it'll be gone for everyone."
         confirmLabel="Delete"
+        icon={<DeleteIconFill size={26} weight="fill" />}
       />
 
       <ReportModal
@@ -711,7 +826,16 @@ export function ShortGist({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLParagraphElement>(null);
-  const [fontSizeRem, setFontSizeRem] = useState(HERO_TEXT_MAX_REM);
+  // Starts at the length-driven nominal size (a pure function of text.length
+  // — no DOM measurement needed), not the flat HERO_TEXT_MAX_REM ceiling.
+  // This is what the server actually renders into the initial HTML too, so
+  // a page reload paints something already close to correct instead of
+  // always starting at the absolute maximum size and visibly snapping down
+  // once hydration finally lets the layout effect below measure and correct
+  // it — a useLayoutEffect only actually runs before paint for a live
+  // client-side mount, not for the very first paint of server-rendered
+  // HTML, which happens before any JS has run at all.
+  const [fontSizeRem, setFontSizeRem] = useState(() => nominalHeroTextRem(text.length));
 
   // Runs synchronously after layout but before paint, so there's no visible
   // flash of the wrong size — starts from the length-driven nominal size,

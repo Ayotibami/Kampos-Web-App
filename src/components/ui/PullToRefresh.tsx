@@ -1,9 +1,20 @@
 "use client";
 
 /**
- * Pull-to-refresh hook — tracks touch/mouse drag at the top of the
- * scrollable area. Returns pull distance + state for the indicator,
- * and event handlers to spread onto the scrollable container.
+ * Pull-to-refresh hook — tracks a downward touch drag and, past a
+ * threshold, calls `onRefresh`. Returns pull distance + state for the
+ * indicator, and event handlers to spread onto the container.
+ *
+ * `enabled` gates the whole gesture. This isn't optional polish: on the
+ * feed, the vertical drag is ALSO how you swipe to the previous gist (see
+ * useOverscrollNav, attached directly to each card). Native touch events
+ * bubble past a card's own preventDefault() up to this handler regardless
+ * of who "claimed" the gesture first, so without an explicit gate, a
+ * longer/slower swipe-to-previous could simultaneously trigger a full feed
+ * reload — two unrelated things firing off one motion. The only place a
+ * downward pull doesn't already mean "go to the previous gist" is when
+ * you're on the very first one (there's nothing before it to go to), so
+ * callers should only enable this while viewing that first card.
  */
 
 import { useCallback, useRef, useState } from "react";
@@ -13,23 +24,22 @@ const THRESHOLD = 60;
 
 export type PullState = "idle" | "pulling" | "ready" | "loading" | "done";
 
-export function usePullToRefresh(onRefresh: () => Promise<void>) {
+export function usePullToRefresh(onRefresh: () => Promise<void>, enabled = true) {
   const [pull, setPull] = useState(0);
   const [state, setState] = useState<PullState>("idle");
   const startY = useRef(0);
   const pullingRef = useRef(false);
 
-  const canPull = useCallback((el: HTMLElement) => el.scrollTop <= 0, []);
-
   const onTouchStart = useCallback((e: TouchEvent) => {
-    if (!canPull(e.currentTarget as HTMLElement)) return;
+    if (!enabled) return;
     startY.current = e.touches[0].clientY;
     pullingRef.current = false;
-  }, [canPull]);
+  }, [enabled]);
 
   const onTouchMove = useCallback((e: TouchEvent) => {
-    if (!canPull(e.currentTarget as HTMLElement)) {
-      pullingRef.current = false; setPull(0); setState("idle"); return;
+    if (!enabled) {
+      if (pullingRef.current) { pullingRef.current = false; setPull(0); setState("idle"); }
+      return;
     }
     const delta = e.touches[0].clientY - startY.current;
     if (delta <= 0) return;
@@ -37,7 +47,7 @@ export function usePullToRefresh(onRefresh: () => Promise<void>) {
     const damped = Math.min(delta * 0.4, THRESHOLD + 20);
     setPull(damped);
     setState(damped >= THRESHOLD ? "ready" : "pulling");
-  }, [canPull]);
+  }, [enabled]);
 
   const onTouchEnd = useCallback(async () => {
     if (!pullingRef.current) return;

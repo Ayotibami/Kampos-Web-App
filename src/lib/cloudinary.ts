@@ -1,3 +1,15 @@
+/** Splices a Cloudinary transformation string right after `/upload/` — the
+ * shared plumbing both `cloudinarySmartCrop` and `cloudinarySrcSet` build
+ * on. Returns the URL untouched if it isn't actually a Cloudinary delivery
+ * URL (GIFs attached from GIPHY, for instance). */
+function withCloudinaryTransform(url: string, transform: string): string {
+  const marker = "/upload/";
+  const idx = url.indexOf(marker);
+  if (!url.includes("res.cloudinary.com") || idx === -1) return url;
+  const insertAt = idx + marker.length;
+  return `${url.slice(0, insertAt)}${transform}/${url.slice(insertAt)}`;
+}
+
 /**
  * Requests Cloudinary's own content-aware crop (g_auto — finds the actual
  * interesting region of the photo: faces, high-contrast areas, etc. — not a
@@ -12,11 +24,37 @@
  * attached from GIPHY, for instance) — those pass through untouched.
  */
 export function cloudinarySmartCrop(url: string, aspectRatio = "4:3"): string {
-  const marker = "/upload/";
-  const idx = url.indexOf(marker);
-  if (!url.includes("res.cloudinary.com") || idx === -1) return url;
-  const insertAt = idx + marker.length;
-  return `${url.slice(0, insertAt)}c_fill,g_auto,ar_${aspectRatio}/${url.slice(insertAt)}`;
+  // f_auto/q_auto: Cloudinary picks the lightest format (AVIF/WebP where the
+  // browser supports it) and quality per-request instead of serving back
+  // whatever format/quality the original upload happened to be — smaller
+  // payloads load faster and are less likely to time out on weak mobile
+  // connections, which is where a load failure is most likely anyway.
+  return withCloudinaryTransform(url, `c_fill,g_auto,ar_${aspectRatio},f_auto,q_auto`);
+}
+
+// Matches the two real container widths gist media actually renders at
+// across the app today (GistMediaStage's feed card, ProfileGistCard's
+// tile) — both capped at max-w-[740px] from md (768px) up, full viewport
+// width below it. A phone on a weak connection was downloading the exact
+// same pixel dimensions as a 1440px desktop monitor before this; now it
+// only fetches however many pixels its own viewport can actually show.
+const RESPONSIVE_WIDTHS = [420, 620, 740, 1080, 1480] as const;
+
+/**
+ * Same smart-crop transform as `cloudinarySmartCrop`, generated at several
+ * widths as a ready-to-use `srcset` string — pass straight to an `<img
+ * srcSet>`/`MediaImage srcSet` alongside a `sizes` attribute describing how
+ * large the image actually renders, and the browser picks whichever
+ * candidate is closest instead of always downloading the largest one.
+ * `undefined` for anything that isn't a Cloudinary URL (same GIF/GIPHY
+ * exception as cloudinarySmartCrop) — a srcSet of one identical candidate
+ * repeated per width would just be wasted bytes describing no real choice.
+ */
+export function cloudinarySrcSet(url: string, aspectRatio = "4:3"): string | undefined {
+  if (!url.includes("res.cloudinary.com") || !url.includes("/upload/")) return undefined;
+  return RESPONSIVE_WIDTHS.map(
+    (w) => `${withCloudinaryTransform(url, `c_fill,g_auto,ar_${aspectRatio},w_${w},f_auto,q_auto`)} ${w}w`,
+  ).join(", ");
 }
 
 /** What the backend's `GET /gists/:id/media/signature` hands back — enough
@@ -47,6 +85,20 @@ export interface CloudinaryUploadResult {
  * "Invalid image file", etc.) instead of a made-up generic message. */
 export class CloudinaryUploadError extends Error {}
 
+// A dropped connection or a timeout mid-upload is almost always transient
+// (mobile network handoff, a brief dead spot) — retrying the same request
+// recovers it without the user ever noticing. A real rejection (bad
+// signature, invalid file, too large) is deterministic and retrying just
+// wastes the user's data/time, so only network-level failures and
+// Cloudinary's own 5xx (its problem, not the file's) get retried; any 4xx
+// fails immediately.
+const MAX_UPLOAD_ATTEMPTS = 3;
+const UPLOAD_RETRY_BASE_DELAY_MS = 1000;
+
+function isRetryableStatus(status: number): boolean {
+  return status >= 500;
+}
+
 /**
  * Uploads a file straight from the browser to Cloudinary, using a
  * signature this app's own backend already computed (see
@@ -62,40 +114,67 @@ export function uploadToCloudinaryDirect(
   sig: CloudinarySignature,
   onProgress?: (percent: number) => void,
 ): Promise<CloudinaryUploadResult> {
-  return new Promise((resolve, reject) => {
-    const form = new FormData();
-    form.append("file", file, filename);
-    form.append("api_key", sig.api_key);
-    form.append("timestamp", String(sig.timestamp));
-    form.append("signature", sig.signature);
-    form.append("folder", sig.folder);
-    if (sig.eager) form.append("eager", sig.eager);
+  const attempt = (attemptNumber: number): Promise<CloudinaryUploadResult> =>
+    new Promise((resolve, reject) => {
+      const retry = (fallback: () => void) => {
+        if (attemptNumber >= MAX_UPLOAD_ATTEMPTS - 1) {
+          fallback();
+          return;
+        }
+        // Progress resets to 0 on the retried attempt — same as any other
+        // upload starting fresh, and the ring reading the callback already
+        // handles any percentage.
+        onProgress?.(0);
+        setTimeout(
+          () => attempt(attemptNumber + 1).then(resolve, reject),
+          UPLOAD_RETRY_BASE_DELAY_MS * 2 ** attemptNumber,
+        );
+      };
 
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", sig.upload_url);
-    // Generous — a 150MB video on slow mobile data genuinely can take a
-    // while, and this leg has none of the platform ceilings the old
-    // through-our-own-servers path did, so there's no reason to be strict.
-    xhr.timeout = 5 * 60 * 1000;
+      const form = new FormData();
+      form.append("file", file, filename);
+      form.append("api_key", sig.api_key);
+      form.append("timestamp", String(sig.timestamp));
+      form.append("signature", sig.signature);
+      form.append("folder", sig.folder);
+      if (sig.eager) form.append("eager", sig.eager);
 
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () => {
-      let body: { error?: { message?: string } } & Partial<CloudinaryUploadResult> = {};
-      try {
-        body = JSON.parse(xhr.responseText);
-      } catch {
-        /* fall through to the status-based branch below */
-      }
-      if (xhr.status >= 200 && xhr.status < 300 && body.secure_url) {
-        resolve(body as CloudinaryUploadResult);
-      } else {
-        reject(new CloudinaryUploadError(body.error?.message || `Cloudinary rejected the upload (${xhr.status})`));
-      }
-    };
-    xhr.onerror = () => reject(new CloudinaryUploadError("Network error while uploading"));
-    xhr.ontimeout = () => reject(new CloudinaryUploadError("Upload timed out"));
-    xhr.send(form);
-  });
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", sig.upload_url);
+      // Generous — a 150MB video on slow mobile data genuinely can take a
+      // while, and this leg has none of the platform ceilings the old
+      // through-our-own-servers path did, so there's no reason to be strict.
+      xhr.timeout = 5 * 60 * 1000;
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onload = () => {
+        let body: { error?: { message?: string } } & Partial<CloudinaryUploadResult> = {};
+        try {
+          body = JSON.parse(xhr.responseText);
+        } catch {
+          /* fall through to the status-based branch below */
+        }
+        if (xhr.status >= 200 && xhr.status < 300 && body.secure_url) {
+          resolve(body as CloudinaryUploadResult);
+        } else {
+          // body.error?.message is Cloudinary's own validation reason
+          // ("Invalid image file", "File size too large") — genuinely
+          // useful for the person who just picked that exact file, so it's
+          // shown as-is. The raw status code isn't: logged for debugging,
+          // never shown — a bare "(500)"/"(413)" means nothing to a real
+          // user and just exposes that Cloudinary specifically is involved.
+          if (!body.error?.message) console.error(`Cloudinary upload failed with status ${xhr.status}`);
+          const message = body.error?.message || "The upload didn't go through — please try again.";
+          if (isRetryableStatus(xhr.status)) retry(() => reject(new CloudinaryUploadError(message)));
+          else reject(new CloudinaryUploadError(message));
+        }
+      };
+      xhr.onerror = () => retry(() => reject(new CloudinaryUploadError("Network error while uploading")));
+      xhr.ontimeout = () => retry(() => reject(new CloudinaryUploadError("Upload timed out")));
+      xhr.send(form);
+    });
+
+  return attempt(0);
 }

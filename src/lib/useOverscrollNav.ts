@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
+import { useMotionValue, animate, type MotionValue } from "framer-motion";
 
 // Raw finger travel, in px, a vertical drag has to cross before release
 // counts as "swipe to next/prev". Deliberately small — a short, easy flick
@@ -22,16 +23,34 @@ const FAST_FLICK_PX_PER_MS = 0.5;
 // preventDefault() it, silently eating the tap.
 const CLAIM_SLOP_PX = 8;
 
+// How far off-screen a committed swipe finishes flying, in px — well past
+// any real device height, so it's fully gone (not just past the edge of
+// the visible viewport) by the time the next gist takes over. Exported —
+// GistStack's own mount-entrance animation for the INCOMING card starts
+// from this exact same distance on the opposite side, so the outgoing
+// card's exit and the next card's entrance read as one continuous motion
+// rather than two independently-tuned numbers that happen to be close.
+export const EXIT_DISTANCE_PX = 700;
+// Same reasoning — GistStack's entrance animation uses this exact value
+// too, not its own copy.
+export const COMMIT_EXIT_S = 0.18;
+const SNAP_BACK_SPRING = { type: "spring", stiffness: 500, damping: 32 } as const;
+
 /**
- * A vertical drag triggers a next/prev gist swap. Deliberately the
- * simplest version of this gesture that still behaves correctly: no
- * live-tracking motion value, no spring, nothing to keep in sync
- * frame-by-frame — the card doesn't move at all while the finger is still
- * down. Just watch where a touch started and where it ended, and if it
- * crossed the distance threshold OR was moving fast at release, call
- * onNext/onPrev once. The resulting animation (see GistStack) is a fixed,
- * independent transition that plays on its own once triggered — it has no
- * need to know anything about the drag that triggered it.
+ * A vertical drag triggers a next/prev gist swap — and, unlike the old
+ * version of this hook, the card now actually follows the finger live
+ * while that drag is happening, instead of staying frozen until release.
+ *
+ * `dragY` is a Framer motion value OWNED BY THE CALLER (GistStack lifts
+ * one and threads it down through GistCard into GistMediaBackdrop/
+ * GistMediaBodyPanel — see those files), not created fresh here. That's
+ * deliberate: this same gesture is wired up from three different places
+ * depending on what's currently showing (plain text, media backdrop, or
+ * an expanded media caption — only one is ever `enabled` at a time), and
+ * all three need to move the SAME visual card, so they all have to share
+ * one value rather than each quietly animating their own disconnected
+ * copy. If a caller doesn't pass one, a local value is created as a
+ * harmless fallback (nothing currently renders it, so it just no-ops).
  *
  * Still boundary-aware, same as before, and for the same reason: a touch
  * that starts on content which genuinely scrolls (a long paragraph, an
@@ -39,7 +58,9 @@ const CLAIM_SLOP_PX = 8;
  * that content is already at its top/bottom edge does continuing to drag
  * count as a swipe. A touch that starts on the surrounding header/footer
  * chrome, or on content with nothing to scroll, counts right away — there's
- * no reading-scroll to protect there either way.
+ * no reading-scroll to protect there either way. NONE of that decision
+ * logic changed from the previous version — only what happens once a
+ * touch is claimed did.
  *
  * Two different elements are involved on purpose, and they're not the same
  * thing:
@@ -62,13 +83,19 @@ export function useOverscrollNav<T extends HTMLElement>({
   onNext,
   onPrev,
   enabled = true,
+  dragY: dragYProp,
 }: {
   surfaceRef: RefObject<HTMLElement | null>;
   onNext?: () => void;
   onPrev?: () => void;
   enabled?: boolean;
+  /** Shared live-position value — see this hook's own docstring. Falls
+   * back to a local, unrendered value if the caller doesn't pass one. */
+  dragY?: MotionValue<number>;
 }) {
   const scrollRef = useRef<T>(null);
+  const localDragY = useMotionValue(0);
+  const dragY = dragYProp ?? localDragY;
 
   useEffect(() => {
     const surface = surfaceRef.current;
@@ -93,6 +120,14 @@ export function useOverscrollNav<T extends HTMLElement>({
     // happens to be scrolled to. Only a touch that starts ON the content
     // itself needs the boundary gate below.
     let startedInContent = true;
+    // True from the moment a commit's finish-animation starts until it
+    // actually fires onNext/onPrev — this same card stays mounted (and
+    // this same listener stays attached) for that whole short window, so
+    // without this guard a second, immediate touch could grab the shared
+    // dragY mid-flight and yank the still-exiting card back to a new raw
+    // position. Simplest safe answer: ignore any touch that starts during
+    // that window rather than try to gracefully interrupt it.
+    let committing = false;
 
     const atTop = () => {
       if (!startedInContent) return true;
@@ -106,6 +141,7 @@ export function useOverscrollNav<T extends HTMLElement>({
     };
 
     const onTouchStart = (e: TouchEvent) => {
+      if (committing) return;
       startY = e.touches[0].clientY;
       claimed = false;
       lastMoveY = startY;
@@ -115,6 +151,7 @@ export function useOverscrollNav<T extends HTMLElement>({
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      if (committing) return;
       const currentY = e.touches[0].clientY;
       const dy = currentY - startY;
       if (!claimed) {
@@ -131,6 +168,10 @@ export function useOverscrollNav<T extends HTMLElement>({
       // Once claimed, this touch is ours for the rest of the gesture —
       // stop the browser from also trying to scroll/bounce the same drag.
       e.preventDefault();
+      // Live 1:1 follow — the whole point of this rewrite. No spring, no
+      // easing, just the raw finger delta, so the card feels physically
+      // attached to the thumb rather than reacting to it a beat later.
+      dragY.set(dy);
       const now = performance.now();
       const dt = now - lastMoveTime;
       // Recorded for the NEXT call to read (see onTouchEnd) — this frame's
@@ -142,20 +183,34 @@ export function useOverscrollNav<T extends HTMLElement>({
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      if (!claimed) return;
+      if (committing || !claimed) return;
       claimed = false;
       const endY = e.changedTouches[0].clientY;
       const dy = endY - startY;
       const dt = performance.now() - lastMoveTime;
       const velocity = dt > 0 ? (endY - lastMoveY) / dt : 0;
       const fastFlick = Math.abs(velocity) > FAST_FLICK_PX_PER_MS;
-      if (Math.abs(dy) < SWIPE_THRESHOLD_PX && !fastFlick) return;
-      // Positive means pulled down past the top; negative means pulled up
-      // past the bottom. A fast flick trusts its own direction (the most
-      // instantaneous signal); otherwise the overall drag direction decides.
+
+      if (Math.abs(dy) < SWIPE_THRESHOLD_PX && !fastFlick) {
+        // Didn't cross the threshold — spring back to resting position
+        // instead of just staying wherever the finger let go.
+        animate(dragY, 0, SNAP_BACK_SPRING);
+        return;
+      }
+
+      // Positive means pulled down past the top (→ prev); negative means
+      // pulled up past the bottom (→ next). A fast flick trusts its own
+      // direction (the most instantaneous signal); otherwise the overall
+      // drag direction decides. Same logic as before this rewrite —
+      // committing just now ALSO finishes the visual motion first.
       const direction = fastFlick ? velocity : dy;
-      if (direction > 0) onPrev?.();
-      else onNext?.();
+      committing = true;
+      const exitTarget = direction > 0 ? EXIT_DISTANCE_PX : -EXIT_DISTANCE_PX;
+      animate(dragY, exitTarget, { duration: COMMIT_EXIT_S, ease: "easeOut" }).then(() => {
+        committing = false;
+        if (direction > 0) onPrev?.();
+        else onNext?.();
+      });
     };
 
     surface.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -166,7 +221,7 @@ export function useOverscrollNav<T extends HTMLElement>({
       surface.removeEventListener("touchmove", onTouchMove);
       surface.removeEventListener("touchend", onTouchEnd);
     };
-  }, [surfaceRef, enabled, onNext, onPrev]);
+  }, [surfaceRef, enabled, onNext, onPrev, dragY]);
 
   return { scrollRef };
 }
