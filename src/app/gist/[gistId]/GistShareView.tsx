@@ -146,7 +146,7 @@ export function GistShareView({ context }: { context: GistContext }) {
   return (
     <AppShell variant="feed">
       <div className="flex h-dvh w-full overflow-hidden">
-        <div className="relative flex h-full flex-1 flex-col bg-brand/[0.04] dark:bg-brand/[0.07]">
+        <div className="relative flex h-full min-w-0 flex-1 flex-col bg-brand/[0.04] dark:bg-brand/[0.07]">
           <header className="sticky top-0 z-10 w-full shrink-0 border-b border-line bg-surface/85 backdrop-blur-md">
             <div className="mx-auto flex max-w-[740px] items-center justify-between px-4 py-2.5 sm:px-6">
               <Wordmark accentClassName="text-brand" className="text-lg sm:text-xl" />

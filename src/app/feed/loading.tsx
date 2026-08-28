@@ -37,7 +37,7 @@ export default function Loading() {
   return (
     <AppShell variant="feed">
       <div className="flex h-dvh w-full overflow-hidden">
-        <div className="relative flex h-full flex-1 flex-col bg-brand/[0.04] dark:bg-brand/[0.07]">
+        <div className="relative flex h-full min-w-0 flex-1 flex-col bg-brand/[0.04] dark:bg-brand/[0.07]">
           <header className="sticky top-0 z-20 w-full shrink-0 border-b border-line bg-surface/85 backdrop-blur-md">
             <div className="mx-auto grid max-w-[740px] grid-cols-[1fr_auto_1fr] items-center px-4 py-2 sm:px-6 md:py-2.5">
               <div className="flex h-9 w-9 shrink-0 animate-pulse items-center justify-center justify-self-start overflow-hidden rounded-full bg-line/50 ring-1 ring-line" />
@@ -47,7 +47,7 @@ export default function Loading() {
               </div>
             </div>
             <div className="mx-auto flex max-w-[740px] items-center px-4 pb-2.5 pt-1 sm:px-6">
-              <div className="inline-flex items-center gap-2 overflow-x-auto no-scrollbar">
+              <div className="inline-flex min-w-0 items-center gap-2 overflow-x-auto no-scrollbar">
                 <span className="inline-flex min-w-[60px] shrink-0 items-center justify-center rounded-full bg-brand px-4 py-1.5 text-center font-nunito text-[14px] font-semibold text-white shadow-sm shadow-brand/30">
                   Gist
                 </span>

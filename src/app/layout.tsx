@@ -129,9 +129,20 @@ export default function RootLayout({
         {/* Registers the PWA service worker on first page load so subsequent
             visits serve cached static assets and HTML instantly. Runs after
             the page is interactive so it never competes with the critical
-            render path. */}
+            render path.
+
+            Gated on an actual production build (NODE_ENV, evaluated here on
+            the server and baked into the string literally as true/false —
+            this file has no "use client", so this genuinely runs server-
+            side, not just at build time), NOT on `location.hostname`.
+            hostname-sniffing for "am I developing" only worked when dev
+            testing happened on the same machine as the dev server —
+            testing on a real phone means reaching the dev server by its LAN
+            IP, which isn't "localhost" either, so the SW registered there
+            anyway and cache-first-served an increasingly stale JS bundle no
+            matter how many times the page was reloaded on that phone. */}
         <Script id="kampos-sw" strategy="afterInteractive">
-          {`if('serviceWorker' in navigator&&location.hostname!=='localhost'){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').then(function(r){console.log('[SW] registered',r.scope)},function(e){console.log('[SW] failed',e)})})}`}
+          {`if('serviceWorker' in navigator&&${process.env.NODE_ENV === "production"}){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').then(function(r){console.log('[SW] registered',r.scope)},function(e){console.log('[SW] failed',e)})})}`}
         </Script>
         <SplashScreen />
         <WebVitals />

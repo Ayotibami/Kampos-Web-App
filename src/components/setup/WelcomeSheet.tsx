@@ -37,10 +37,12 @@ const CONFETTI = [
 
 const FEATURES = [
   <>
-    Post a <b>Gist</b> to share what&apos;s really going on around your campus.
+    Post a <b>Gist</b>
+    {" "}to share what&apos;s really going on around your campus.
   </>,
   <>
-    Tap <b>Amebo</b> to see what&apos;s popping on other campuses too.
+    Tap <b>Amebo</b>
+    {" "}to see what&apos;s popping on other campuses too.
   </>,
   "Catch the latest updates, trends, and drama — first, before anybody.",
 ];
@@ -68,14 +70,19 @@ export function WelcomeSheet({ open, onConfirm }: { open: boolean; onConfirm: ()
               transition={{ duration: 1, delay: c.delay, ease: [0.16, 1, 0.3, 1] }}
             />
           ))}
-          <Image src={KappyWaving} alt="" className="relative z-10 h-[88px] w-auto drop-shadow-[0_8px_16px_rgba(22,90,191,0.25)]" />
+          <Image
+            src={KappyWaving}
+            alt=""
+            priority
+            className="relative z-10 h-[88px] w-auto drop-shadow-[0_8px_16px_rgba(22,90,191,0.25)]"
+          />
         </div>
 
         <h2 className="mb-3.5 text-center font-nunito text-[19px] font-black tracking-tight text-[#171a1f]">
           Welcome to Kampos!
         </h2>
 
-        <div className="mb-3.5">
+        <div className="mb-3.5 flex flex-col gap-2">
           {FEATURES.map((text, i) => (
             <p
               key={i}

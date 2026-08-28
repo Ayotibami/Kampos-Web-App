@@ -59,13 +59,14 @@ export function Button({
       } ${fullWidth ? "w-full" : ""} ${className}`}
       {...props}
     >
-      {loading && (
+      {loading ? (
         <span
           aria-hidden
           className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
         />
+      ) : (
+        children
       )}
-      {children}
     </motion.button>
   );
 }

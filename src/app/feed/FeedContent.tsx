@@ -319,7 +319,21 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   // navigates — two unrelated things happening on one motion. Index 0 is
   // the one place "go to previous" is already a no-op, so nothing is lost
   // by letting pull-to-refresh live there instead.
-  const atFirstGist = !current || (gists.length > 0 && current.gist_id === gists[0]?.gist_id);
+  //
+  // `current` is undefined in two completely different situations, and
+  // only one of them means "first gist": before the stack's very first
+  // onCurrentChange has fired (mount always starts at index 0, so this IS
+  // the first gist, just not confirmed yet), and once you've swiped past
+  // the last loaded gist onto the end-of-feed card (GistStack's own
+  // atEndCard — nothing there to report as "current" either, but that's
+  // the LAST position, not the first). A bare `!current` can't tell these
+  // apart, so it used to also arm pull-to-refresh on the end-of-feed card
+  // — exactly the swipe-down-triggers-a-reload conflict this whole gate
+  // exists to avoid, just at the other end of the list. Falling back to
+  // "the feed is genuinely empty" instead of "current happens to be
+  // unset" fixes that without losing the original mount-window case (an
+  // empty feed IS index 0, there's just nothing loaded into it yet).
+  const atFirstGist = gists.length === 0 || (!!current && current.gist_id === gists[0]?.gist_id);
   const { pull, state, onTouchStart, onTouchMove, onTouchEnd } = usePullToRefresh(
     () => load({ resetToTop: true }),
     atFirstGist,
@@ -480,15 +494,29 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
       if (isSchoolTab) params.school = tab;
       const more = await listGists(params);
       if (gen !== requestGenRef.current) return; // superseded — discard
-      if (more.length) {
-        setGists((prev) => [...prev, ...more]);
-        void prefetchComments(more.map((g) => g.gist_id));
+      // Dedup against what's already loaded before appending — a ranked
+      // (not plain chronological) cursor is inherently less stable than a
+      // simple id/timestamp one: on a small feed, GistStack's near-end
+      // trigger fires on nearly every swipe (see its own
+      // NEAR_END_THRESHOLD math), and if the ranking shifts even slightly
+      // between two of those closely-spaced calls, "everything after this
+      // cursor" can legitimately overlap with what a moments-ago call
+      // already returned. Blindly appending turned that into duplicate
+      // gist_ids in the list — the exact "two children with the same key"
+      // bug this file already fixed once for the base fetch (see load()'s
+      // own comment above) — surfacing here on the append path instead,
+      // for the same underlying reason: repeated calls on a tiny feed.
+      const seen = new Set(gists.map((g) => g.gist_id));
+      const fresh = more.filter((g) => !seen.has(g.gist_id));
+      if (fresh.length) {
+        setGists((prev) => [...prev, ...fresh]);
+        void prefetchComments(fresh.map((g) => g.gist_id));
       } else {
-        // Cursor pagination genuinely ran out — stop asking. Without this,
-        // sitting near the end of the feed re-fires this exact request
-        // indefinitely: loadMore's own identity changes every time
-        // loadingMore toggles, which re-triggers GistStack's near-end
-        // effect even though the list itself never moves.
+        // Either the cursor genuinely ran out (more.length === 0), or
+        // every gist this page returned was already in the list — a
+        // dead-end cursor, not a real failure, but treated the same way:
+        // stop asking. Without this, sitting near the end of a small feed
+        // re-fires this exact wasted round-trip on every single swipe.
         setExhausted(true);
       }
     } catch {
@@ -539,7 +567,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     <AppShell variant="feed">
       <div className="flex h-dvh w-full overflow-hidden">
         {/* Center Feed */}
-        <div className="relative flex h-full flex-1 flex-col bg-brand/[0.04] dark:bg-brand/[0.07]">
+        <div className="relative flex h-full min-w-0 flex-1 flex-col bg-brand/[0.04] dark:bg-brand/[0.07]">
           {/* Header — logo + account icons on their own row (app chrome);
               feed tabs get their own row underneath (X-style: "which feed am
               I looking at" reads as content, not global nav), left-aligned
@@ -616,7 +644,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
             </div>
 
             <div className="mx-auto flex max-w-[740px] items-center px-4 pb-2.5 pt-1 sm:px-6">
-              <div className="inline-flex items-center gap-2 overflow-x-auto no-scrollbar">
+              <div className="inline-flex min-w-0 items-center gap-2 overflow-x-auto no-scrollbar">
                 {tabButtons}
               </div>
             </div>
@@ -720,6 +748,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                     }
                     onNearEnd={loadMore}
                     mediaPaused={showCreate || showCommentSheet}
+                    exhausted={exhausted}
                   />
                 </div>
                 {/* Natural height only (shrink-0) — sits immediately below

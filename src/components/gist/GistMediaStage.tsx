@@ -296,8 +296,12 @@ export function GistMediaBackdrop({
   onTileClick,
   onNext,
   onPrev,
+  canGoNext = true,
+  canGoPrev = true,
   touchSurfaceRef,
   dragY,
+  opacity,
+  committingRef,
 }: {
   media: GistMediaType[];
   blurred?: boolean;
@@ -316,6 +320,10 @@ export function GistMediaBackdrop({
    * on the media itself is free to mean this instead. */
   onNext?: () => void;
   onPrev?: () => void;
+  /** Same shared boundary-awareness as GistCard's own call — see
+   * useOverscrollNav's docs on canGoNext/canGoPrev. */
+  canGoNext?: boolean;
+  canGoPrev?: boolean;
   /** Same shared touch surface (the whole card frame) as GistCard's own
    * call — see useOverscrollNav's docs. */
   touchSurfaceRef: RefObject<HTMLElement | null>;
@@ -323,6 +331,12 @@ export function GistMediaBackdrop({
    * useOverscrollNav's docstring for why one value has to reach every
    * call site instead of each owning its own. */
   dragY?: MotionValue<number>;
+  /** Same shared opacity value as GistCard's own call — see
+   * useOverscrollNav's docs. */
+  opacity?: MotionValue<number>;
+  /** Same shared exit-commit flag as GistCard's own call — see
+   * useOverscrollNav's docs. */
+  committingRef?: RefObject<boolean>;
 }) {
   const items = media.slice(0, 2);
   const isDuo = items.length === 2;
@@ -387,6 +401,10 @@ export function GistMediaBackdrop({
     onPrev,
     enabled: interactive,
     dragY,
+    opacity,
+    canGoNext,
+    canGoPrev,
+    committingRef,
   });
 
   return (
@@ -441,8 +459,12 @@ export function GistMediaBodyPanel({
   text,
   onNext,
   onPrev,
+  canGoNext = true,
+  canGoPrev = true,
   touchSurfaceRef,
   dragY,
+  opacity,
+  committingRef,
 }: {
   mode: "media" | "text";
   onModeChange: (mode: "media" | "text") => void;
@@ -451,12 +473,22 @@ export function GistMediaBodyPanel({
    * expanded caption's own scrollable text once it's scrolled to its edge. */
   onNext?: () => void;
   onPrev?: () => void;
+  /** Same shared boundary-awareness as GistMediaBackdrop's own call — see
+   * useOverscrollNav's docs on canGoNext/canGoPrev. */
+  canGoNext?: boolean;
+  canGoPrev?: boolean;
   /** Same shared touch surface (the whole card frame) as GistMediaBackdrop's
    * own call — see useOverscrollNav's docs. */
   touchSurfaceRef: RefObject<HTMLElement | null>;
   /** Same shared live-position value as GistMediaBackdrop's own call — see
    * useOverscrollNav's docstring. */
   dragY?: MotionValue<number>;
+  /** Same shared opacity value as GistMediaBackdrop's own call — see
+   * useOverscrollNav's docs. */
+  opacity?: MotionValue<number>;
+  /** Same shared exit-commit flag as GistMediaBackdrop's own call — see
+   * useOverscrollNav's docs. */
+  committingRef?: RefObject<boolean>;
 }) {
   const previewChars = usePreviewChars();
   const { preview, truncated } = previewText(text, previewChars);
@@ -466,6 +498,10 @@ export function GistMediaBodyPanel({
     onPrev,
     enabled: mode === "text",
     dragY,
+    opacity,
+    canGoNext,
+    canGoPrev,
+    committingRef,
   });
 
   return (

@@ -51,12 +51,16 @@ export function CommentPanel({ gist }: { gist: Gist | undefined }) {
       )}
 
       <div className="relative z-10 flex h-full w-full flex-col overflow-hidden">
-        {/* Header */}
-        <div className="relative flex items-center justify-center border-b border-line bg-brand/[0.04] px-5 py-4 backdrop-blur-sm dark:border-white/10 dark:bg-brand-ink/85">
-          <span className="font-nunito text-sm font-medium text-ink dark:text-white">
-            {commentCount} {commentCount === 1 ? "Comment" : "Comments"}
-          </span>
-        </div>
+        {/* Header — nothing worth announcing about a count of zero, so the
+            whole bar (border and all) only shows up once there's at least
+            one real comment to actually count. */}
+        {commentCount > 0 && (
+          <div className="relative flex items-center justify-center border-b border-line bg-brand/[0.04] px-5 py-4 backdrop-blur-sm dark:border-white/10 dark:bg-brand-ink/85">
+            <span className="font-nunito text-sm font-medium text-ink dark:text-white">
+              {commentCount} {commentCount === 1 ? "Comment" : "Comments"}
+            </span>
+          </div>
+        )}
 
         <CommentList gist={gist} className="px-5" />
 

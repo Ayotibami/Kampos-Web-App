@@ -85,8 +85,12 @@ export const GistCard = memo(function GistCard({
   onEdited,
   onNext,
   onPrev,
+  canGoNext = true,
+  canGoPrev = true,
   touchSurfaceRef,
   dragY,
+  opacity,
+  committingRef,
 }: {
   gist: Gist;
   isActive?: boolean;
@@ -116,6 +120,14 @@ export const GistCard = memo(function GistCard({
    * horizontal swipe, just a second way in. */
   onNext?: () => void;
   onPrev?: () => void;
+  /** Whether onNext/onPrev actually have somewhere to go right now — see
+   * useOverscrollNav's own docs on canGoNext/canGoPrev. Threaded straight
+   * through to every useOverscrollNav call site below, same path dragY
+   * already takes. Defaults true (unchanged behavior) so every caller
+   * except GistStack's own mobile front card doesn't need to think about
+   * this at all. */
+  canGoNext?: boolean;
+  canGoPrev?: boolean;
   /** Where the vertical-overscroll gesture's touch listeners actually
    * attach — the whole card frame (header, body, footer), not just
    * whatever's scrollable, so the gesture works no matter where on the
@@ -128,6 +140,15 @@ export const GistCard = memo(function GistCard({
    * listening for the gesture. See useOverscrollNav's own docstring for
    * why this has to be one shared value rather than each owning its own. */
   dragY?: MotionValue<number>;
+  /** The card's own opacity, animated only at commit/entrance, never
+   * during the live drag itself — see useOverscrollNav's own docs. Same
+   * sharing reasoning as dragY. */
+  opacity?: MotionValue<number>;
+  /** Shared with GistStack's own usePresence-based exit handling — see
+   * useOverscrollNav's own docs on why this needs to be an explicit flag
+   * rather than inferred from dragY's value. Same sharing reasoning as
+   * dragY itself: only ever passed by GistStack's mobile front card. */
+  committingRef?: RefObject<boolean>;
 }) {
   const reactGist = useGistStore((s) => s.react);
   const unreactGist = useGistStore((s) => s.unreact);
@@ -179,6 +200,10 @@ export const GistCard = memo(function GistCard({
     onPrev,
     enabled: isActive && !hasMedia,
     dragY,
+    opacity,
+    canGoNext,
+    canGoPrev,
+    committingRef,
   });
 
   // Double-tap-to-react (Instagram-style) — anywhere on a text-only card
@@ -570,8 +595,12 @@ export const GistCard = memo(function GistCard({
               onTileClick={setOverlayIndex}
               onNext={onNext}
               onPrev={onPrev}
+              canGoNext={canGoNext}
+              canGoPrev={canGoPrev}
               touchSurfaceRef={touchSurfaceRef}
               dragY={dragY}
+              opacity={opacity}
+              committingRef={committingRef}
             />
             <GistMediaBodyPanel
               mode={mediaMode}
@@ -579,8 +608,12 @@ export const GistCard = memo(function GistCard({
               text={gist.gist_text}
               onNext={onNext}
               onPrev={onPrev}
+              canGoNext={canGoNext}
+              canGoPrev={canGoPrev}
               touchSurfaceRef={touchSurfaceRef}
               dragY={dragY}
+              opacity={opacity}
+              committingRef={committingRef}
             />
           </>
         ) : (

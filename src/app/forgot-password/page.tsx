@@ -1,14 +1,13 @@
-import { gateServer } from "@/lib/serverAuth";
-import { HydrateAuth } from "@/components/auth/HydrateAuth";
+import { RedirectIfNotAllowed } from "@/components/auth/RedirectIfNotAllowed";
 import { ForgotPasswordForm } from "./ForgotPasswordForm";
 
-export default async function ForgotPasswordPage() {
-  // Not being OTP-verified yet has nothing to do with whether you should
-  // be able to reset your password — same reasoning as /login and /signup.
-  const { state, account, profiles } = await gateServer(["guest", "needs-otp"]);
+export default function ForgotPasswordPage() {
   return (
     <>
-      <HydrateAuth state={state} account={account} profiles={profiles} />
+      {/* Not being OTP-verified yet has nothing to do with whether you
+          should be able to reset your password — same reasoning as
+          /login and /signup. */}
+      <RedirectIfNotAllowed allow={["guest", "needs-otp"]} />
       <ForgotPasswordForm />
     </>
   );

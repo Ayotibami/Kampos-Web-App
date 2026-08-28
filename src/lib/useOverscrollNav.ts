@@ -37,20 +37,20 @@ export const COMMIT_EXIT_S = 0.18;
 const SNAP_BACK_SPRING = { type: "spring", stiffness: 500, damping: 32 } as const;
 
 /**
- * A vertical drag triggers a next/prev gist swap — and, unlike the old
- * version of this hook, the card now actually follows the finger live
- * while that drag is happening, instead of staying frozen until release.
+ * A vertical drag triggers a next/prev gist swap — the card follows the
+ * finger live while the drag is happening, instead of staying frozen until
+ * release.
  *
- * `dragY` is a Framer motion value OWNED BY THE CALLER (GistStack lifts
- * one and threads it down through GistCard into GistMediaBackdrop/
+ * `dragY` is a Framer motion value OWNED BY THE CALLER (GistStack lifts one
+ * and threads it down through GistCard into GistMediaBackdrop/
  * GistMediaBodyPanel — see those files), not created fresh here. That's
  * deliberate: this same gesture is wired up from three different places
- * depending on what's currently showing (plain text, media backdrop, or
- * an expanded media caption — only one is ever `enabled` at a time), and
- * all three need to move the SAME visual card, so they all have to share
- * one value rather than each quietly animating their own disconnected
- * copy. If a caller doesn't pass one, a local value is created as a
- * harmless fallback (nothing currently renders it, so it just no-ops).
+ * depending on what's currently showing (plain text, media backdrop, or an
+ * expanded media caption — only one is ever `enabled` at a time), and all
+ * three need to move the SAME visual card, so they all have to share one
+ * value rather than each quietly animating their own disconnected copy. If
+ * a caller doesn't pass one, a local value is created as a harmless
+ * fallback (nothing currently renders it, so it just no-ops).
  *
  * Still boundary-aware, same as before, and for the same reason: a touch
  * that starts on content which genuinely scrolls (a long paragraph, an
@@ -58,9 +58,7 @@ const SNAP_BACK_SPRING = { type: "spring", stiffness: 500, damping: 32 } as cons
  * that content is already at its top/bottom edge does continuing to drag
  * count as a swipe. A touch that starts on the surrounding header/footer
  * chrome, or on content with nothing to scroll, counts right away — there's
- * no reading-scroll to protect there either way. NONE of that decision
- * logic changed from the previous version — only what happens once a
- * touch is claimed did.
+ * no reading-scroll to protect there either way.
  *
  * Two different elements are involved on purpose, and they're not the same
  * thing:
@@ -84,6 +82,10 @@ export function useOverscrollNav<T extends HTMLElement>({
   onPrev,
   enabled = true,
   dragY: dragYProp,
+  opacity,
+  canGoNext = true,
+  canGoPrev = true,
+  committingRef,
 }: {
   surfaceRef: RefObject<HTMLElement | null>;
   onNext?: () => void;
@@ -92,10 +94,70 @@ export function useOverscrollNav<T extends HTMLElement>({
   /** Shared live-position value — see this hook's own docstring. Falls
    * back to a local, unrendered value if the caller doesn't pass one. */
   dragY?: MotionValue<number>;
+  /** Shared opacity value — deliberately NEVER touched during a live drag
+   * (only dragY is), so a card being dragged — whether it ends up
+   * committing or springing back — stays fully visible the entire time,
+   * same as nothing here ever fading before it had anything to move.
+   * Only animated at the exact moment a swipe commits below, alongside
+   * (same duration, same start) dragY's own exit tween. Deriving opacity
+   * FROM dragY's raw position instead is tempting (fewer moving parts),
+   * but breaks sync with the incoming card's entrance: a released card's
+   * exit continues from wherever the LIVE drag already carried it —
+   * anywhere from just past the swipe threshold to much further — while a
+   * freshly mounted incoming card always starts its own entrance from the
+   * full distance. A big released drag would start its exit already
+   * significantly faded, reaching invisible well before the incoming card
+   * (always starting from zero) caught up to fully visible. A dedicated
+   * value that only ever runs 1→0 (or 0→1, for an entrance — see
+   * GistStack's own layout effect) over the fixed commit duration,
+   * regardless of where the drag itself left things, keeps the two
+   * perfectly in sync no matter how far someone dragged before releasing.
+   * Optional: a caller with nothing visual riding on this (comment-panel
+   * nav, etc.) simply never passes one. */
+  opacity?: MotionValue<number>;
+  /** Whether committing a swipe in that direction actually has somewhere
+   * to go RIGHT NOW. Defaults to true (unchanged behavior for any caller
+   * that doesn't pass these — comment-panel expanded-caption nav, etc.,
+   * where this end-of-list nuance doesn't apply). GistStack is the one
+   * caller that does pass real values: false for "next" past the last
+   * loaded gist while more might still be coming, so a commit here would
+   * otherwise fling the card off into nothing (see GistStack's own
+   * canGoNext for the full reasoning). When false, a crossed-threshold
+   * drag in that direction springs back exactly like an under-threshold
+   * one instead of committing — the gesture itself is never blocked
+   * (still fully live, still draggable), it just doesn't fly off to
+   * somewhere that doesn't exist yet. */
+  canGoNext?: boolean;
+  canGoPrev?: boolean;
+  /** Flipped to true at the exact moment a swipe commits — before onNext/
+   * onPrev fire, in the same synchronous tick (see onTouchEnd below).
+   * Shared with the caller for one reason: GistStack keeps the outgoing
+   * card mounted a little longer via AnimatePresence to let its exit
+   * finish (see GistStackCard's own usePresence effect), and that effect
+   * needs to know FOR CERTAIN whether this card's exit is already under
+   * way (started here, continuing from wherever the live drag left it) or
+   * never started at all (index changed some other way — keyboard, wheel
+   * — dragY never moved). Guessing that from dragY's current value would
+   * work most of the time but isn't reliable — a wrong guess would
+   * restart the animation partway through and produce a visible hitch. */
+  committingRef?: RefObject<boolean>;
 }) {
   const scrollRef = useRef<T>(null);
   const localDragY = useMotionValue(0);
   const dragY = dragYProp ?? localDragY;
+  // Refs, not read directly in the effect below — canGoNext/canGoPrev can
+  // change on every single swipe (GistStack recomputes them from `index`),
+  // and the touch-handling effect deliberately does NOT re-run on every
+  // swipe (see its own dependency array) — re-attaching touch listeners
+  // that often would be wasteful and risks dropping an in-progress touch.
+  // A ref lets onTouchEnd always read the CURRENT value without the effect
+  // itself needing to know these changed.
+  const canGoNextRef = useRef(canGoNext);
+  const canGoPrevRef = useRef(canGoPrev);
+  useEffect(() => {
+    canGoNextRef.current = canGoNext;
+    canGoPrevRef.current = canGoPrev;
+  }, [canGoNext, canGoPrev]);
 
   useEffect(() => {
     const surface = surfaceRef.current;
@@ -120,13 +182,15 @@ export function useOverscrollNav<T extends HTMLElement>({
     // happens to be scrolled to. Only a touch that starts ON the content
     // itself needs the boundary gate below.
     let startedInContent = true;
-    // True from the moment a commit's finish-animation starts until it
-    // actually fires onNext/onPrev — this same card stays mounted (and
-    // this same listener stays attached) for that whole short window, so
-    // without this guard a second, immediate touch could grab the shared
-    // dragY mid-flight and yank the still-exiting card back to a new raw
-    // position. Simplest safe answer: ignore any touch that starts during
-    // that window rather than try to gracefully interrupt it.
+    // True from the moment a commit is decided onward — never reset back
+    // to false. onNext/onPrev fire immediately (see onTouchEnd below), but
+    // this same card/listener stays mounted a little longer to finish its
+    // own exit (GistStack keeps it around via AnimatePresence/usePresence
+    // for exactly that window), so without this guard a second, immediate
+    // touch could still grab the shared dragY mid-flight and yank the
+    // already-departing card back to a new raw position. Simplest safe
+    // answer: ignore any touch that starts once this card is on its way
+    // out rather than try to gracefully interrupt it.
     let committing = false;
 
     const atTop = () => {
@@ -168,9 +232,12 @@ export function useOverscrollNav<T extends HTMLElement>({
       // Once claimed, this touch is ours for the rest of the gesture —
       // stop the browser from also trying to scroll/bounce the same drag.
       e.preventDefault();
-      // Live 1:1 follow — the whole point of this rewrite. No spring, no
+      // Live 1:1 follow — the whole point of this hook. No spring, no
       // easing, just the raw finger delta, so the card feels physically
       // attached to the thumb rather than reacting to it a beat later.
+      // Deliberately the ONLY thing touched here — opacity stays exactly
+      // where it already is (see this hook's own docs on `opacity`), so
+      // the card never fades while it's simply being explored.
       dragY.set(dy);
       const now = performance.now();
       const dt = now - lastMoveTime;
@@ -201,16 +268,52 @@ export function useOverscrollNav<T extends HTMLElement>({
       // Positive means pulled down past the top (→ prev); negative means
       // pulled up past the bottom (→ next). A fast flick trusts its own
       // direction (the most instantaneous signal); otherwise the overall
-      // drag direction decides. Same logic as before this rewrite —
-      // committing just now ALSO finishes the visual motion first.
+      // drag direction decides.
       const direction = fastFlick ? velocity : dy;
+
+      // Crossed the threshold, but there's genuinely nowhere for THIS
+      // direction to go yet (see canGoNext/canGoPrev's own docs) — treat
+      // it exactly like an under-threshold drag instead of flinging the
+      // card off toward nothing. The gesture itself was never blocked —
+      // it followed the finger the whole way, live — it just doesn't
+      // commit to a destination that doesn't exist.
+      const allowed = direction > 0 ? canGoPrevRef.current : canGoNextRef.current;
+      if (!allowed) {
+        animate(dragY, 0, SNAP_BACK_SPRING);
+        return;
+      }
+
+      // committing never gets reset back to false here — this touch
+      // surface's card is on its way out (GistStack is about to swap in
+      // the next one, see below) and stays mounted only long enough to
+      // finish this exit (see GistStack's own AnimatePresence/usePresence
+      // handling), never interactive again after this point.
       committing = true;
+      // Set before onNext/onPrev fire, in this same synchronous tick — by
+      // the time GistStack's re-render is processed and GistStackCard's
+      // own effect checks this, it's already reliably true. See this
+      // param's own docs on why a boolean flag here beats inferring it.
+      if (committingRef) committingRef.current = true;
       const exitTarget = direction > 0 ? EXIT_DISTANCE_PX : -EXIT_DISTANCE_PX;
-      animate(dragY, exitTarget, { duration: COMMIT_EXIT_S, ease: "easeOut" }).then(() => {
-        committing = false;
-        if (direction > 0) onPrev?.();
-        else onNext?.();
-      });
+      // Kicked off but deliberately not awaited — this card's own exit
+      // keeps playing out on `dragY` regardless of what happens next.
+      // onNext/onPrev fire IMMEDIATELY below, not once this resolves: the
+      // whole point is that GistStack swaps in the next gist right away,
+      // so the incoming card mounts and starts its own entrance at the
+      // same instant this one starts leaving — both animating in
+      // parallel, like a conveyor belt, rather than one finishing before
+      // the other even begins.
+      animate(dragY, exitTarget, { duration: COMMIT_EXIT_S, ease: "easeOut" });
+      // Started fresh from 1 (its only possible value up to this point —
+      // see this param's own docs on why nothing during the live drag
+      // itself ever touches it), fading to 0 over the exact same window as
+      // the position tween above, so however far the live drag already
+      // carried this card, its fade only ever starts now and takes the
+      // full duration — same as the incoming card's own entrance fade —
+      // instead of however much of it the raw distance already used up.
+      if (opacity) animate(opacity, 0, { duration: COMMIT_EXIT_S, ease: "easeOut" });
+      if (direction > 0) onPrev?.();
+      else onNext?.();
     };
 
     surface.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -221,7 +324,7 @@ export function useOverscrollNav<T extends HTMLElement>({
       surface.removeEventListener("touchmove", onTouchMove);
       surface.removeEventListener("touchend", onTouchEnd);
     };
-  }, [surfaceRef, enabled, onNext, onPrev, dragY]);
+  }, [surfaceRef, enabled, onNext, onPrev, dragY, opacity, committingRef]);
 
   return { scrollRef };
 }

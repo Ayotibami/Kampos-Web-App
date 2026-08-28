@@ -1,12 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { motion, useMotionValue, useTransform, animate, type PanInfo } from "framer-motion";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import {
+  motion,
+  AnimatePresence,
+  usePresence,
+  useMotionValue,
+  useTransform,
+  animate,
+  type PanInfo,
+  type MotionValue,
+} from "framer-motion";
 import { GistCard } from "./GistCard";
 import { MediaImage } from "@/components/ui/MediaFrame";
+import { Illustration } from "@/components/brand/illustrations";
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from "@/components/ui/icons";
 import { useIsMobile } from "@/lib/useIsMobile";
-import { EXIT_DISTANCE_PX, COMMIT_EXIT_S } from "@/lib/useOverscrollNav";
+import { useOverscrollNav, EXIT_DISTANCE_PX, COMMIT_EXIT_S } from "@/lib/useOverscrollNav";
 import type { Gist } from "@/types";
 
 const SWIPE_THRESHOLD = 90; // px of horizontal drag to advance — desktop only, see isMobile below
@@ -59,6 +69,7 @@ export function GistStack({
   onGistDeleted,
   onGistEdited,
   onNearEnd,
+  exhausted = false,
   mediaPaused = false,
   resetToTopSignal,
   showCampusTag = true,
@@ -80,6 +91,13 @@ export function GistStack({
    * pagination and its own re-entrancy guard, so this can fire more than
    * once without needing to track "have we already asked" here. */
   onNearEnd?: () => void;
+  /** True once the parent has confirmed there's genuinely nothing more to
+   * fetch (a "load more" call already came back empty/all-duplicate) — see
+   * FeedContent's own loadMore. Lets the stack tell "still might be more,
+   * just haven't heard back yet" apart from "no, that's actually it" —
+   * the difference between blocking a swipe outright (see canGoNext below)
+   * and revealing the end-of-feed card. */
+  exhausted?: boolean;
   /** True while something feed-level is covering the card (the comment
    * sheet, the new-gist compose sheet) — the front card's own video should
    * pause for the same reason it already pauses for peeking/inactive cards,
@@ -198,16 +216,11 @@ export function GistStack({
   const lastNavAtRef = useRef(0);
   const NAV_DEBOUNCE_MS = 150;
 
-  // Mobile-only: which side the incoming card's entrance animation rises
-  // in from (see GistStackCard's own mobile branch) — +1 for next (rises
-  // from below), -1 for prev (rises from above). Set in the same event
+  // Mobile-only: which way the fall/rise transition should play (see
+  // fallRiseVariants) — +1 for next, -1 for prev. Set in the same event
   // handler as setIndex, so React 18's automatic batching applies both in
   // the same render — the render that shows the new gist always sees the
-  // direction that produced it. Only actually consulted on MOUNT (a fresh
-  // gist_id key means a fresh component instance), since a drag-committed
-  // transition already knows its own direction from the drag itself —
-  // this only matters for how the new card enters, never how the old one
-  // leaves.
+  // direction that produced it.
   const [direction, setDirection] = useState(1);
 
   const next = useCallback(() => {
@@ -216,8 +229,16 @@ export function GistStack({
     lastNavAtRef.current = now;
     dismissHint();
     setDirection(1);
-    setIndex((i) => Math.min(i + 1, gists.length - 1));
-  }, [gists.length, dismissHint, isMobile]);
+    // `gists.length` itself (one past the last real gist) is a genuine,
+    // reachable position once exhausted — that's the end-of-feed card's
+    // own slot (see the render below). Not reachable at all otherwise:
+    // canGoNext (passed into useOverscrollNav) already blocks a swipe from
+    // committing past the last real gist while more might still be
+    // coming, so this clamp is really just the desktop/keyboard/wheel
+    // paths' own version of the same rule.
+    const maxIndex = Math.max(exhausted ? gists.length : gists.length - 1, 0);
+    setIndex((i) => Math.min(i + 1, maxIndex));
+  }, [gists.length, exhausted, dismissHint, isMobile]);
 
   const prev = useCallback(() => {
     const now = Date.now();
@@ -274,6 +295,24 @@ export function GistStack({
     else if (info.offset.x > SWIPE_THRESHOLD || info.velocity.x > 500) prev();
   };
 
+  // Whether a swipe in each direction actually has somewhere to go RIGHT
+  // NOW — threaded down into every useOverscrollNav call site (mobile's
+  // vertical gesture only; desktop's horizontal drag springs back on its
+  // own for free via Framer's own dragConstraints, since its resting
+  // position is derived from `offset`, which simply doesn't move when
+  // `index` doesn't). Three distinct positions:
+  //  - a real gist with another real gist already loaded after it: next
+  //    always allowed.
+  //  - the LAST loaded real gist: next only allowed once `exhausted` is
+  //    confirmed true — otherwise a commit here would fly the card off
+  //    toward a next gist that doesn't exist yet (this is the exact bug
+  //    that produced a blank space).
+  //  - the end-of-feed card itself (index === gists.length, only reachable
+  //    once exhausted): nothing past it, ever.
+  const atEndCard = index >= gists.length;
+  const canGoNextValue = atEndCard ? false : index < gists.length - 1 || exhausted;
+  const canGoPrevValue = index > 0;
+
   return (
     <div
       className="relative flex w-full flex-1 justify-center select-none"
@@ -281,44 +320,32 @@ export function GistStack({
     >
       <div className="relative h-full w-full max-w-[620px] md:max-w-[740px]">
         {isMobile ? (
-          // Mobile: exactly one card. No AnimatePresence needed here
-          // anymore — a committed swipe now finishes its own exit
-          // animation FIRST (see useOverscrollNav) and only calls next()/
-          // prev() once that's done, so `gists[index]` (and therefore
-          // this card) doesn't actually change until the outgoing card is
-          // already fully off-screen. Nothing ever needs to stay mounted
-          // past its own removal to finish animating out.
-          gists[index] && (
-            <GistStackCard
-              key={gists[index].gist_id}
-              gist={gists[index]}
-              offset={0}
-              isMobile
-              direction={direction}
-              mediaPaused={mediaPaused}
-              showCampusTag={showCampusTag}
-              handleOverlayOpenChange={handleOverlayOpenChange}
-              onGistDeleted={onGistDeleted}
-              onGistEdited={onGistEdited}
-              next={next}
-              prev={prev}
-              handleDragEnd={handleDragEnd}
-            />
-          )
-        ) : (
-          // Desktop: unchanged — the whole cascading peek (WINDOW_AHEAD deep).
-          gists.map((gist, i) => {
-            const offset = i - index;
-            if (offset < -1 || offset > WINDOW_AHEAD) return null;
-            return (
+          // Mobile: exactly one REAL card at a time, but wrapped in
+          // AnimatePresence so a committed swipe's outgoing card and the
+          // incoming one animate in parallel instead of one after the
+          // other — onNext/onPrev now fire the INSTANT a swipe commits
+          // (see useOverscrollNav), so `gists[index]` (and therefore which
+          // card is "current") changes right away. The outgoing card would
+          // normally just get ripped out of the DOM at that same instant,
+          // cutting its own still-playing exit motion off mid-flight —
+          // AnimatePresence is what keeps it mounted (via GistStackCard's
+          // own usePresence call) for the brief window it needs to finish
+          // that exit, while the new card mounts and starts its entrance
+          // at the very same moment. `gist` is null exactly when
+          // `atEndCard` — GistStackCard renders the end-of-feed message
+          // instead of a real GistCard for that one.
+          <AnimatePresence initial={false}>
+            {(gists[index] || atEndCard) && (
               <GistStackCard
-                key={gist.gist_id}
-                gist={gist}
-                offset={offset}
-                isMobile={false}
-                direction={1}
+                key={atEndCard ? "__end_of_feed__" : gists[index].gist_id}
+                gist={atEndCard ? null : gists[index]}
+                offset={0}
+                isMobile
+                direction={direction}
                 mediaPaused={mediaPaused}
                 showCampusTag={showCampusTag}
+                canGoNext={canGoNextValue}
+                canGoPrev={canGoPrevValue}
                 handleOverlayOpenChange={handleOverlayOpenChange}
                 onGistDeleted={onGistDeleted}
                 onGistEdited={onGistEdited}
@@ -326,8 +353,58 @@ export function GistStack({
                 prev={prev}
                 handleDragEnd={handleDragEnd}
               />
-            );
-          })
+            )}
+          </AnimatePresence>
+        ) : (
+          <>
+            {/* Desktop: unchanged — the whole cascading peek (WINDOW_AHEAD deep). */}
+            {gists.map((gist, i) => {
+              const offset = i - index;
+              if (offset < -1 || offset > WINDOW_AHEAD) return null;
+              return (
+                <GistStackCard
+                  key={gist.gist_id}
+                  gist={gist}
+                  offset={offset}
+                  isMobile={false}
+                  direction={1}
+                  mediaPaused={mediaPaused}
+                  showCampusTag={showCampusTag}
+                  canGoNext={offset === 0 ? canGoNextValue : true}
+                  canGoPrev={offset === 0 ? canGoPrevValue : true}
+                  handleOverlayOpenChange={handleOverlayOpenChange}
+                  onGistDeleted={onGistDeleted}
+                  onGistEdited={onGistEdited}
+                  next={next}
+                  prev={prev}
+                  handleDragEnd={handleDragEnd}
+                />
+              );
+            })}
+            {/* Same end-of-feed slot as mobile, once reached — desktop's
+                own peek stack has nothing to preview here ahead of time
+                (there's no "next" content to show a sliver of), so this
+                only ever appears once it's actually the front card. */}
+            {atEndCard && (
+              <GistStackCard
+                key="__end_of_feed__"
+                gist={null}
+                offset={0}
+                isMobile={false}
+                direction={1}
+                mediaPaused={mediaPaused}
+                showCampusTag={showCampusTag}
+                canGoNext={false}
+                canGoPrev={canGoPrevValue}
+                handleOverlayOpenChange={handleOverlayOpenChange}
+                onGistDeleted={onGistDeleted}
+                onGistEdited={onGistEdited}
+                next={next}
+                prev={prev}
+                handleDragEnd={handleDragEnd}
+              />
+            )}
+          </>
         )}
 
         {showHint && <SwipeHint />}
@@ -338,18 +415,25 @@ export function GistStack({
 
 /**
  * A single card's slot in the stack. Desktop: the signature dragged/rotated
- * peek-stack (unchanged — see slotFor). Mobile: only the front card is ever
- * mounted here (see GistStack's own render) — its own `dragY` motion value
- * (shared down into GistCard and, for a media gist, further into
- * GistMediaBackdrop/GistMediaBodyPanel — see useOverscrollNav's own
- * docstring) drives its position live: it follows a claimed drag frame by
- * frame, springs back if the drag didn't cross the swipe threshold, or
- * finishes flying off-screen if it did — all owned by useOverscrollNav,
- * this component just renders wherever that value currently is. The one
- * animation this component DOES own directly is the entrance: a freshly
- * mounted card (a new gist_id key, so a fresh instance and a fresh dragY
- * starting at 0) starts off-screen on the side `direction` points to and
- * rises up to rest.
+ * peek-stack (unchanged — see slotFor). Mobile: normally just the one front
+ * card, but briefly two at once during a transition — GistStack wraps the
+ * mobile render in AnimatePresence, so the outgoing card stays mounted
+ * (via this component's own usePresence call below) for the short window
+ * it needs to finish leaving, while the incoming one mounts and starts its
+ * own entrance at the very same instant, instead of waiting its turn.
+ *
+ * Its own `dragY` motion value (shared down into GistCard and, for a media
+ * gist, further into GistMediaBackdrop/GistMediaBodyPanel — see
+ * useOverscrollNav's own docstring) drives its position live: it follows a
+ * claimed drag frame by frame, springs back if the drag didn't cross the
+ * swipe threshold, or starts flying off-screen the instant it did — all
+ * owned by useOverscrollNav, this component just renders wherever that
+ * value currently is. Two animations this component DOES own directly:
+ * the entrance (a freshly mounted card — a new gist_id key, so a fresh
+ * instance and a fresh dragY starting at 0 — starts off-screen on the side
+ * `direction` points to and rises up to rest) and, for whichever card is on
+ * its way OUT, the tail end of its own exit (see the usePresence effect
+ * below).
  */
 function GistStackCard({
   gist,
@@ -358,6 +442,8 @@ function GistStackCard({
   direction,
   mediaPaused,
   showCampusTag,
+  canGoNext,
+  canGoPrev,
   handleOverlayOpenChange,
   onGistDeleted,
   onGistEdited,
@@ -365,7 +451,9 @@ function GistStackCard({
   prev,
   handleDragEnd,
 }: {
-  gist: Gist;
+  /** null renders the end-of-feed slot (see EndOfFeedCard) instead of a
+   * real GistCard — see GistStack's own `atEndCard`. */
+  gist: Gist | null;
   offset: number;
   isMobile: boolean;
   /** Mobile only — which side a freshly mounted card's entrance rises in
@@ -373,6 +461,13 @@ function GistStackCard({
   direction: number;
   mediaPaused: boolean;
   showCampusTag: boolean;
+  /** Whether a swipe from THIS card actually has somewhere to go — see
+   * GistStack's own canGoNextValue/canGoPrevValue and useOverscrollNav's
+   * docs. Only meaningful for the front card; desktop's peeking cards
+   * behind it always pass true (see GistStack's own render), since they're
+   * not the ones a real gesture is ever committing from. */
+  canGoNext: boolean;
+  canGoPrev: boolean;
   handleOverlayOpenChange: (open: boolean) => void;
   onGistDeleted?: (gistId: string) => void;
   onGistEdited?: (gist: Gist) => void;
@@ -400,49 +495,149 @@ function GistStackCard({
   // currently showing (see this component's own docstring) — one value,
   // passed down as a prop to whichever of them is actually active.
   const dragY = useMotionValue(0);
-  // Fades out as the card nears either exit distance — derived FROM dragY
-  // rather than tracked as its own state, so it automatically stays in
-  // lockstep with wherever dragY actually is: live during a drag, back to
-  // fully opaque on a cancelled swipe, fading out on a committed one, with
-  // nothing separate to keep in sync by hand.
-  const opacity = useTransform(dragY, [-EXIT_DISTANCE_PX, 0, EXIT_DISTANCE_PX], [0, 1, 0]);
+  // Flipped true the instant a swipe commits (see useOverscrollNav's own
+  // docs on committingRef) — read by this component's own usePresence
+  // effect below to know for certain whether this card's exit is already
+  // under way before deciding whether to kick off a fallback one.
+  const committingRef = useRef(false);
+  // Deliberately its OWN value, NOT derived from dragY — opacity only ever
+  // moves during the entrance (see the layout effect below) and the exit
+  // (see useOverscrollNav's own commit handling), animated in lockstep
+  // with `dragY`'s own position tween over the exact same duration, never
+  // touched during a live drag itself (onTouchMove only ever sets dragY).
+  // A card being dragged — whether it goes on to commit or springs back —
+  // stays fully opaque the entire time. Deriving this from raw dragY
+  // distance instead seemed reasonable on its own, but breaks symmetry in
+  // a way only visible in slow motion: a released card's exit continues
+  // from wherever the LIVE drag already carried it (anywhere from just
+  // past the swipe threshold to much further), while a freshly mounted
+  // incoming card always starts its entrance from the full distance — so
+  // a big released drag started its exit already significantly faded,
+  // reaching invisible well before the incoming card (always starting
+  // from zero) caught up to fully visible. A dedicated value that only
+  // ever runs 1→0 or 0→1 over the fixed commit duration, regardless of
+  // where the drag itself left things, keeps the two perfectly in sync no
+  // matter how far someone dragged before releasing.
+  const opacity = useMotionValue(1);
+  // `dragY` is named for the vertical finger travel it's fed from (see
+  // useOverscrollNav) — the actual on-screen motion has always been
+  // horizontal, though: this same gesture visually tosses the card to the
+  // side like the desktop stack does, even though the touch that drives it
+  // is a vertical swipe. A small tilt proportional to how far the card's
+  // already traveled.
+  const rotate = useTransform(dragY, [-EXIT_DISTANCE_PX, 0, EXIT_DISTANCE_PX], [-16, 0, 16]);
 
   // Entrance only — a fresh mount (fresh gist_id key, fresh dragY at 0)
   // starts off-screen on whichever side `direction` points to and rises to
   // rest. Exit is handled entirely by useOverscrollNav, which is why this
   // effect never needs to run again for the SAME card later on.
-  useEffect(() => {
+  //
+  // useLayoutEffect, deliberately not useEffect: a plain effect only runs
+  // AFTER the browser has already painted, and a freshly mounted dragY
+  // motion value defaults to 0 — so with useEffect the very first painted
+  // frame would briefly show this card sitting fully at rest, THEN visibly
+  // snap out to the off-screen start position before easing back in.
+  // That flash-then-snap would read as an unwanted little bounce/sway
+  // right as each new card landed. useLayoutEffect runs before paint, so
+  // the off-screen position is what's on screen from the first frame
+  // onward — one continuous ease-in, nothing to snap back from.
+  useLayoutEffect(() => {
     if (!isMobile) return;
     dragY.set(direction > 0 ? EXIT_DISTANCE_PX : -EXIT_DISTANCE_PX);
-    const controls = animate(dragY, 0, { duration: COMMIT_EXIT_S, ease: "easeOut" });
-    return () => controls.stop();
+    opacity.set(0);
+    const posControls = animate(dragY, 0, { duration: COMMIT_EXIT_S, ease: "easeOut" });
+    const opacityControls = animate(opacity, 1, { duration: COMMIT_EXIT_S, ease: "easeOut" });
+    return () => {
+      posControls.stop();
+      opacityControls.stop();
+    };
     // Deliberately mount-only — `direction` describes how THIS card
     // arrived, not something that should retrigger the entrance if it
     // changes later for an unrelated reason.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Exit-lifecycle only — safe to call even on desktop/outside
+  // AnimatePresence (usePresence just returns isPresent=true, safeToRemove
+  // a no-op, when there's no AnimatePresence ancestor). `index` moves on
+  // to the next gist the INSTANT a swipe commits (see useOverscrollNav),
+  // which is what flips isPresent to false for THIS instance — at that
+  // point `committingRef.current` is already reliably true (set
+  // synchronously, before onNext/onPrev even fired — see
+  // useOverscrollNav's own docs) whenever a live touch commit is what's
+  // driving this exit, so `dragY` just needs to be left alone to keep
+  // finishing what it's already doing. The fallback animate() call below
+  // only matters for a next()/prev() triggered some other way (keyboard,
+  // wheel) where dragY never moved, so this card would otherwise just sit
+  // frozen at rest until removed instead of animating out at all. A flag
+  // set at the exact commit moment, not a guess from dragY's current
+  // value — this runs after a real paint, by which point a magnitude
+  // heuristic would almost always be right anyway, but "almost always"
+  // risks occasionally restarting an already-most-of-the-way-there
+  // animation and producing a visible hitch, which a definite flag can't.
+  const [isPresent, safeToRemove] = usePresence();
+  useEffect(() => {
+    if (!isMobile || isPresent) return;
+    // Same reasoning as the touch-driven commit path (see
+    // useOverscrollNav's own onTouchEnd) — position AND opacity animate
+    // together here too, so a keyboard/wheel-triggered exit fades out in
+    // sync with its own position change instead of just popping away.
+    const posControls = committingRef.current
+      ? undefined
+      : animate(dragY, direction > 0 ? -EXIT_DISTANCE_PX : EXIT_DISTANCE_PX, {
+          duration: COMMIT_EXIT_S,
+          ease: "easeOut",
+        });
+    const opacityControls = committingRef.current
+      ? undefined
+      : animate(opacity, 0, { duration: COMMIT_EXIT_S, ease: "easeOut" });
+    const timer = window.setTimeout(safeToRemove, COMMIT_EXIT_S * 1000);
+    return () => {
+      posControls?.stop();
+      opacityControls?.stop();
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPresent]);
+
   if (isMobile) {
     // Always the front card — GistStack's render loop never mounts any
     // other offset on mobile — so there's nothing to key this on.
     return (
-      <motion.div className="absolute inset-0 will-change-transform" style={{ y: dragY, opacity }}>
+      <motion.div className="absolute inset-0 will-change-transform" style={{ x: dragY, rotate, opacity }}>
         <div
           ref={touchSurfaceRef}
           className="relative h-full w-full overflow-hidden rounded-[32px] shadow-[0_24px_60px_-24px_rgba(9,30,66,0.55)] ring-1 ring-black/5"
         >
-          <GistCard
-            gist={gist}
-            isActive={!mediaPaused}
-            showCampusTag={showCampusTag}
-            onOverlayOpenChange={handleOverlayOpenChange}
-            onDeleted={onGistDeleted}
-            onEdited={onGistEdited}
-            onNext={next}
-            onPrev={prev}
-            touchSurfaceRef={touchSurfaceRef}
-            dragY={dragY}
-          />
+          {gist ? (
+            <GistCard
+              gist={gist}
+              isActive={!mediaPaused}
+              showCampusTag={showCampusTag}
+              onOverlayOpenChange={handleOverlayOpenChange}
+              onDeleted={onGistDeleted}
+              onEdited={onGistEdited}
+              onNext={next}
+              onPrev={prev}
+              canGoNext={canGoNext}
+              canGoPrev={canGoPrev}
+              touchSurfaceRef={touchSurfaceRef}
+              dragY={dragY}
+              opacity={opacity}
+              committingRef={committingRef}
+            />
+          ) : (
+            <EndOfFeedCard
+              onNext={next}
+              onPrev={prev}
+              canGoNext={canGoNext}
+              canGoPrev={canGoPrev}
+              touchSurfaceRef={touchSurfaceRef}
+              dragY={dragY}
+              opacity={opacity}
+              committingRef={committingRef}
+            />
+          )}
         </div>
       </motion.div>
     );
@@ -471,17 +666,23 @@ function GistStackCard({
         ref={touchSurfaceRef}
         className="relative h-full w-full overflow-hidden rounded-[32px] shadow-[0_24px_60px_-24px_rgba(9,30,66,0.55)] ring-1 ring-black/5"
       >
-        <GistCard
-          gist={gist}
-          isActive={isFront && !mediaPaused}
-          showCampusTag={showCampusTag}
-          onOverlayOpenChange={handleOverlayOpenChange}
-          onDeleted={onGistDeleted}
-          onEdited={onGistEdited}
-          onNext={isFront ? next : undefined}
-          onPrev={isFront ? prev : undefined}
-          touchSurfaceRef={touchSurfaceRef}
-        />
+        {gist ? (
+          <GistCard
+            gist={gist}
+            isActive={isFront && !mediaPaused}
+            showCampusTag={showCampusTag}
+            onOverlayOpenChange={handleOverlayOpenChange}
+            onDeleted={onGistDeleted}
+            onEdited={onGistEdited}
+            onNext={isFront ? next : undefined}
+            onPrev={isFront ? prev : undefined}
+            canGoNext={canGoNext}
+            canGoPrev={canGoPrev}
+            touchSurfaceRef={touchSurfaceRef}
+          />
+        ) : (
+          <EndOfFeedCard onNext={next} onPrev={prev} canGoNext={canGoNext} canGoPrev={canGoPrev} touchSurfaceRef={touchSurfaceRef} />
+        )}
         {/* Swipe-peek tease (desktop only). Peeking cards (offset > 0)
             already sit rotated/offset behind the front card, so a sliver
             of their right edge sticks out during a drag. Painting the
@@ -494,9 +695,9 @@ function GistStackCard({
             gets a peek when it actually has a thumbnail_url (a real
             poster frame) — if not, skip the peek entirely rather
             than try to load the raw .mp4 as an image and silently
-            fail. */}
+            fail. Nothing to peek at all for the end-of-feed slot. */}
         {(() => {
-          const first = gist.media?.[0];
+          const first = gist?.media?.[0];
           if (offset <= 0 || !first) return null;
           const isVideo = first.media_type?.toLowerCase().includes("video");
           const previewSrc = isVideo ? first.thumbnail_url : first.media_url || first.thumbnail_url;
@@ -510,6 +711,72 @@ function GistStackCard({
         })()}
       </div>
     </motion.div>
+  );
+}
+
+/**
+ * The stack's own "you've reached the end" slot — rendered by GistStackCard
+ * in place of a real GistCard once `index` advances past the last loaded
+ * gist and the parent has confirmed there's genuinely nothing more (see
+ * GistStack's own `atEndCard`/`exhausted`). A real, swipeable destination,
+ * not a dead end: `canGoNext` is always false here (nothing exists past
+ * it), so swiping forward from this card just springs back, same as
+ * hitting it from the last real gist while still waiting on "load more" —
+ * but swiping back down still works exactly like it does from any other
+ * card, landing back on the last real gist.
+ *
+ * Wires up its own useOverscrollNav call so that back-swipe keeps working
+ * — there's no GistCard here to provide it internally. Desktop's
+ * mouse-drag swipe-back needs nothing extra (GistStackCard's own outer
+ * `drag="x"` wrapper already covers it regardless of what's inside), and
+ * this hook's own touch listeners are simply inert there — same as
+ * GistCard's identical unconditional call.
+ */
+function EndOfFeedCard({
+  onNext,
+  onPrev,
+  canGoNext,
+  canGoPrev,
+  touchSurfaceRef,
+  dragY,
+  opacity,
+  committingRef,
+}: {
+  onNext: () => void;
+  onPrev: () => void;
+  canGoNext: boolean;
+  canGoPrev: boolean;
+  touchSurfaceRef: RefObject<HTMLElement | null>;
+  dragY?: MotionValue<number>;
+  /** Same shared opacity value as GistCard's own call — see
+   * useOverscrollNav's docs. */
+  opacity?: MotionValue<number>;
+  /** Same shared exit-commit flag as GistCard's own call — see
+   * useOverscrollNav's docs. */
+  committingRef?: RefObject<boolean>;
+}) {
+  // Nothing here ever scrolls (same reasoning as GistMediaBackdrop's own
+  // identical comment) — any vertical drag counts as a pull past the edge
+  // from the very first pixel.
+  const { scrollRef } = useOverscrollNav<HTMLDivElement>({
+    surfaceRef: touchSurfaceRef,
+    onNext,
+    onPrev,
+    dragY,
+    opacity,
+    committingRef,
+    canGoNext,
+    canGoPrev,
+  });
+
+  return (
+    <div
+      ref={scrollRef}
+      className="flex h-full w-full flex-col items-center justify-center gap-3 bg-surface-2 px-8 text-center dark:bg-brand-ink"
+    >
+      <Illustration name="Kappymagnifyingglass" className="h-32 w-auto" />
+      <p className="font-nunito text-base font-extrabold text-ink">Omo, Nothing dey again o</p>
+    </div>
   );
 }
 
