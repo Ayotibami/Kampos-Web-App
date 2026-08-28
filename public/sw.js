@@ -1,11 +1,17 @@
 // Kampos PWA Service Worker
 // Precaches a small public app shell at install time, then caches static
-// assets (cache-first), HTML pages (stale-while-revalidate), and external
-// images from Cloudinary/Giphy (cache-first) as they're actually visited.
-// API data is NOT cached here — that lives in a client-side IndexedDB layer
-// (see src/lib/dataCache.ts).
+// assets (cache-first), HTML pages (network-first — always tries for the
+// current deploy, only falls back to cache when genuinely offline), and
+// external images from Cloudinary/Giphy (cache-first) as they're actually
+// visited. API data is NOT cached here — that lives in a client-side
+// IndexedDB layer (see src/lib/dataCache.ts).
 
-const STATIC = "kampos-static-v2";
+// Bumped so this deploy also clears out anything a browser cached under the
+// old strategy below (activate already deletes any cache key that isn't the
+// current one) — without this, a browser that's already got the old,
+// stale-served HTML sitting in its cache wouldn't get a clean slate just
+// from this file changing.
+const STATIC = "kampos-static-v3";
 const IMAGES = "kampos-images-v1";
 
 // A small, deliberately conservative app shell, precached at install time
@@ -42,7 +48,7 @@ self.addEventListener("install", (e) => {
               })
               // A single flaky/unreachable URL shouldn't fail the whole
               // install — it just stays uncached until cacheFirst/
-              // staleWhileRevalidate picks it up on a real visit instead.
+              // networkFirst picks it up on a real visit instead.
               .catch(() => {}),
           ),
         ),
@@ -96,8 +102,18 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // ── Navigation / HTML pages → stale-while-revalidate ──────────────────
-  e.respondWith(staleWhileRevalidate(e.request, STATIC));
+  // ── Navigation / HTML pages → network-first ────────────────────────────
+  // Was stale-while-revalidate (serve the cached copy instantly, refresh in
+  // the background for *next* time) — that meant every navigation could
+  // keep showing an old deploy's HTML (and, transitively, whatever old JS
+  // chunks that HTML references) indefinitely, since nothing ever forced a
+  // fetch of the *current* version onto the *current* navigation. Static
+  // assets (JS/CSS/images, above) are fine staying cache-first — those
+  // filenames are content-hashed per build, so a new deploy naturally gets
+  // new URLs instead of colliding with a stale cache entry. HTML has no
+  // such hash, so it's the one thing that actually needs to check the
+  // network first, falling back to cache only when genuinely offline.
+  e.respondWith(networkFirst(e.request, STATIC));
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -119,18 +135,19 @@ async function cacheFirst(req, cacheName) {
   return res;
 }
 
-/** Return cached version immediately if available; always fetch fresh in
- *  the background and update cache. If nothing is cached AND the network
- *  fails, return a friendly offline fallback instead of a white error page. */
-async function staleWhileRevalidate(req, cacheName) {
+/** Try the network first and cache what comes back. Only fall back to
+ *  whatever's cached (or, for a navigation with nothing cached either, a
+ *  friendly offline page instead of a white error) when the network
+ *  genuinely fails — i.e. actually offline, not just "cache existed." */
+async function networkFirst(req, cacheName) {
   const cache = await caches.open(cacheName);
-  const cached = await cache.match(req);
-  const network = fetch(req).then((res) => {
+  try {
+    const res = await fetch(req);
     if (res.ok) cache.put(req, res.clone());
     return res;
-  });
-  if (cached) return cached;
-  return network.catch(() => {
+  } catch {
+    const cached = await cache.match(req);
+    if (cached) return cached;
     // Only serve the offline fallback for navigation (HTML) requests, not
     // for API or asset requests that slipped through — those just fail.
     if (req.mode === "navigate") {
@@ -140,5 +157,5 @@ async function staleWhileRevalidate(req, cacheName) {
       );
     }
     throw new Error("Offline — resource not cached");
-  });
+  }
 }
