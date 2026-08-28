@@ -38,6 +38,15 @@ import { isStandalone } from "@/lib/pwaInstall";
 
 const MIN_VISIBLE_MS = 1300;
 const FADE_MS = 300;
+// Belt-and-suspenders against this remounting somewhere it shouldn't (a
+// hard navigation/full reload triggered from deep in the app, rather than
+// the genuine first load this is meant for) — sessionStorage survives
+// exactly as long as the tab does, so once shown, it stays skipped for
+// the rest of that tab's life and only comes back on a real fresh open
+// (new tab, or the PWA relaunching), which is the one moment this should
+// ever actually appear. Every other "a page is loading" moment already has
+// its own route-level loading.tsx/skeleton — this is not that.
+const SHOWN_KEY = "kampos-splash-shown";
 
 export function SplashScreen() {
   const [visible, setVisible] = useState(true);
@@ -45,9 +54,22 @@ export function SplashScreen() {
   const textControls = useAnimationControls();
 
   useEffect(() => {
-    if (isStandalone()) {
+    let alreadyShown = false;
+    try {
+      alreadyShown = sessionStorage.getItem(SHOWN_KEY) === "1";
+    } catch {
+      // Private-browsing/storage-blocked — fall through and just show it;
+      // worst case is the same behavior this had before this fix existed.
+    }
+    if (alreadyShown || isStandalone()) {
       setVisible(false);
       return;
+    }
+    try {
+      sessionStorage.setItem(SHOWN_KEY, "1");
+    } catch {
+      // Nothing to do if storage is unavailable — this run just won't be
+      // remembered, same as the alreadyShown read above.
     }
 
     // Spring in with a real overshoot, then settle into a slow, subtle

@@ -75,8 +75,17 @@ interface AuthState {
   /** The single source of truth — hits the backend, derives the gate
    * state from the real account + profile rows, and stores both. Every
    * page-load gate check and every post-auth-action redirect goes through
-   * this, so "where do I send this user" is decided in exactly one place. */
-  resolveAuthState: () => Promise<AuthGateState>;
+   * this, so "where do I send this user" is decided in exactly one place.
+   *
+   * `silent: true` skips touching the shared `loading` flag — for a
+   * background "am I actually already logged in" peek (see
+   * RedirectIfNotAllowed) that has nothing to do with any form's own
+   * submit button, which reads this same flag. Without it, a guest-facing
+   * page's background check flips `loading` on the instant it mounts,
+   * flashing that page's own submit button into its spinner state before
+   * anyone's touched anything. login/register/etc. all call this with no
+   * options (silent defaults off), unchanged from before. */
+  resolveAuthState: (opts?: { silent?: boolean }) => Promise<AuthGateState>;
   /** Thin alias kept for callers that just want the account, not the full
    * gate resolution — delegates to resolveAuthState under the hood. */
   fetchMe: () => Promise<Account | null>;
@@ -172,12 +181,13 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      resolveAuthState: async () => {
+      resolveAuthState: async (opts) => {
+        const silent = opts?.silent ?? false;
         // Captured before anything below can overwrite it — see
         // hydrateFromServer's own comment for why a persisted avitag is
         // the reliable "this browser had a real session" signal.
         const hadPersistedAvitag = get().avitag !== null;
-        set({ loading: true, error: null });
+        set(silent ? { error: null } : { loading: true, error: null });
         try {
           // skipUnauthorizedEvent: a 401 here just means "not logged in" —
           // the catch block below already turns that into the normal
@@ -230,7 +240,7 @@ export const useAuthStore = create<AuthState>()(
             authState,
             avitag,
             profileType,
-            loading: false,
+            ...(silent ? {} : { loading: false }),
             // Cleared the instant a real account resolves again (e.g. a
             // fresh login right after), flagged when one that used to be
             // real just vanished — never both at once.
@@ -264,14 +274,14 @@ export const useAuthStore = create<AuthState>()(
                 authState: "guest",
                 avitag: null,
                 profileType: null,
-                loading: false,
+                ...(silent ? {} : { loading: false }),
                 sessionExpired: hadPersistedAvitag,
               });
               return "guest";
             }
           }
           // Backend unreachable — don't change authState, just stop loading.
-          set({ loading: false });
+          if (!silent) set({ loading: false });
           return get().authState;
         }
       },

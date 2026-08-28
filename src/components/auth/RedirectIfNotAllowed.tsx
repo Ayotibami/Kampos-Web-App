@@ -26,8 +26,18 @@ export function RedirectIfNotAllowed({ allow }: { allow: AuthGateState[] }) {
   const resolveAuthState = useAuthStore((s) => s.resolveAuthState);
 
   useEffect(() => {
-    void resolveAuthState().then((state) => {
-      if (!allow.includes(state)) {
+    // silent: true — this is a quiet background peek, not a form submit;
+    // it must not touch the shared `loading` flag a page's own submit
+    // button reads (see resolveAuthState's own docstring).
+    void resolveAuthState({ silent: true }).then((state) => {
+      // "unknown" means the backend couldn't give a clear answer (slow,
+      // unreachable, errored) — NOT "you don't belong here." Redirecting
+      // on it would bounce a perfectly legitimate guest to /login just
+      // because a background check happened to fail, which is exactly
+      // the bug this comment is here to prevent from creeping back in.
+      // Every other real state (guest/needs-otp/needs-profile/active) is
+      // a genuine answer and still gets acted on normally.
+      if (state !== "unknown" && !allow.includes(state)) {
         router.replace(destinationFor(state));
       }
     });

@@ -30,7 +30,7 @@ export function HydrateAuth({
     // any existing good state) and re-resolve client-side instead, so the
     // user's name/avatar/session stay intact while the backend wakes up.
     if (state === "unknown") {
-      void resolveAuthState();
+      void resolveAuthState({ silent: true });
       return;
     }
     hydrateFromServer({ state, account, profiles });
@@ -43,7 +43,7 @@ export function HydrateAuth({
     // actually fixes it, by hitting the one endpoint that does report the
     // session's real active avitag.
     if (state === "active" && profiles.length > 0 && !useAuthStore.getState().avitag) {
-      void resolveAuthState();
+      void resolveAuthState({ silent: true });
     }
     // Deliberately only on mount — this page's own server component already
     // resolved the state fresh for this request; nothing here should

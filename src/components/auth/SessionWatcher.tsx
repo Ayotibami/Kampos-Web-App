@@ -24,8 +24,13 @@ export function SessionWatcher() {
       // skipUnauthorizedEvent so this check itself can't re-trigger this
       // same handler. Only redirect if the session is genuinely gone.
       try {
-        const state = await useAuthStore.getState().resolveAuthState();
-        if (state === "active") return;
+        const state = await useAuthStore.getState().resolveAuthState({ silent: true });
+        // "unknown" means this re-verify itself couldn't get a clear
+        // answer (backend slow/unreachable) — not proof the session is
+        // dead. Only a real, confirmed non-active state should force a
+        // logout; a shrug should leave things as they were, same as
+        // everywhere else this same "unknown" case is handled.
+        if (state === "active" || state === "unknown") return;
       } catch {
         // ignore — treat as session gone
       }
