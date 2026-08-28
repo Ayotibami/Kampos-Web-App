@@ -17,9 +17,29 @@ import { monthYear } from "@/lib/format";
 import { useAuthStore } from "@/stores/authStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useUnsavedChangesStore } from "@/stores/unsavedChangesStore";
+import { markProfileUpdated } from "@/lib/profileFreshness";
 import { env } from "@/lib/env";
 
 const LEVELS = ["100", "200", "300", "400", "500", "600"];
+
+// Freeform on the backend (plain string[], no fixed vocabulary enforced —
+// see student.controller.ts) — this fixed list is a frontend-only choice,
+// picked for actually being things Nigerian campus life revolves around
+// rather than a generic "hobbies" list off the shelf.
+const HOBBIES = [
+  "Football", "Basketball", "Gaming", "Reading", "Writing", "Photography",
+  "Fashion", "Dancing", "Singing", "Cooking", "Baking", "Gym & Fitness",
+  "Traveling", "Movies & TV", "Music Production", "DJing", "Painting & Art",
+  "Fashion Design", "Hair & Makeup", "Coding", "Entrepreneurship", "Debate",
+  "Public Speaking", "Content Creation", "Volunteering", "Chess",
+  "Table Tennis", "Swimming", "Spoken Word", "Comedy & Skits",
+  "Whot & Ludo", "Crypto & Trading", "Graphic Design", "Video Editing",
+  "Podcasting", "Vlogging", "Thrifting", "Anime & K-drama", "Journaling",
+  "Cycling", "Hiking", "Skating", "Volleyball", "Track & Field",
+  "MCing & Hosting", "Fellowship & Ministry", "Board Games", "Karaoke",
+  "Modeling", "Language Learning",
+];
+const MAX_HOBBIES = 6;
 
 function bioCountColor(len: number): string {
   if (len === 0) return "var(--color-muted)";
@@ -56,6 +76,7 @@ export function ProfileSettingsForm() {
   const [lastName, setLastName] = useState("");
   const [level, setLevel] = useState<string | null>(null);
   const [bio, setBio] = useState("");
+  const [hobbies, setHobbies] = useState<string[]>([]);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [createdAt, setCreatedAt] = useState<string | null>(null);
   // Full display labels ("University of Lagos (UNILAG)"), not raw tags —
@@ -75,6 +96,7 @@ export function ProfileSettingsForm() {
     lastName: string;
     level: string | null;
     bio: string;
+    hobbies: string[];
     imageUrl: string | null;
   } | null>(null);
 
@@ -104,12 +126,14 @@ export function ProfileSettingsForm() {
         lastName: String(profile.last_name ?? ""),
         level: profile.level != null ? String(profile.level) : null,
         bio: String(profile.bio ?? ""),
+        hobbies: Array.isArray(profile.hobbies) ? (profile.hobbies as string[]) : [],
         imageUrl: (profile.image_url as string | null | undefined) ?? null,
       };
       setFirstName(next.firstName);
       setLastName(next.lastName);
       setLevel(next.level);
       setBio(next.bio);
+      setHobbies(next.hobbies);
       setImageUrl(next.imageUrl);
       setBaseline(next);
       setCreatedAt((profile.created_at as string | undefined) ?? null);
@@ -127,13 +151,27 @@ export function ProfileSettingsForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [avitag, profileType]);
 
+  // Arrays are never reference-equal even with identical contents, and
+  // selection order doesn't mean anything here — sorted-and-stringified is
+  // the simplest correct comparison at this list's size (max MAX_HOBBIES).
+  const hobbiesChanged =
+    !!baseline &&
+    JSON.stringify([...hobbies].sort()) !== JSON.stringify([...baseline.hobbies].sort());
+
   const isDirty =
     !!baseline &&
     (firstName !== baseline.firstName ||
       lastName !== baseline.lastName ||
       level !== baseline.level ||
       bio !== baseline.bio ||
+      hobbiesChanged ||
       imageUrl !== baseline.imageUrl);
+
+  const toggleHobby = (h: string) => {
+    setHobbies((prev) =>
+      prev.includes(h) ? prev.filter((x) => x !== h) : prev.length >= MAX_HOBBIES ? prev : [...prev, h],
+    );
+  };
 
   // Registers/clears the guard SettingsHeader's back arrow and SettingsRail's
   // links call before navigating away from this page — see
@@ -205,11 +243,17 @@ export function ProfileSettingsForm() {
         last_name: lastName.trim().replace(/\s+/g, " "),
         ...(level ? { level: Number(level) } : {}),
         bio: bio.trim(),
+        hobbies,
         // A still-uploading/blob preview never gets sent — only a real,
         // already-uploaded Cloudinary URL is a valid image_url.
         ...(imageUrl && !imageUrl.startsWith("blob:") ? { image_url: imageUrl } : {}),
       });
-      setBaseline({ firstName, lastName, level, bio, imageUrl });
+      setBaseline({ firstName, lastName, level, bio, hobbies, imageUrl });
+      // Other pages showing this same profile (own profile page, feed) can
+      // be sitting on a client-cached pre-edit snapshot for up to 5 minutes
+      // (see profileFreshness.ts) — flag that a real edit just happened so
+      // whichever one gets visited next knows to self-refresh once.
+      markProfileUpdated();
       return true;
     } catch (err) {
       setMessage(apiErrorMessage(err, "Failed to save changes"));
@@ -434,6 +478,22 @@ export function ProfileSettingsForm() {
             {bio.length}/{LIMITS.bio}
           </p>
         </div>
+
+        <section className="flex flex-col gap-2">
+          <div>
+            <h2 className="font-nunito text-sm font-bold text-ink">Hobbies</h2>
+            <p className="mt-1 font-nunito text-sm text-muted">
+              Pick up to {MAX_HOBBIES} — shows other students what you&apos;re actually about.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {HOBBIES.map((h) => (
+              <Chip key={h} selected={hobbies.includes(h)} onClick={() => toggleHobby(h)}>
+                {h}
+              </Chip>
+            ))}
+          </div>
+        </section>
 
         <Button onClick={handleSave} loading={saving} disabled={uploadingImage}>
           Save details

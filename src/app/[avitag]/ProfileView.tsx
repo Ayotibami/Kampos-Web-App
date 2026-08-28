@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/icons";
 import { useGistStore } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
+import { wasProfileRecentlyUpdated } from "@/lib/profileFreshness";
 import { apiErrorMessage } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -52,6 +53,10 @@ const BOARD_TONE = {
   gold: "bg-[#fff0c2] text-[#6b4f00]",
   mint: "bg-[#dcf7e3] text-[#1e5c33]",
   lavender: "bg-[#ede9fe] text-[#4c1d95]",
+  // Hobbies' own tone — warm and distinct from the four above (which
+  // trend cool/neutral), and deliberately not pink/rose so it doesn't
+  // read as gendered for a field literally anyone picks from.
+  coral: "bg-[#ffe4d6] text-[#9a3412]",
 } as const;
 
 // The three info boards' one-time entrance ("jump" into place) and their
@@ -282,6 +287,15 @@ export function ProfileView({
         | string
         | undefined) ?? null,
   );
+  // This page's own profile data came from a server fetch that Next's
+  // client Router Cache may be serving from before a just-made edit (see
+  // profileFreshness.ts) — only relevant here when it's actually MY OWN
+  // profile someone could have just edited, not anyone else's.
+  useEffect(() => {
+    if (isOwnProfile && wasProfileRecentlyUpdated()) router.refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [showCreate, setShowCreate] = useState(false);
   const [avatarLightboxOpen, setAvatarLightboxOpen] = useState(false);
   // Start with server-fetched gists (if any) — no skeleton on first render.
@@ -650,6 +664,7 @@ export function ProfileView({
     typeof profile.campus_tag === "string" ? profile.campus_tag : null;
   const majorTag =
     typeof profile.major_tag === "string" ? profile.major_tag : null;
+  const hobbies = Array.isArray(profile.hobbies) ? (profile.hobbies as string[]) : [];
 
   return (
     <AppShell variant="panel">
@@ -919,9 +934,12 @@ export function ProfileView({
 
             {bio && (
               <div className="mx-auto w-full max-w-[420px] px-6 md:max-w-[560px] md:px-12">
-                <div
-                  className={`flex min-h-[74px] w-full min-w-0 flex-col justify-center rounded-2xl p-2.5 shadow-[0_6px_12px_-4px_rgba(43,40,32,0.35)] md:rounded-[32px] md:p-6 ${BOARD_TONE.lavender}`}
-                >
+                {/* White card (unlike the tinted campus/major/level boards
+                    above) — white has no tone of its own to shade text
+                    from the way those do, so this uses the app's own brand
+                    color instead of an arbitrary pick: this is the neutral
+                    card, so its accent is Kampos itself, not a tint family. */}
+                <div className="flex min-h-[74px] w-full min-w-0 flex-col justify-center rounded-2xl bg-surface-2 p-2.5 text-brand shadow-[0_6px_12px_-4px_rgba(43,40,32,0.35)] md:rounded-[32px] md:p-6">
                   <span className="flex items-center gap-1 opacity-60 md:gap-1.5">
                     <EditIconFill
                       className="h-3.5 w-3.5 md:h-4 md:w-4"
@@ -931,9 +949,37 @@ export function ProfileView({
                       Bio
                     </span>
                   </span>
-                  <p className="mt-0.5 block break-words text-center font-nunito text-[11px] font-medium italic leading-snug md:mt-2 md:text-lg">
+                  {/* Deliberately NOT matching InfoBoard's value text scale
+                      — that bold/extrabold treatment reads fine for a
+                      short fact ("Mathematics", "200") but a whole
+                      sentence (or several, up to LIMITS.bio) at that
+                      weight/size reads as shouty and eats a lot of
+                      vertical space. Lighter weight, smaller on desktop —
+                      still italic, since that's what actually marks this
+                      as personal voice rather than another fact-card. */}
+                  <p className="mt-0.5 block break-words text-center font-nunito text-[11px] font-medium italic leading-snug md:mt-2 md:text-base">
                     {bio}
                   </p>
+                </div>
+              </div>
+            )}
+
+            {/* Own section below Bio, not squeezed into the header's
+                shrink-0 avatar/name column — that column has no width cap,
+                so a long/full hobbies row there either forced the whole
+                page to scroll horizontally (shrink-0 refusing to give up
+                space) or had to wrap prematurely even with room to spare.
+                This container is already full-width and unconstrained by
+                that column, so hobbies can sit on one line on desktop
+                when there's room, and only wrap on narrower screens. */}
+            {hobbies.length > 0 && (
+              <div className="mx-auto mt-4 w-full max-w-[420px] px-6 md:mt-6 md:max-w-[560px] md:px-12">
+                <div className="flex flex-wrap justify-start gap-2">
+                  {hobbies.map((h) => (
+                    <ProfileTag key={h} tone="coral">
+                      {h}
+                    </ProfileTag>
+                  ))}
                 </div>
               </div>
             )}

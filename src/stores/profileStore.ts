@@ -15,6 +15,7 @@ export interface StudentProfileUpdate {
   last_name?: string;
   level?: number;
   bio?: string;
+  hobbies?: string[];
   image_url?: string;
 }
 
