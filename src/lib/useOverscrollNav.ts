@@ -33,7 +33,7 @@ const CLAIM_SLOP_PX = 8;
 export const EXIT_DISTANCE_PX = 700;
 // Same reasoning — GistStack's entrance animation uses this exact value
 // too, not its own copy.
-export const COMMIT_EXIT_S = 0.24;
+export const COMMIT_EXIT_S = 0.7;
 const SNAP_BACK_SPRING = { type: "spring", stiffness: 500, damping: 32 } as const;
 
 /**
