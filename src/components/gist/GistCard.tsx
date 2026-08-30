@@ -209,6 +209,47 @@ export const GistCard = memo(function GistCard({
     committingRef,
   });
 
+  // How much real, measured room is actually left for media once the
+  // caption above it has taken its share — a flat CSS cap (the old
+  // max-h-[420px] every tile used unconditionally) has no way to know
+  // that, so a single photo could end up taller than what's actually
+  // visible in the card, forcing a scroll just to see the rest of the
+  // ONE photo there is. Measuring for real means the first (or only)
+  // media item can be sized to fit fully, guaranteed, every time — see
+  // MediaBlock/MediaTile's own fitHeightPx docs for how this number gets
+  // used. Same measure-the-real-box approach ShortGist already uses
+  // further down this file, just measuring a sibling's height instead of
+  // fitting text into a box.
+  const textWrapperRef = useRef<HTMLDivElement>(null);
+  const [mediaFitHeightPx, setMediaFitHeightPx] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (!hasMedia) return;
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+
+    const measure = () => {
+      const containerHeight = scrollEl.clientHeight;
+      const textEl = textWrapperRef.current;
+      const textHeight = textEl?.offsetHeight ?? 0;
+      // Matches ExpandableText's own mt-2.5 gap to whatever follows it —
+      // only actually present when there's a caption to leave a gap under.
+      const gap = textEl ? 10 : 0;
+      const next = Math.round(containerHeight - textHeight - gap);
+      setMediaFitHeightPx(next > 0 ? next : null);
+    };
+
+    measure();
+    // Covers both a window/orientation resize (scrollEl's own box changes)
+    // and the caption being expanded/collapsed via "...more" (textEl's own
+    // box changes) — either one means the available media budget changed.
+    const ro = new ResizeObserver(measure);
+    ro.observe(scrollEl);
+    if (textWrapperRef.current) ro.observe(textWrapperRef.current);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMedia, gist.gist_id, gist.gist_text]);
+
   // Double-tap-to-react (Instagram-style) — anywhere on a text-only card
   // (gists with media keep their tiles' own established single-tap meanings
   // — open overlay / toggle mute-play — which a competing double-tap gesture
@@ -583,7 +624,7 @@ export const GistCard = memo(function GistCard({
       >
         <div
           ref={scrollRef}
-          // pb-[50px]: real slack between "I can see I've reached the end"
+          // pb-[60px]: real slack between "I can see I've reached the end"
           // and "I've actually hit the scroll boundary that claims a swipe"
           // — without it, atBottom() (useOverscrollNav) goes true the
           // instant the last pixel of content is visible, so a natural bit
@@ -591,17 +632,22 @@ export const GistCard = memo(function GistCard({
           // attempt instead of just... finishing the scroll. Covers both
           // branches below (media and long text-only) since they share
           // this one scrollable container.
-          className="h-full overflow-y-auto pb-[50px] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20 pr-1"
+          className="h-full overflow-y-auto pb-[60px] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20 pr-1"
         >
           {hasMedia ? (
             <>
-              {gist.gist_text?.trim() && <ExpandableText text={gist.gist_text} />}
+              {gist.gist_text?.trim() && (
+                <div ref={textWrapperRef}>
+                  <ExpandableText text={gist.gist_text} />
+                </div>
+              )}
               <MediaBlock
                 media={gist.media!}
                 onOpenOverlay={setOverlayIndex}
                 overlayOpen={overlayIndex !== null}
                 active={isActive && !showEdit}
                 stackDuo
+                fitHeightPx={mediaFitHeightPx ?? undefined}
               />
             </>
           ) : short ? (

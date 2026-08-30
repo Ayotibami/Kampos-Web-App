@@ -35,7 +35,6 @@ import { AnimatePresence } from "framer-motion";
 import { useGistStore, getFreshFeedSnapshot } from "@/stores/gistStore";
 import { useCommentStore } from "@/stores/commentStore";
 import { useAuthStore } from "@/stores/authStore";
-import { wasProfileRecentlyUpdated } from "@/lib/profileFreshness";
 import { compactNumber } from "@/lib/format";
 import type { Gist } from "@/types";
 
@@ -284,19 +283,6 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
       if (gen === requestGenRef.current) setLoading(false);
     }
   }, [listGists, prefetchComments, gists.length, feedMode, isSchoolTab, tab]);
-
-  // A profile edit made elsewhere (Settings) can leave this feed showing
-  // pre-edit author info (avatar, name, bio) for whoever's own gists are in
-  // it — both `initialGists` (the server prop) and any restored snapshot
-  // above it can be sitting on a cached pre-edit copy for up to 5 minutes
-  // (see profileFreshness.ts and gistStore's own feedSnapshot TTL). `load()`
-  // always asks the server directly (no cache in its own path), so this is
-  // a real fix, not a wait-and-hope — fires once, only in the narrow window
-  // right after an edit, not on every ordinary visit.
-  useEffect(() => {
-    if (wasProfileRecentlyUpdated()) void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Switching tabs changes which pool of gists the feed draws from, so the
   // whole list has to start over — old-tab gists left on screen while the

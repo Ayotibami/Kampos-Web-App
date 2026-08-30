@@ -10,7 +10,7 @@ import {
   MuteIconFill,
 } from "@/components/ui/icons";
 import type { GistMedia } from "@/types";
-import { cloudinarySmartCrop, cloudinarySrcSet } from "@/lib/cloudinary";
+import { cloudinarySmartCrop, cloudinarySrcSet, cloudinaryFit, cloudinaryFitSrcSet } from "@/lib/cloudinary";
 
 // Lives here (not in GistCard.tsx, which used to define it) specifically to
 // avoid a circular import — GistCard.tsx needs ExpandableText/MediaBlock
@@ -69,11 +69,20 @@ type VideoSyncRef = RefObject<{
   seek: (time: number) => void;
 } | null>;
 
+// Feed-only (see fitHeightPx below) — how much of the measured available
+// space a duo's second tile gets reserved as its visible "peek" before the
+// first tile is allowed to use the rest. Enough to clearly read as "there's
+// a second photo," not so much it eats into the first one's own space.
+const DUO_PEEK_RESERVE_PX = 80;
+// Floor under the first tile's fit height even if the caption text ate
+// most of the available space — a first photo squashed thinner than this
+// reads as broken, not "made room for the text."
+const MIN_FIT_HEIGHT_PX = 160;
+
 /**
  * Media, Twitter-style: below the text, not behind it. One item (photo or
- * video) keeps its real proportions, capped at 420px tall so an extreme
- * panorama or portrait can't take over the card. Two behave differently
- * depending on `stackDuo` — see its own doc below.
+ * video) keeps its real proportions. Two behave differently depending on
+ * `stackDuo` — see its own doc below.
  */
 export function MediaBlock({
   media,
@@ -82,6 +91,7 @@ export function MediaBlock({
   videoSyncRef,
   active,
   stackDuo,
+  fitHeightPx,
 }: {
   media: GistMedia[];
   onOpenOverlay: (index: number) => void;
@@ -97,21 +107,37 @@ export function MediaBlock({
    * double-audio bug the feed's stack-driven active prop already exists
    * to prevent everywhere else in that component. */
   active?: boolean;
-  /** Feed-only (see GistCard.tsx) — two media items stack vertically,
-   * each kept at its own natural size (same treatment as a single item),
-   * instead of being cropped into two equal side-by-side halves. Since
-   * the feed's card is a fixed height with the content scrolling inside
-   * it (not the card growing to fit), this has a real, deliberate side
-   * effect: the first photo shows in full, the second peeks in partway
-   * at the bottom before any scrolling — enough to register "there's a
-   * second one" without the card needing to say so explicitly. The
+  /** Feed-only (see GistCard.tsx) — two media items stack vertically
+   * instead of being cropped into two equal side-by-side halves. The
    * profile grid doesn't pass this — its rows aren't height-constrained
    * the same way, so the side-by-side crop (still the plainer, more
    * compact look for a scrolling list) stays its default. */
   stackDuo?: boolean;
+  /** Feed-only — the real, measured pixel budget left in the card after
+   * the caption text above it (see GistCard.tsx's own ResizeObserver-based
+   * measurement). Without this, a flat height cap has no way to know how
+   * much room the text just used, so a single photo could end up taller
+   * than what's actually visible — needing a scroll just to see the rest
+   * of the ONE photo there is, which is exactly what this exists to
+   * prevent: the first (or only) item always fits fully inside this
+   * budget, no scroll required. A duo's second item deliberately does NOT
+   * get this treatment — it keeps its old fixed cap and is allowed to
+   * spill past the visible edge, which is the whole point of it (a
+   * "there's more" peek, not something meant to fit). */
+  fitHeightPx?: number;
 }) {
   const items = media.slice(0, 2);
   const isDuo = items.length === 2;
+  // Only the FIRST tile ever gets a fit-to-budget height — reserving a
+  // slice for the second one's peek when there is a second one, otherwise
+  // using the whole measured budget for the one photo there is.
+  const firstFitHeightPx =
+    fitHeightPx !== undefined
+      ? Math.max(
+          fitHeightPx - (isDuo && stackDuo ? DUO_PEEK_RESERVE_PX : 0),
+          MIN_FIT_HEIGHT_PX,
+        )
+      : undefined;
 
   return (
     <div
@@ -132,6 +158,9 @@ export function MediaBlock({
             overlayOpen={overlayOpen}
             videoSyncRef={videoSyncRef}
             active={active}
+            // Only the first (idx 0) gets a fit height — the second is the
+            // deliberate peek, left to its own old fixed-cap sizing.
+            fitHeightPx={idx === 0 ? firstFitHeightPx : undefined}
           />
         ))
       ) : isDuo ? (
@@ -158,6 +187,7 @@ export function MediaBlock({
           overlayOpen={overlayOpen}
           videoSyncRef={videoSyncRef}
           active={active}
+          fitHeightPx={firstFitHeightPx}
         />
       )}
     </div>
@@ -171,6 +201,7 @@ function MediaTile({
   overlayOpen,
   videoSyncRef,
   active,
+  fitHeightPx,
 }: {
   item: GistMedia;
   cropped: boolean;
@@ -178,6 +209,12 @@ function MediaTile({
   overlayOpen: boolean;
   videoSyncRef?: VideoSyncRef;
   active?: boolean;
+  /** See MediaBlock's own doc — a real measured pixel budget this tile is
+   * guaranteed to fit fully inside, no cropping, no scroll required to see
+   * the rest of it. Takes over sizing entirely when set; the known/extreme
+   * cap logic below is what runs when it isn't (Profile's calls, and a
+   * duo's second/peek tile, which deliberately keeps the old behavior). */
+  fitHeightPx?: number;
 }) {
   const isVideo = item.media_type?.toLowerCase().includes("video");
   const known = knownRatio(item);
@@ -198,6 +235,30 @@ function MediaTile({
         overlayOpen={overlayOpen}
         videoSyncRef={videoSyncRef}
         active={active}
+        fitHeightPx={fitHeightPx}
+      />
+    );
+  }
+
+  if (fitHeightPx !== undefined) {
+    // cloudinaryFit (not cloudinarySmartCrop) — the whole point here is
+    // showing the real, uncropped photo, which means the DELIVERED file
+    // itself can't be server-side cropped either (cloudinarySmartCrop's
+    // c_fill,ar_4:3 would crop the source before any CSS choice here ever
+    // got a say). object-contain + an explicit height (a real BOX, not the
+    // image's own natural size) scales the whole photo to fit inside that
+    // box without cropping, letterboxed rather than cropped if its ratio
+    // doesn't exactly match the box's.
+    return (
+      <MediaImage
+        src={cloudinaryFit(item.media_url)}
+        srcSet={cloudinaryFitSrcSet(item.media_url)}
+        sizes="(min-width: 768px) 740px, 100vw"
+        alt=""
+        onClick={onOpenOverlay}
+        draggable={false}
+        style={{ WebkitUserDrag: "none", height: fitHeightPx } as React.CSSProperties}
+        className="block w-full cursor-pointer rounded-2xl object-contain"
       />
     );
   }
@@ -263,6 +324,7 @@ function VideoTile({
   overlayOpen,
   videoSyncRef,
   active,
+  fitHeightPx,
 }: {
   item: GistMedia;
   cropped: boolean;
@@ -270,6 +332,10 @@ function VideoTile({
   overlayOpen: boolean;
   videoSyncRef?: VideoSyncRef;
   active?: boolean;
+  /** See MediaTile's own doc — same deal, minus the server-side-crop
+   * concern images have (this is the raw video URL either way, no
+   * Cloudinary crop transform applied to it at any point). */
+  fitHeightPx?: number;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   // Local "did I tap play" intent — combined with `active` (when the
@@ -351,16 +417,20 @@ function VideoTile({
   return (
     <div
       style={
-        known !== null && !cropped && !extreme
-          ? { aspectRatio: known }
-          : undefined
+        fitHeightPx !== undefined
+          ? { height: fitHeightPx }
+          : known !== null && !cropped && !extreme
+            ? { aspectRatio: known }
+            : undefined
       }
       className={
-        cropped
-          ? "relative h-full w-full"
-          : extreme
-            ? "relative aspect-[3/4] max-h-[420px] w-full"
-            : "relative w-full max-h-[420px]"
+        fitHeightPx !== undefined
+          ? "relative w-full"
+          : cropped
+            ? "relative h-full w-full"
+            : extreme
+              ? "relative aspect-[3/4] max-h-[420px] w-full"
+              : "relative w-full max-h-[420px]"
       }
       onClick={canControl ? () => setPlaying((p) => !p) : undefined}
     >
@@ -380,7 +450,7 @@ function VideoTile({
         // visibly resize the moment someone hit play.
         preload="metadata"
         onLoadedMetadata={
-          cropped || known !== null
+          fitHeightPx !== undefined || cropped || known !== null
             ? undefined
             : (e) => {
                 const video = e.currentTarget;
@@ -388,7 +458,11 @@ function VideoTile({
                   setMeasuredExtreme(true);
               }
         }
-        className="h-full w-full rounded-2xl object-cover object-top"
+        className={
+          fitHeightPx !== undefined
+            ? "h-full w-full rounded-2xl object-contain"
+            : "h-full w-full rounded-2xl object-cover object-top"
+        }
       />
       {canControl && (
         <>

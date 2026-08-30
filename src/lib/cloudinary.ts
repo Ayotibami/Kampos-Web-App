@@ -57,6 +57,30 @@ export function cloudinarySrcSet(url: string, aspectRatio = "4:3"): string | und
   ).join(", ");
 }
 
+/**
+ * Genuinely non-cropping counterpart to `cloudinarySmartCrop` — `c_limit`
+ * only ever scales an image DOWN if it's bigger than the given width (never
+ * up, and never crops), so the full original photo survives untouched.
+ * `cloudinarySmartCrop`'s `c_fill,ar_4:3` forces every delivered image into
+ * one fixed ratio server-side, before the browser (or any CSS `object-fit`
+ * choice) ever gets a say — fine for a deliberately-cropped tile, wrong for
+ * anywhere the whole point is showing the photo's real, un-cropped shape
+ * (see GistMediaGrid.tsx's fitHeightPx path). Server-side and client-side
+ * both have to agree not to crop — fixing only one half would leave the
+ * other quietly cutting the photo down anyway. */
+export function cloudinaryFit(url: string, maxWidth = 1080): string {
+  return withCloudinaryTransform(url, `c_limit,w_${maxWidth},f_auto,q_auto`);
+}
+
+/** srcSet counterpart to `cloudinaryFit` — same reasoning as
+ * `cloudinarySrcSet`, just never cropping. */
+export function cloudinaryFitSrcSet(url: string): string | undefined {
+  if (!url.includes("res.cloudinary.com") || !url.includes("/upload/")) return undefined;
+  return RESPONSIVE_WIDTHS.map(
+    (w) => `${withCloudinaryTransform(url, `c_limit,w_${w},f_auto,q_auto`)} ${w}w`,
+  ).join(", ");
+}
+
 /** What the backend's `GET /gists/:id/media/signature` hands back — enough
  * for the browser to upload straight to Cloudinary itself afterward. */
 export interface CloudinarySignature {
