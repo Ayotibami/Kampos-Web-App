@@ -32,10 +32,10 @@ export function cloudinarySmartCrop(url: string, aspectRatio = "4:3"): string {
   return withCloudinaryTransform(url, `c_fill,g_auto,ar_${aspectRatio},f_auto,q_auto`);
 }
 
-// Matches the two real container widths gist media actually renders at
-// across the app today (GistMediaStage's feed card, ProfileGistCard's
-// tile) — both capped at max-w-[740px] from md (768px) up, full viewport
-// width below it. A phone on a weak connection was downloading the exact
+// Matches the real container width gist media renders at across the app
+// today (GistMediaGrid's MediaTile, shared by the feed and the profile
+// page) — capped at max-w-[740px] from md (768px) up, full viewport width
+// below it. A phone on a weak connection was downloading the exact
 // same pixel dimensions as a 1440px desktop monitor before this; now it
 // only fetches however many pixels its own viewport can actually show.
 const RESPONSIVE_WIDTHS = [420, 620, 740, 1080, 1480] as const;

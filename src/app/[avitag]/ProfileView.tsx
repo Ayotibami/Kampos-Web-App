@@ -38,11 +38,11 @@ import {
   CampusIconFill,
   MajorIconFill,
   LevelIconFill,
-  EditIconFill,
 } from "@/components/ui/icons";
 import { useGistStore } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { wasProfileRecentlyUpdated } from "@/lib/profileFreshness";
+import { HOBBY_EMOJI } from "@/lib/hobbies";
 import { apiErrorMessage } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -52,11 +52,6 @@ const BOARD_TONE = {
   blue: "bg-[#dbe9fd] text-[#0e3e87]",
   gold: "bg-[#fff0c2] text-[#6b4f00]",
   mint: "bg-[#dcf7e3] text-[#1e5c33]",
-  lavender: "bg-[#ede9fe] text-[#4c1d95]",
-  // Hobbies' own tone — warm and distinct from the four above (which
-  // trend cool/neutral), and deliberately not pink/rose so it doesn't
-  // read as gendered for a field literally anyone picks from.
-  coral: "bg-[#ffe4d6] text-[#9a3412]",
 } as const;
 
 // The three info boards' one-time entrance ("jump" into place) and their
@@ -559,32 +554,72 @@ export function ProfileView({
   const campusControls = useAnimationControls();
   const majorControls = useAnimationControls();
   const levelControls = useAnimationControls();
+  // Header (avatar+name) and the three small tags under it — same
+  // entrance/rebounce treatment as the boards below, extending the same
+  // cascade upward instead of the boards being the only part of this page
+  // that's actually alive. Header leads the cascade (delay 0), the three
+  // small tags follow it, THEN the boards pick up where the tags left off
+  // (their own delays shifted later, below) — one continuous top-to-bottom
+  // sequence instead of two independent groups animating at the same time.
+  const headerControls = useAnimationControls();
+  const tag1Controls = useAnimationControls();
+  const tag2Controls = useAnimationControls();
+  const tag3Controls = useAnimationControls();
 
   useEffect(() => {
-    // Staggered on the way in (each card jumps a beat after the last) —
-    // halved from the original 0/0.1/0.2s spacing so the full sequence
-    // reads as quick and cascading rather than drawn-out.
-    campusControls.start({
+    headerControls.start({
       y: 0,
       opacity: 1,
       scale: 1,
       transition: { ...JUMP_IN_SPRING, delay: 0 },
     });
-    majorControls.start({
+    tag1Controls.start({
       y: 0,
       opacity: 1,
       scale: 1,
       transition: { ...JUMP_IN_SPRING, delay: 0.05 },
     });
-    levelControls.start({
+    tag2Controls.start({
       y: 0,
       opacity: 1,
       scale: 1,
       transition: { ...JUMP_IN_SPRING, delay: 0.1 },
     });
+    tag3Controls.start({
+      y: 0,
+      opacity: 1,
+      scale: 1,
+      transition: { ...JUMP_IN_SPRING, delay: 0.15 },
+    });
 
-    // ...but the recurring re-bounce fires all three from the SAME interval
-    // tick, so they bounce together rather than staggered again.
+    // Staggered on the way in (each card jumps a beat after the last) —
+    // halved from the original 0/0.1/0.2s spacing so the full sequence
+    // reads as quick and cascading rather than drawn-out. Delays continue
+    // on from the header/tags sequence above (0.2/0.25/0.3, not 0/0.05/0.1)
+    // so the whole header reads as one cascade, not two.
+    campusControls.start({
+      y: 0,
+      opacity: 1,
+      scale: 1,
+      transition: { ...JUMP_IN_SPRING, delay: 0.2 },
+    });
+    majorControls.start({
+      y: 0,
+      opacity: 1,
+      scale: 1,
+      transition: { ...JUMP_IN_SPRING, delay: 0.25 },
+    });
+    levelControls.start({
+      y: 0,
+      opacity: 1,
+      scale: 1,
+      transition: { ...JUMP_IN_SPRING, delay: 0.3 },
+    });
+
+    // Recurring re-bounce is deliberately only the three big boards — the
+    // header and small tags above get the one-time entrance and nothing
+    // else, so the idle re-bounce stays a boards-only thing instead of the
+    // whole header periodically wiggling too.
     const interval = setInterval(() => {
       campusControls.start(REBOUNCE);
       majorControls.start(REBOUNCE);
@@ -817,7 +852,11 @@ export function ProfileView({
             boards spanning the remaining width to its right, wrapping as
             needed. */}
             <div className="flex flex-col items-center gap-4 px-6 pb-6 pt-4 text-center md:flex-row md:items-start md:gap-10 md:px-12 md:pt-10 md:text-left">
-              <div className="flex shrink-0 flex-col items-center gap-3 md:items-start">
+              <motion.div
+                className="flex shrink-0 flex-col items-center gap-3 md:items-start"
+                initial={{ y: 24, opacity: 0, scale: 0.85 }}
+                animate={headerControls}
+              >
                 {/* Same ring treatment Profile Settings already uses for its own
                 avatar — brand-filled outer ring, tinted inner circle. Tap
                 opens it full-size, same as tapping a profile photo does
@@ -836,27 +875,53 @@ export function ProfileView({
                 </button>
 
                 <div>
-                  <p className="font-nunito text-lg font-bold text-ink md:text-2xl">
-                    {displayName}
-                  </p>
-                  <p className="font-nunito text-sm text-brand md:text-base">
-                    {avitag}
-                  </p>
+                  {/* Name and handle side by side, not stacked — the handle
+                      used to be a bare second line of plain text with no
+                      shape or explanation of what it even was. A small
+                      tilted badge (same sticker language as the tags below)
+                      gives it real visual presence next to the name instead
+                      of floating underneath it. No "@" — this app has no
+                      tagging/mentions feature yet, so that symbol would
+                      promise something that doesn't exist. */}
+                  <div className="flex flex-wrap items-center justify-center gap-2 md:justify-start">
+                    <p className="font-nunito text-lg font-bold text-ink md:text-2xl">
+                      {displayName}
+                    </p>
+                    <span className="-rotate-2 rounded-full bg-brand/10 px-2.5 py-0.5 font-nunito text-xs font-bold text-brand md:text-sm">
+                      {avitag}
+                    </span>
+                  </div>
                   {(campusTag || majorTag || level != null) && (
                     <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5 md:justify-start">
+                      {/* Same spring-in + tilt language as the boards below
+                          (see InfoBoard) — these used to sit perfectly
+                          level while everything else on the page leaned a
+                          few degrees, the one static/flat thing here. */}
                       {campusTag && (
-                        <ProfileTag tone="blue">{campusTag}</ProfileTag>
+                        <motion.div initial={{ y: 16, opacity: 0, scale: 0.6 }} animate={tag1Controls}>
+                          <div className="-rotate-3">
+                            <ProfileTag tone="blue">{campusTag}</ProfileTag>
+                          </div>
+                        </motion.div>
                       )}
                       {majorTag && (
-                        <ProfileTag tone="gold">{majorTag}</ProfileTag>
+                        <motion.div initial={{ y: 16, opacity: 0, scale: 0.6 }} animate={tag2Controls}>
+                          <div className="rotate-2">
+                            <ProfileTag tone="gold">{majorTag}</ProfileTag>
+                          </div>
+                        </motion.div>
                       )}
                       {level != null && (
-                        <ProfileTag tone="mint">{level}</ProfileTag>
+                        <motion.div initial={{ y: 16, opacity: 0, scale: 0.6 }} animate={tag3Controls}>
+                          <div className="-rotate-2">
+                            <ProfileTag tone="mint">{level}</ProfileTag>
+                          </div>
+                        </motion.div>
                       )}
                     </div>
                   )}
                 </div>
-              </div>
+              </motion.div>
 
               {/* flex-1 on each card (mobile only; desktop keeps its own fixed
               min/max-w sizing via md:flex-none) splits the row evenly so all
@@ -932,54 +997,85 @@ export function ProfileView({
               </div>
             </div>
 
-            {bio && (
-              <div className="mx-auto w-full max-w-[420px] px-6 md:max-w-[560px] md:px-12">
-                {/* White card (unlike the tinted campus/major/level boards
-                    above) — white has no tone of its own to shade text
-                    from the way those do, so this uses the app's own brand
-                    color instead of an arbitrary pick: this is the neutral
-                    card, so its accent is Kampos itself, not a tint family. */}
-                <div className="flex min-h-[74px] w-full min-w-0 flex-col justify-center rounded-2xl bg-surface-2 p-2.5 text-brand shadow-[0_6px_12px_-4px_rgba(43,40,32,0.35)] md:rounded-[32px] md:p-6">
-                  <span className="flex items-center gap-1 opacity-60 md:gap-1.5">
-                    <EditIconFill
-                      className="h-3.5 w-3.5 md:h-4 md:w-4"
-                      weight="bold"
-                    />
-                    <span className="font-nunito text-[7px] font-semibold uppercase leading-tight md:text-sm md:tracking-wider">
-                      Bio
-                    </span>
-                  </span>
-                  {/* Deliberately NOT matching InfoBoard's value text scale
-                      — that bold/extrabold treatment reads fine for a
-                      short fact ("Mathematics", "200") but a whole
-                      sentence (or several, up to LIMITS.bio) at that
-                      weight/size reads as shouty and eats a lot of
-                      vertical space. Lighter weight, smaller on desktop —
-                      still italic, since that's what actually marks this
-                      as personal voice rather than another fact-card. */}
-                  <p className="mt-0.5 block break-words text-center font-nunito text-[11px] font-medium italic leading-snug md:mt-2 md:text-base">
-                    {bio}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Own section below Bio, not squeezed into the header's
-                shrink-0 avatar/name column — that column has no width cap,
-                so a long/full hobbies row there either forced the whole
-                page to scroll horizontally (shrink-0 refusing to give up
-                space) or had to wrap prematurely even with room to spare.
-                This container is already full-width and unconstrained by
-                that column, so hobbies can sit on one line on desktop
-                when there's room, and only wrap on narrower screens. */}
-            {hobbies.length > 0 && (
+            {(bio || hobbies.length > 0) && (
               <div className="mx-auto mt-4 w-full max-w-[420px] px-6 md:mt-6 md:max-w-[560px] md:px-12">
-                <div className="flex flex-wrap justify-start gap-2">
-                  {hobbies.map((h) => (
-                    <ProfileTag key={h} tone="coral">
-                      {h}
-                    </ProfileTag>
-                  ))}
+                {/* One white card for both — a single "Oya, I'm {avitag}"
+                    heading covers bio + hobbies as one section about the person,
+                    not two features glued together. White (unlike the
+                    tinted campus/major/level boards above) uses the app's
+                    own brand color as its accent instead of a tint family,
+                    since this is the neutral card, not a toned one.
+                    Same pinboard tilt as the campus/major/level boards
+                    above — smaller angle than theirs (-1° vs their -3°/2°)
+                    since this card is a lot bigger, and a board-sized tilt
+                    on something this large reads as crooked, not playful. */}
+                <div className="-rotate-1">
+                  <div className="flex w-full min-w-0 flex-col rounded-2xl bg-surface-2 p-2.5 text-brand shadow-[0_6px_12px_-4px_rgba(43,40,32,0.35)] md:rounded-[32px] md:p-6">
+                  {/* A real heading, not the tiny all-caps eyebrow-label
+                      treatment the old one-word tags (Bio, Campus, Major)
+                      use — first person, same as the wave next to it and
+                      the bio right below: this reads as the profile owner
+                      talking, not a narrator introducing them. */}
+                  <div className="flex items-center justify-center gap-2 md:justify-start">
+                    {/* A real emoji, not an icon glyph — icons in this set
+                        are all single-tone and none of them mean "greeting"
+                        anyway; the wave only reads as a wave in full color.
+                        transformOrigin sits near the wrist so the rotation
+                        pivots like an actual hand, not the whole emoji
+                        spinning around its own center. */}
+                    <motion.span
+                      aria-hidden
+                      className="inline-block text-2xl leading-none md:text-4xl"
+                      style={{ transformOrigin: "70% 70%" }}
+                      animate={{ rotate: [0, 14, -8, 14, -4, 10, 0] }}
+                      transition={{ duration: 0.8, repeat: Infinity, repeatDelay: 2.2, ease: "easeInOut" }}
+                    >
+                      👋
+                    </motion.span>
+                    <span className="font-nunito text-base font-extrabold text-ink md:text-xl">
+                      Oya, I&apos;m {avitag}
+                    </span>
+                  </div>
+                  {bio && (
+                    // Deliberately NOT matching InfoBoard's value text scale
+                    // — that bold/extrabold treatment reads fine for a
+                    // short fact ("Mathematics", "200") but a whole
+                    // sentence (or several, up to LIMITS.bio) at that
+                    // weight/size reads as shouty and eats a lot of
+                    // vertical space. Lighter weight, smaller on desktop —
+                    // still italic, since that's what actually marks this
+                    // as personal voice rather than another fact-card.
+                    <p className="mt-1.5 block break-words text-center font-nunito text-[11px] font-medium italic leading-snug md:mt-2.5 md:text-base">
+                      {bio}
+                    </p>
+                  )}
+                  {hobbies.length > 0 && (
+                    <>
+                      {bio && (
+                        <hr className="my-3 border-t border-brand/10 md:my-4" />
+                      )}
+                      {/* Bold and solid, unlike bio's quiet italic — hobbies
+                          are meant to be the loud, scannable part of this
+                          card, not a detail you have to read for. */}
+                      <div className="flex flex-wrap justify-center gap-x-2 gap-y-3 md:justify-start md:gap-x-2.5 md:gap-y-4">
+                        {hobbies.map((h) => (
+                          <span
+                            key={h}
+                            className="inline-flex items-center gap-2 rounded-full bg-brand px-4 py-2 font-nunito text-sm font-bold text-white md:gap-2.5 md:px-5 md:py-2.5 md:text-base"
+                          >
+                            {/* Fixed white backing, not the emoji's own
+                                (inconsistent) colors — see Settings' same
+                                pattern for why. */}
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-xs leading-none md:h-6 md:w-6 md:text-sm">
+                              {HOBBY_EMOJI[h]}
+                            </span>
+                            {h}
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  </div>
                 </div>
               </div>
             )}

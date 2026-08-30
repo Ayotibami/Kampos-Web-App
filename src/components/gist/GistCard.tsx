@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { motion, AnimatePresence, type MotionValue } from "framer-motion";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
 import { Avatar } from "@/components/ui/Avatar";
-import { GistMediaBackdrop, GistMediaBodyPanel } from "./GistMediaStage";
+import { SHORT_TEXT, ExpandableText, MediaBlock } from "./GistMediaGrid";
 import { GistMediaOverlay } from "./GistMediaOverlay";
 import { CampusTag, MajorTag, LevelTag } from "./GistTags";
 import { ReactionButton } from "./ReactionButton";
@@ -53,8 +53,6 @@ const CreateGistSheet = dynamic(() => import("./CreateGistSheet").then((m) => m.
 // across the whole app where deferring it costs nothing and can't regress
 // anything. Left the others eager on purpose; see the perf pass notes.
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
-
-export const SHORT_TEXT = 200;
 
 // Hero statement block sizing lives in lib/heroText.ts — shared with the
 // compose sheet's live preview, so composing genuinely shows what posting
@@ -177,28 +175,33 @@ export const GistCard = memo(function GistCard({
   const [reactError, setReactError] = useState<string>();
   const actionsRef = useRef<HTMLDivElement>(null);
 
-  // Needed here (not just further down where it used to live) to gate the
-  // hook right below — a media gist never renders the text-only branch
-  // this hook's scrollRef is meant to attach to, so its scrollRef would
-  // stay null forever. With a null scrollRef, useOverscrollNav's
-  // startedInContent check reads as "not content" for every touch, which
-  // made it claim ANY touch on the card as immediate-navigate — including
-  // a touch actually meant to scroll the media gist's own expanded
-  // caption, racing against GistMediaBodyPanel's own, correctly-scoped
-  // instance for the same touch. Simplest fix: don't even run this one
-  // for a media gist, since GistMediaBackdrop/GistMediaBodyPanel already
-  // cover it completely.
   const hasMedia = !!gist.media && gist.media.length > 0;
 
-  // Text-only body's own vertical-drag-past-the-edge → next/prev gist —
-  // see useOverscrollNav. Media gists get the equivalent inside
-  // GistMediaBackdrop/GistMediaBodyPanel instead, since their scrollable
-  // (or non-scrollable) surface lives there, not here.
-  const { scrollRef: textScrollRef } = useOverscrollNav<HTMLDivElement>({
+  // Which media item (if any) the bigger overlay view is currently open on.
+  // Declared here (ahead of useOverscrollNav below, which needs it) rather
+  // than further down where it conceptually "belongs" with the rest of the
+  // media-overlay state.
+  const [overlayIndex, setOverlayIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    onOverlayOpenChange?.(overlayIndex !== null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overlayIndex]);
+
+  // The whole body's vertical-drag-past-the-edge → next/prev gist — see
+  // useOverscrollNav. One call now covers both text-only AND media gists
+  // (text above, media below — see the body render further down), since
+  // both share the exact same single scrollable column; previously this was
+  // three separate useOverscrollNav instances split across this component
+  // and GistMediaBackdrop/GistMediaBodyPanel, one of which was live at a
+  // time depending on hasMedia/mediaMode. Disabled while the bigger overlay
+  // is open — that view drives its own gestures, this card's shouldn't
+  // also react to the same touch underneath it.
+  const { scrollRef } = useOverscrollNav<HTMLDivElement>({
     surfaceRef: touchSurfaceRef,
     onNext,
     onPrev,
-    enabled: isActive && !hasMedia,
+    enabled: isActive && overlayIndex === null,
     dragY,
     opacity,
     canGoNext,
@@ -234,22 +237,6 @@ export const GistCard = memo(function GistCard({
       lastTapRef.current = now;
     }
   };
-
-  // (hasMedia itself now lives further up, ahead of the useOverscrollNav
-  // call it needs to gate — see its own comment there.)
-  // Lifted up (not local to the media panel) because the header/footer need
-  // to know about it too — they switch to light text + let the backdrop show
-  // through only while media mode is active.
-  const [mediaMode, setMediaMode] = useState<"media" | "text">(hasMedia ? "media" : "text");
-  // Which media item (if any) the bigger overlay view is currently open on —
-  // separate from mediaMode, since the overlay is a distinct bigger view,
-  // not a third state of the in-card body panel.
-  const [overlayIndex, setOverlayIndex] = useState<number | null>(null);
-
-  useEffect(() => {
-    onOverlayOpenChange?.(overlayIndex !== null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overlayIndex]);
 
   const isOwn = gist.avitag === avitag;
   // Still sitting in the offline queue, not a real gist on the server yet
@@ -574,9 +561,18 @@ export const GistCard = memo(function GistCard({
         </div>
       </div>
 
-      {/* Body — media (when present) is scoped to just this slot, not the
-          whole card: the backdrop fills the body area only, header/footer
-          stay in their normal card styling regardless of media mode.
+      {/* Body — text above, media below it (Twitter-style, same pattern
+          ProfileGistCard already uses), both inside one scrollable column,
+          not media as a full-bleed backdrop with the caption burned onto
+          it. That old approach forced every photo to be cropped to fill
+          whatever shape the backdrop box happened to be, regardless of the
+          photo's own real proportions; media here instead keeps its own
+          natural shape (see MediaBlock/MediaTile in GistMediaGrid.tsx),
+          same as the profile page's tiles already do. The card frame
+          itself stays a fixed height (same as always, for the swipe stack)
+          — it's the content inside that scrolls when text + media together
+          don't fit, exactly the same scroll-vs-swipe boundary behavior a
+          long text-only gist already had, just now also covering media.
           Double-tap-to-react listens here (text-only gists only — see
           handleDoubleTapReact), not on the whole card, so it stays scoped to
           the actual content rather than also catching taps on the header/
@@ -585,51 +581,37 @@ export const GistCard = memo(function GistCard({
         onClick={!hasMedia ? handleDoubleTapReact : undefined}
         className="relative z-10 mt-4 min-h-0 flex-1 overflow-hidden"
       >
-        {hasMedia ? (
-          <>
-            <GistMediaBackdrop
-              media={gist.media!}
-              blurred={mediaMode === "text"}
-              active={isActive && !showEdit}
-              overlayOpen={overlayIndex !== null}
-              onTileClick={setOverlayIndex}
-              onNext={onNext}
-              onPrev={onPrev}
-              canGoNext={canGoNext}
-              canGoPrev={canGoPrev}
-              touchSurfaceRef={touchSurfaceRef}
-              dragY={dragY}
-              opacity={opacity}
-              committingRef={committingRef}
-            />
-            <GistMediaBodyPanel
-              mode={mediaMode}
-              onModeChange={setMediaMode}
-              text={gist.gist_text}
-              onNext={onNext}
-              onPrev={onPrev}
-              canGoNext={canGoNext}
-              canGoPrev={canGoPrev}
-              touchSurfaceRef={touchSurfaceRef}
-              dragY={dragY}
-              opacity={opacity}
-              committingRef={committingRef}
-            />
-          </>
-        ) : (
-          <div
-            ref={textScrollRef}
-            className="h-full overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20 pr-1"
-          >
-            {short ? (
-              <ShortGist text={gist.gist_text} colorKey={gist.color_key} fallbackSeed={gist.gist_id} />
-            ) : (
-              <p className="w-full whitespace-pre-wrap break-words font-nunito text-[15px] leading-relaxed text-ink text-justify">
-                {gist.gist_text}
-              </p>
-            )}
-          </div>
-        )}
+        <div
+          ref={scrollRef}
+          // pb-[50px]: real slack between "I can see I've reached the end"
+          // and "I've actually hit the scroll boundary that claims a swipe"
+          // — without it, atBottom() (useOverscrollNav) goes true the
+          // instant the last pixel of content is visible, so a natural bit
+          // of overshoot while finishing a read gets read as a swipe
+          // attempt instead of just... finishing the scroll. Covers both
+          // branches below (media and long text-only) since they share
+          // this one scrollable container.
+          className="h-full overflow-y-auto pb-[50px] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20 pr-1"
+        >
+          {hasMedia ? (
+            <>
+              {gist.gist_text?.trim() && <ExpandableText text={gist.gist_text} />}
+              <MediaBlock
+                media={gist.media!}
+                onOpenOverlay={setOverlayIndex}
+                overlayOpen={overlayIndex !== null}
+                active={isActive && !showEdit}
+                stackDuo
+              />
+            </>
+          ) : short ? (
+            <ShortGist text={gist.gist_text} colorKey={gist.color_key} fallbackSeed={gist.gist_id} />
+          ) : (
+            <p className="w-full whitespace-pre-wrap break-words font-nunito text-[15px] leading-relaxed text-ink text-justify">
+              {gist.gist_text}
+            </p>
+          )}
+        </div>
 
         {/* Center-pop reaction burst — same animation/placement whether it
             came from a double-tap or a row-click selection (see

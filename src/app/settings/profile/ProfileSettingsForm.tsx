@@ -19,26 +19,9 @@ import { useProfileStore } from "@/stores/profileStore";
 import { useUnsavedChangesStore } from "@/stores/unsavedChangesStore";
 import { markProfileUpdated } from "@/lib/profileFreshness";
 import { env } from "@/lib/env";
+import { HOBBIES, HOBBY_EMOJI } from "@/lib/hobbies";
 
 const LEVELS = ["100", "200", "300", "400", "500", "600"];
-
-// Freeform on the backend (plain string[], no fixed vocabulary enforced —
-// see student.controller.ts) — this fixed list is a frontend-only choice,
-// picked for actually being things Nigerian campus life revolves around
-// rather than a generic "hobbies" list off the shelf.
-const HOBBIES = [
-  "Football", "Basketball", "Gaming", "Reading", "Writing", "Photography",
-  "Fashion", "Dancing", "Singing", "Cooking", "Baking", "Gym & Fitness",
-  "Traveling", "Movies & TV", "Music Production", "DJing", "Painting & Art",
-  "Fashion Design", "Hair & Makeup", "Coding", "Entrepreneurship", "Debate",
-  "Public Speaking", "Content Creation", "Volunteering", "Chess",
-  "Table Tennis", "Swimming", "Spoken Word", "Comedy & Skits",
-  "Whot & Ludo", "Crypto & Trading", "Graphic Design", "Video Editing",
-  "Podcasting", "Vlogging", "Thrifting", "Anime & K-drama", "Journaling",
-  "Cycling", "Hiking", "Skating", "Volleyball", "Track & Field",
-  "MCing & Hosting", "Fellowship & Ministry", "Board Games", "Karaoke",
-  "Modeling", "Language Learning",
-];
 const MAX_HOBBIES = 6;
 
 function bioCountColor(len: number): string {
@@ -489,7 +472,19 @@ export function ProfileSettingsForm() {
           <div className="flex flex-wrap gap-2">
             {HOBBIES.map((h) => (
               <Chip key={h} selected={hobbies.includes(h)} onClick={() => toggleHobby(h)}>
-                {h}
+                <span className="inline-flex items-center gap-1.5">
+                  {/* Fixed white backing, not the emoji's own (inconsistent)
+                      colors — some emoji (Chess's ♟️, for one) render as
+                      plain dark line art rather than a full-color picture,
+                      which nearly vanishes once selected turns this pill's
+                      background solid brand-blue. A white circle behind
+                      every emoji makes all of them legible regardless of
+                      how any individual glyph happens to render. */}
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white text-[10px] leading-none">
+                    {HOBBY_EMOJI[h]}
+                  </span>
+                  {h}
+                </span>
               </Chip>
             ))}
           </div>
