@@ -637,8 +637,10 @@ export const GistCard = memo(function GistCard({
           // of overshoot while finishing a read gets read as a swipe
           // attempt instead of just... finishing the scroll. Covers both
           // branches below (media and long text-only) since they share
-          // this one scrollable container.
-          className="h-full overflow-y-auto pb-[60px] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20 pr-1"
+          // this one scrollable container. Skipped for `short`: ShortGist's
+          // color box never scrolls, so this was just eating 60px straight
+          // out of its height, leaving it short of the footer for no reason.
+          className={`h-full overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20 pr-1 ${short ? "" : "pb-[60px]"}`}
         >
           {hasMedia ? (
             <>
@@ -711,7 +713,12 @@ export const GistCard = memo(function GistCard({
           belongs (same row, pinned right) on every width, rather than the
           layout itself shifting depending on how much space happens to be
           available. */}
-      <div className="relative z-10 mt-1.5 flex flex-nowrap items-center justify-between gap-x-3 gap-y-1 border-t border-line/40 pt-1.5">
+      <div
+        // No top margin for `short` — its color box already touches this
+        // row directly (see the scrollRef div above), a real gap here would
+        // just reintroduce the same dead space from the other side.
+        className={`relative z-10 flex flex-nowrap items-center justify-between gap-x-3 gap-y-1 border-t border-line/40 pt-1.5 ${short ? "" : "mt-1.5"}`}
+      >
         <div className="no-scrollbar flex min-w-0 items-center gap-3 overflow-x-auto text-faint">
           <span className="shrink-0 font-nunito text-xs md:text-[13px]">{friendlyDateTime(gist.created_at)}</span>
           <span className="flex shrink-0 items-center gap-1 font-nunito text-xs md:text-[13px]">
