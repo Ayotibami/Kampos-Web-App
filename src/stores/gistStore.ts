@@ -796,13 +796,10 @@ export const useGistStore = create<GistState>((set, get) => ({
   },
 
   uploadMedia: async (gistId, file, name = "media", onProgress) => {
-    const isVideo = file.type.startsWith("video/");
-
     let sig: CloudinarySignature;
     try {
       const res = await api.get<ApiEnvelope<CloudinarySignature>>(
         `/gists/${encodeURIComponent(gistId)}/media/signature`,
-        { params: isVideo ? { resource_type: "video" } : undefined },
       );
       if (!res.data?.data) throw new Error("No signature returned");
       sig = res.data.data;
@@ -832,7 +829,6 @@ export const useGistStore = create<GistState>((set, get) => ({
         duration: result.duration,
         width: result.width,
         height: result.height,
-        thumbnail_url: result.eager?.[0]?.secure_url,
       });
       return res.data?.data;
     } catch (err) {

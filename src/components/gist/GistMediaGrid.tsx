@@ -10,7 +10,7 @@ import {
   MuteIconFill,
 } from "@/components/ui/icons";
 import type { GistMedia } from "@/types";
-import { cloudinarySmartCrop, cloudinarySrcSet, cloudinaryFit, cloudinaryFitSrcSet } from "@/lib/cloudinary";
+import { cloudinarySmartCrop, cloudinarySrcSet, cloudinaryFit, cloudinaryFitSrcSet, cloudinaryVideo } from "@/lib/cloudinary";
 
 // Lives here (not in GistCard.tsx, which used to define it) specifically to
 // avoid a circular import — GistCard.tsx needs ExpandableText/MediaBlock
@@ -248,7 +248,10 @@ function MediaTile({
     // got a say). object-contain + an explicit height (a real BOX, not the
     // image's own natural size) scales the whole photo to fit inside that
     // box without cropping, letterboxed rather than cropped if its ratio
-    // doesn't exactly match the box's.
+    // doesn't exactly match the box's. bg-brand-ink fills that letterboxed
+    // space — near-black so it stays neutral behind whatever's actually in
+    // the photo, but with the brand's own navy undertone rather than a flat
+    // generic black.
     return (
       <MediaImage
         src={cloudinaryFit(item.media_url)}
@@ -258,7 +261,7 @@ function MediaTile({
         onClick={onOpenOverlay}
         draggable={false}
         style={{ WebkitUserDrag: "none", height: fitHeightPx } as React.CSSProperties}
-        className="block w-full cursor-pointer rounded-2xl object-contain"
+        className="block w-full cursor-pointer rounded-2xl bg-brand-ink object-contain"
       />
     );
   }
@@ -333,8 +336,8 @@ function VideoTile({
   videoSyncRef?: VideoSyncRef;
   active?: boolean;
   /** See MediaTile's own doc — same deal, minus the server-side-crop
-   * concern images have (this is the raw video URL either way, no
-   * Cloudinary crop transform applied to it at any point). */
+   * concern images have (cloudinaryVideo negotiates codec, not crop, so
+   * there's no separate "already cropped" URL to worry about here). */
   fitHeightPx?: number;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -378,10 +381,13 @@ function VideoTile({
   // same video (and audio) playing at once makes no sense. The overlay's
   // own video takes over; when it closes, the in-card video stays paused
   // until the user taps play again (or, in stack-driven mode, until this
-  // card becomes active again and playing is re-armed).
-  useEffect(() => {
+  // card becomes active again and playing is re-armed). Reset-during-render
+  // (not an effect) — same pattern as `prevActive` below.
+  const [prevOverlayOpen, setPrevOverlayOpen] = useState(overlayOpen);
+  if (overlayOpen !== prevOverlayOpen) {
+    setPrevOverlayOpen(overlayOpen);
     if (overlayOpen) setPlaying(false);
-  }, [overlayOpen]);
+  }
 
   // Stack-driven mode: reset to "not playing" the moment this card stops
   // being the active one, so it doesn't silently resume (still muted-off,
@@ -436,7 +442,7 @@ function VideoTile({
     >
       <MediaVideo
         ref={videoRef}
-        src={item.media_url}
+        src={cloudinaryVideo(item.media_url)}
         poster={item.thumbnail_url}
         playsInline
         loop
@@ -460,7 +466,7 @@ function VideoTile({
         }
         className={
           fitHeightPx !== undefined
-            ? "h-full w-full rounded-2xl object-contain"
+            ? "h-full w-full rounded-2xl bg-brand-ink object-contain"
             : "h-full w-full rounded-2xl object-cover object-top"
         }
       />

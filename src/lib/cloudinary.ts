@@ -81,6 +81,25 @@ export function cloudinaryFitSrcSet(url: string): string | undefined {
   ).join(", ");
 }
 
+/**
+ * Delivery-side codec negotiation for video — the same `f_auto` job it
+ * already does for images, just for the video's own codec/container this
+ * time. Without it, a video is served back in whatever codec the
+ * uploading device recorded it in, verbatim: the upload pipeline
+ * (media.controller.ts's `eager` param) only ever generates a JPG poster
+ * frame, it never transcodes the video itself. An iPhone records in HEVC
+ * by default, and Chrome — desktop and Android alike, most of this app's
+ * viewers — can't decode HEVC in a plain `<video>` tag, so any video
+ * someone uploaded from an iPhone would otherwise fail to play for
+ * everyone except other Safari/iOS viewers. `f_auto` here picks whichever
+ * codec/container the requesting browser actually supports (H.264 for
+ * most, VP9/WebM where that's preferred) — the exact same negotiation, not
+ * a special case for this one codec.
+ */
+export function cloudinaryVideo(url: string): string {
+  return withCloudinaryTransform(url, "f_auto,q_auto");
+}
+
 /** What the backend's `GET /gists/:id/media/signature` hands back — enough
  * for the browser to upload straight to Cloudinary itself afterward. */
 export interface CloudinarySignature {
@@ -89,7 +108,6 @@ export interface CloudinarySignature {
   api_key: string;
   cloud_name: string;
   folder: string;
-  eager?: string;
   upload_url: string;
 }
 
@@ -101,7 +119,6 @@ export interface CloudinaryUploadResult {
   duration?: number;
   width?: number;
   height?: number;
-  eager?: Array<{ secure_url: string }>;
 }
 
 /** A Cloudinary-shaped error response, distinct from a network failure —
@@ -161,7 +178,6 @@ export function uploadToCloudinaryDirect(
       form.append("timestamp", String(sig.timestamp));
       form.append("signature", sig.signature);
       form.append("folder", sig.folder);
-      if (sig.eager) form.append("eager", sig.eager);
 
       const xhr = new XMLHttpRequest();
       xhr.open("POST", sig.upload_url);

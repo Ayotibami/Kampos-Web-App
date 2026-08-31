@@ -216,18 +216,6 @@ export function CreateGistSheet({
   const [pickedColor, setPickedColor] = useState<GistColorKey | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
 
-  // Quoting a gist (or editing one) opens this sheet pre-filled — re-seed
-  // the text each time it's opened (not just on mount) since the sheet can
-  // be reused across different quotes/edits.
-  useEffect(() => {
-    if (open) {
-      setText(editGist?.gist_text ?? initialText ?? "");
-      setPickedColor(null);
-      setShowColorPicker(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editGist?.gist_id]);
-
   // Types out the compose trigger's snapshotted prompt (see the `placeholder`
   // prop doc above) into the textarea's own placeholder, once, each time the
   // sheet opens — the "notice me" typing effect that used to run continuously
@@ -349,13 +337,31 @@ export function CreateGistSheet({
   // for the whole sheet.
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
 
-  // Seeds the existing gist's own media as removable/reorderable thumbnails
-  // when opening in edit mode — re-seeded each time the sheet opens (not
-  // just on mount) for the same reason the text effect above is, and reset
-  // to empty for a fresh compose/quote so leftover state from a previous
-  // edit session never leaks in.
-  useEffect(() => {
-    if (!open) return;
+  // Which target (a specific gist to edit, or "a new compose") the sheet's
+  // fields were last seeded for. Compared during render — React's own
+  // documented pattern for "adjust state when a prop genuinely changes"
+  // (see react.dev/reference/react/useState#storing-information-from-previous-renders)
+  // — instead of an effect, so a real target change seeds in the same
+  // render with no extra flash, and a plain close+reopen of the SAME target
+  // does NOT reseed at all: closing (the X, the backdrop, Escape) doesn't
+  // mean "discard" anywhere else in this app, so a draft the user hasn't
+  // posted yet — text typed, media attached, maybe even still mid-upload —
+  // has to still be sitting there exactly as they left it if they reopen.
+  // It only actually goes away once handlePost's own reset() runs (a real
+  // post/save succeeded), or the target genuinely changes (a different gist
+  // to edit — showing gist A's leftover draft while meaning to edit gist B
+  // would silently overwrite B with A's text/media on save, a real
+  // correctness bug, not just UX). Different quotes of different gists
+  // currently share the same "__new__" target (no call site varies
+  // `initialText` across reopens today) — a future quote flow that does
+  // would need its own key folded into `currentTarget` below.
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  const currentTarget = editGist?.gist_id ?? "__new__";
+  if (open && seededFor !== currentTarget) {
+    setSeededFor(currentTarget);
+    setText(editGist?.gist_text ?? initialText ?? "");
+    setPickedColor(null);
+    setShowColorPicker(false);
     setRemovedMediaIds([]);
     setMedia(
       (editGist?.media ?? []).map((m) => ({
@@ -366,8 +372,7 @@ export function CreateGistSheet({
         name: "",
       })),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editGist?.gist_id]);
+  }
 
   const remaining = LIMITS.gist - text.length;
 

@@ -469,7 +469,13 @@ export const GistCard = memo(function GistCard({
   }
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden rounded-[32px] bg-surface-2 p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] sm:p-6 dark:shadow-[0_1px_0_0_rgba(255,255,255,0.06)_inset]">
+    <div
+      // pb-0 for `short`: its color box (see ShortGist) fills the body
+      // area edge-to-edge on its own already — the card's normal bottom
+      // padding just added dead space below it that media/long-text gists
+      // don't have.
+      className={`relative flex h-full flex-col overflow-hidden rounded-[32px] bg-surface-2 p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] sm:p-6 dark:shadow-[0_1px_0_0_rgba(255,255,255,0.06)_inset] ${short ? "!pb-0" : ""}`}
+    >
       {/* Header — z-20 (above the body's z-10): both are separate stacking
           contexts, so without this the body would paint over the header's
           action popup regardless of the popup's own z-index, since that only

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, type PanInfo } from "framer-motion";
 import { MediaImage, MediaVideo } from "@/components/ui/MediaFrame";
+import { cloudinaryVideo } from "@/lib/cloudinary";
 import {
   X,
   ChevronLeft,
@@ -217,7 +218,7 @@ export function GistMediaOverlay({
           {isVideo ? (
             <MediaVideo
               ref={videoRef}
-              src={current.media_url}
+              src={cloudinaryVideo(current.media_url)}
               poster={current.thumbnail_url}
               playsInline
               autoPlay
