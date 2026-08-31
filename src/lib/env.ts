@@ -44,6 +44,22 @@ function readKamposWebsiteUrl(): string {
   return value.replace(/\/$/, "");
 }
 
+// The Korner (a separate product/site, not this app) — linked from Settings
+// so users can navigate there. Its own default matches the domain it's
+// actually deployed at today (see kornerfrontend's PushComposer, which uses
+// it as its own real-URL placeholder example).
+function readKornerUrl(): string {
+  const raw = process.env.NEXT_PUBLIC_KORNER_URL?.trim();
+  const value = raw && raw.length > 0 ? raw : "https://korner-frontend.vercel.app";
+  try {
+    // eslint-disable-next-line no-new
+    new URL(value);
+  } catch {
+    throw new Error(`NEXT_PUBLIC_KORNER_URL is not a valid URL: "${value}"`);
+  }
+  return value.replace(/\/$/, "");
+}
+
 export const env = {
   /** Backend origin, e.g. https://kamposbackend-001.onrender.com */
   API_URL: readApiUrl(),
@@ -81,6 +97,8 @@ export const env = {
   get REQUEST_FEATURE_URL() {
     return `${this.KAMPOS_WEBSITE_URL}/request-feature`;
   },
+  /** The Korner's own site — linked from Settings. */
+  KORNER_URL: readKornerUrl(),
   /** GIPHY API key for the GIF/sticker picker — free from
    * https://developers.giphy.com. Empty until set; GiphyPicker shows
    * a "not configured yet" state rather than failing requests with an

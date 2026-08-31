@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { SettingsPageShell } from "@/components/settings/SettingsPageShell";
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { LogoutAction } from "@/components/settings/LogoutAction";
+import { KornerLink } from "@/components/settings/KornerLink";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { useAuthStore } from "@/stores/authStore";
 import {
@@ -75,29 +76,36 @@ export function SettingsHub() {
         </div>
 
         <div className="flex flex-col items-center gap-6 pt-10">
-          <div className="flex flex-col items-center gap-2">
-            <p className="font-nunito text-xs font-semibold text-muted">Follow us</p>
-            <div className="flex items-center gap-4">
-              <a
-                href={CONTACT.x}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Kampos on X"
-                className="flex h-9 w-9 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
-              >
-                <XLogoFill className="h-5 w-5" weight="regular" />
-              </a>
-              <a
-                href={CONTACT.instagram}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Kampos on Instagram"
-                className="flex h-9 w-9 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
-              >
-                <InstagramLogoFill className="h-5 w-5" weight="regular" />
-              </a>
-            </div>
+          {/* No "Follow us" label — self-explanatory enough not to need
+              one. Korner gets its own line below rather than sharing this
+              row — it's a separate link, not a social icon, so grouping it
+              in with X/Instagram read as miscategorized. */}
+          {/* Muted, not real brand colors — unlike Korner, these two are
+              recognizable by shape alone, so color here was just adding
+              noise next to Korner/Kampos's own colors, not real identity
+              information. */}
+          <div className="flex items-center gap-4">
+            <a
+              href={CONTACT.x}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Kampos on X"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
+            >
+              <XLogoFill className="h-5 w-5" weight="regular" />
+            </a>
+            <a
+              href={CONTACT.instagram}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Kampos on Instagram"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
+            >
+              <InstagramLogoFill className="h-5 w-5" weight="regular" />
+            </a>
           </div>
+
+          <KornerLink />
 
           <LogoutAction />
 

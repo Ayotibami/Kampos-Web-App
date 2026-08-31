@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LogoutAction } from "@/components/settings/LogoutAction";
+import { KornerLink } from "@/components/settings/KornerLink";
 import { Wordmark } from "@/components/brand/Wordmark";
 import {
   ArrowLeft,
@@ -83,30 +84,39 @@ export function SettingsRail() {
         })}
       </div>
 
-      <div className="flex flex-col items-center gap-4 border-t border-line/70 pt-5">
-        <div className="flex flex-col items-center gap-2">
-          <p className="font-nunito text-xs font-semibold text-muted">Follow us</p>
-          <div className="flex items-center justify-center gap-4">
-            <a
-              href={CONTACT.x}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Kampos on X"
-              className="flex h-11 w-11 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
-            >
-              <XLogoFill className="h-5 w-5" weight="regular" />
-            </a>
-            <a
-              href={CONTACT.instagram}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Kampos on Instagram"
-              className="flex h-11 w-11 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
-            >
-              <InstagramLogoFill className="h-5 w-5" weight="regular" />
-            </a>
-          </div>
+      <div className="flex flex-col items-center gap-3 border-t border-line/70 pt-4">
+        {/* No "Follow us" label — self-explanatory enough not to need one,
+            and this is a hard-viewport-height panel with no scroll of its
+            own, so every bit of vertical height this footer doesn't need
+            matters. Korner gets its own line below rather than sharing this
+            row — same reasoning, just a separate link rather than a social
+            icon, so grouping it in with X/Instagram read as miscategorized. */}
+        <div className="flex items-center justify-center gap-4">
+          {/* Muted, not real brand colors — unlike Korner, these two are
+              recognizable by shape alone, so color here was just adding
+              noise next to Korner/Kampos's own colors, not real identity
+              information. */}
+          <a
+            href={CONTACT.x}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Kampos on X"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
+          >
+            <XLogoFill className="h-5 w-5" weight="regular" />
+          </a>
+          <a
+            href={CONTACT.instagram}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Kampos on Instagram"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
+          >
+            <InstagramLogoFill className="h-5 w-5" weight="regular" />
+          </a>
         </div>
+
+        <KornerLink large />
 
         <LogoutAction fullWidth />
 
@@ -115,8 +125,8 @@ export function SettingsRail() {
             itself, so this is the one place the actual wordmark shows up
             here. Sized well below the header's own text-xl on purpose —
             a quiet signature, not a second competing brand moment. */}
-        <div className="space-y-1.5 text-center">
-          <Wordmark className="text-sm" />
+        <div className="space-y-1 text-center">
+          <Wordmark accentClassName="text-brand" className="text-sm" />
           <p className="font-nunito text-xs text-muted">Version 1.0.0</p>
           <p className="font-nunito text-[11px] text-faint">From Ayoti</p>
         </div>
