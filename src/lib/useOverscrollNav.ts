@@ -88,8 +88,15 @@ export function useOverscrollNav<T extends HTMLElement>({
   committingRef,
 }: {
   surfaceRef: RefObject<HTMLElement | null>;
-  onNext?: () => void;
-  onPrev?: () => void;
+  /** Called with the raw dragY value this card's exit is committing from
+   * (see onTouchEnd below) — GistStack uses it to start the INCOMING
+   * card's entrance from a position that mirrors this exact release point,
+   * instead of always a fixed distance, so the two cards move in lockstep
+   * regardless of how far the swipe was dragged before release. Callers
+   * that don't care (comment-panel expanded-caption nav, etc.) can just
+   * ignore the argument — it's only ever meaningful to GistStack. */
+  onNext?: (fromDragY?: number) => void;
+  onPrev?: (fromDragY?: number) => void;
   enabled?: boolean;
   /** Shared live-position value — see this hook's own docstring. Falls
    * back to a local, unrendered value if the caller doesn't pass one. */
@@ -295,6 +302,11 @@ export function useOverscrollNav<T extends HTMLElement>({
       // param's own docs on why a boolean flag here beats inferring it.
       if (committingRef) committingRef.current = true;
       const exitTarget = direction > 0 ? EXIT_DISTANCE_PX : -EXIT_DISTANCE_PX;
+      // Captured before animate() below starts moving it — this is the
+      // exact raw position the finger released at, handed to onNext/onPrev
+      // so the INCOMING card's entrance can start from a position that
+      // mirrors it (see this hook's own onNext/onPrev docs).
+      const releaseY = dragY.get();
       // Kicked off but deliberately not awaited — this card's own exit
       // keeps playing out on `dragY` regardless of what happens next.
       // onNext/onPrev fire IMMEDIATELY below, not once this resolves: the
@@ -304,16 +316,12 @@ export function useOverscrollNav<T extends HTMLElement>({
       // parallel, like a conveyor belt, rather than one finishing before
       // the other even begins.
       animate(dragY, exitTarget, { duration: COMMIT_EXIT_S, ease: "easeOut" });
-      // Started fresh from 1 (its only possible value up to this point —
-      // see this param's own docs on why nothing during the live drag
-      // itself ever touches it), fading to 0 over the exact same window as
-      // the position tween above, so however far the live drag already
-      // carried this card, its fade only ever starts now and takes the
-      // full duration — same as the incoming card's own entrance fade —
-      // instead of however much of it the raw distance already used up.
-      if (opacity) animate(opacity, 0, { duration: COMMIT_EXIT_S, ease: "easeOut" });
-      if (direction > 0) onPrev?.();
-      else onNext?.();
+      // opacity deliberately left untouched here — a committed card now
+      // flies out at full opacity the whole way, no fade. `opacity` is
+      // still accepted as a param (GistStack still owns and passes one) so
+      // nothing downstream has to change shape, it's just never animated.
+      if (direction > 0) onPrev?.(releaseY);
+      else onNext?.(releaseY);
     };
 
     surface.addEventListener("touchstart", onTouchStart, { passive: true });

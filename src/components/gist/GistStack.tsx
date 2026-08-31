@@ -223,12 +223,27 @@ export function GistStack({
   // direction that produced it.
   const [direction, setDirection] = useState(1);
 
-  const next = useCallback(() => {
+  // Mobile-only: where the INCOMING card's entrance should start from —
+  // set alongside direction/index in the same batched update, so the
+  // render that mounts the new card already has it. null means "no live
+  // drag drove this" (keyboard, wheel, initial mount): falls back to the
+  // fixed EXIT_DISTANCE_PX in GistStackCard's own entrance effect. A real
+  // number (from a touch commit — see useOverscrollNav's onNext/onPrev)
+  // is the outgoing card's own release position, offset by the resting
+  // gap between the two cards — the same math that makes the outgoing
+  // card's exit and this entrance move as a rigidly linked pair instead of
+  // two animations that just happen to share a duration: whatever distance
+  // the outgoing card has covered from ITS start, the incoming card has
+  // covered the identical distance from its own, at every instant.
+  const [entranceFrom, setEntranceFrom] = useState<number | null>(null);
+
+  const next = useCallback((fromDragY?: number) => {
     const now = Date.now();
     if (!isMobile && now - lastNavAtRef.current < NAV_DEBOUNCE_MS) return;
     lastNavAtRef.current = now;
     dismissHint();
     setDirection(1);
+    setEntranceFrom(fromDragY !== undefined ? fromDragY + EXIT_DISTANCE_PX : null);
     // `gists.length` itself (one past the last real gist) is a genuine,
     // reachable position once exhausted — that's the end-of-feed card's
     // own slot (see the render below). Not reachable at all otherwise:
@@ -240,12 +255,13 @@ export function GistStack({
     setIndex((i) => Math.min(i + 1, maxIndex));
   }, [gists.length, exhausted, dismissHint, isMobile]);
 
-  const prev = useCallback(() => {
+  const prev = useCallback((fromDragY?: number) => {
     const now = Date.now();
     if (!isMobile && now - lastNavAtRef.current < NAV_DEBOUNCE_MS) return;
     lastNavAtRef.current = now;
     dismissHint();
     setDirection(-1);
+    setEntranceFrom(fromDragY !== undefined ? fromDragY - EXIT_DISTANCE_PX : null);
     setIndex((i) => Math.max(i - 1, 0));
   }, [dismissHint, isMobile]);
 
@@ -342,6 +358,7 @@ export function GistStack({
                 offset={0}
                 isMobile
                 direction={direction}
+                entranceFrom={entranceFrom}
                 mediaPaused={mediaPaused}
                 showCampusTag={showCampusTag}
                 canGoNext={canGoNextValue}
@@ -368,6 +385,7 @@ export function GistStack({
                   offset={offset}
                   isMobile={false}
                   direction={1}
+                  entranceFrom={null}
                   mediaPaused={mediaPaused}
                   showCampusTag={showCampusTag}
                   canGoNext={offset === 0 ? canGoNextValue : true}
@@ -392,6 +410,7 @@ export function GistStack({
                 offset={0}
                 isMobile={false}
                 direction={1}
+                entranceFrom={null}
                 mediaPaused={mediaPaused}
                 showCampusTag={showCampusTag}
                 canGoNext={false}
@@ -440,6 +459,7 @@ function GistStackCard({
   offset,
   isMobile,
   direction,
+  entranceFrom,
   mediaPaused,
   showCampusTag,
   canGoNext,
@@ -459,6 +479,10 @@ function GistStackCard({
   /** Mobile only — which side a freshly mounted card's entrance rises in
    * from. See GistStack's own direction state. Unused on desktop. */
   direction: number;
+  /** Mobile only — see GistStack's own entranceFrom. Overrides the fixed
+   * EXIT_DISTANCE_PX entrance start when a live touch commit produced this
+   * mount, so the entrance mirrors the outgoing card's own release point. */
+  entranceFrom: number | null;
   mediaPaused: boolean;
   showCampusTag: boolean;
   /** Whether a swipe from THIS card actually has somewhere to go — see
@@ -500,24 +524,10 @@ function GistStackCard({
   // effect below to know for certain whether this card's exit is already
   // under way before deciding whether to kick off a fallback one.
   const committingRef = useRef(false);
-  // Deliberately its OWN value, NOT derived from dragY — opacity only ever
-  // moves during the entrance (see the layout effect below) and the exit
-  // (see useOverscrollNav's own commit handling), animated in lockstep
-  // with `dragY`'s own position tween over the exact same duration, never
-  // touched during a live drag itself (onTouchMove only ever sets dragY).
-  // A card being dragged — whether it goes on to commit or springs back —
-  // stays fully opaque the entire time. Deriving this from raw dragY
-  // distance instead seemed reasonable on its own, but breaks symmetry in
-  // a way only visible in slow motion: a released card's exit continues
-  // from wherever the LIVE drag already carried it (anywhere from just
-  // past the swipe threshold to much further), while a freshly mounted
-  // incoming card always starts its entrance from the full distance — so
-  // a big released drag started its exit already significantly faded,
-  // reaching invisible well before the incoming card (always starting
-  // from zero) caught up to fully visible. A dedicated value that only
-  // ever runs 1→0 or 0→1 over the fixed commit duration, regardless of
-  // where the drag itself left things, keeps the two perfectly in sync no
-  // matter how far someone dragged before releasing.
+  // Fixed at 1, never animated — cards fly out/rise in on position alone,
+  // no fade. Still threaded through useOverscrollNav/GistCard as a prop
+  // (accepted but unused there) rather than ripped out everywhere, so
+  // reintroducing a fade later is a one-line change here, not a re-plumb.
   const opacity = useMotionValue(1);
   // `dragY` is named for the vertical finger travel it's fed from (see
   // useOverscrollNav) — the actual on-screen motion has always been
@@ -543,17 +553,20 @@ function GistStackCard({
   // onward — one continuous ease-in, nothing to snap back from.
   useLayoutEffect(() => {
     if (!isMobile) return;
-    dragY.set(direction > 0 ? EXIT_DISTANCE_PX : -EXIT_DISTANCE_PX);
-    opacity.set(0);
+    // entranceFrom (a live touch commit) mirrors the outgoing card's own
+    // release point — see GistStack's own docs. Falls back to the fixed
+    // full distance for anything else (keyboard, wheel, initial mount).
+    dragY.set(entranceFrom ?? (direction > 0 ? EXIT_DISTANCE_PX : -EXIT_DISTANCE_PX));
+    // opacity left at its default 1 — a freshly mounted card rises in at
+    // full opacity the whole way, no fade-in.
     const posControls = animate(dragY, 0, { duration: COMMIT_EXIT_S, ease: "easeOut" });
-    const opacityControls = animate(opacity, 1, { duration: COMMIT_EXIT_S, ease: "easeOut" });
     return () => {
       posControls.stop();
-      opacityControls.stop();
     };
-    // Deliberately mount-only — `direction` describes how THIS card
-    // arrived, not something that should retrigger the entrance if it
-    // changes later for an unrelated reason.
+    // Deliberately mount-only — `direction`/`entranceFrom` describe how
+    // THIS card arrived, not something that should retrigger the entrance
+    // if either changes later for an unrelated reason (e.g. the NEXT
+    // swipe, which mounts a different card instance entirely).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -579,22 +592,18 @@ function GistStackCard({
   useEffect(() => {
     if (!isMobile || isPresent) return;
     // Same reasoning as the touch-driven commit path (see
-    // useOverscrollNav's own onTouchEnd) — position AND opacity animate
-    // together here too, so a keyboard/wheel-triggered exit fades out in
-    // sync with its own position change instead of just popping away.
+    // useOverscrollNav's own onTouchEnd) — position only, no opacity, so a
+    // keyboard/wheel-triggered exit flies out at full opacity too, not
+    // just the touch-driven one.
     const posControls = committingRef.current
       ? undefined
       : animate(dragY, direction > 0 ? -EXIT_DISTANCE_PX : EXIT_DISTANCE_PX, {
           duration: COMMIT_EXIT_S,
           ease: "easeOut",
         });
-    const opacityControls = committingRef.current
-      ? undefined
-      : animate(opacity, 0, { duration: COMMIT_EXIT_S, ease: "easeOut" });
     const timer = window.setTimeout(safeToRemove, COMMIT_EXIT_S * 1000);
     return () => {
       posControls?.stop();
-      opacityControls?.stop();
       window.clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
