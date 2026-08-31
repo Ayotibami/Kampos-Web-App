@@ -846,7 +846,7 @@ export function PopActionButton({
       whileTap={disabled ? undefined : { scale: 0.8 }}
       animate={{ scale: 1 }}
       transition={{ type: "spring", stiffness: 500, damping: 10 }}
-      className={`relative flex h-8 w-8 items-center justify-center rounded-full text-white transition disabled:cursor-default disabled:opacity-40 ${
+      className={`relative flex h-11 w-11 items-center justify-center rounded-full text-white transition disabled:cursor-default disabled:opacity-40 ${
         variant === "danger" ? "bg-danger" : "bg-brand"
       }`}
     >
