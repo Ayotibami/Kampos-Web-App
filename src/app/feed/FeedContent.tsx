@@ -655,7 +655,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
               stretched: the source art is a tall 360×800 scattered doodle, not
               a seamless single-image cover, so tiling is what lets it genuinely
               fill a wide area without cropping most of it away. */}
-          <div className="relative flex min-h-0 flex-1 flex-col items-center pb-0 pt-3 sm:pt-4 md:pb-6">
+          <div className="relative flex min-h-0 flex-1 flex-col items-center pb-2 pt-3 sm:pt-4 md:pb-6">
             <div
               aria-hidden
               // The SVG bakes in its own 8% fill-opacity per path (subtle by design),
@@ -752,10 +752,11 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                   />
                 </div>
                 {/* Natural height only (shrink-0) — sits immediately below
-                    the card with zero gap, and its own bottom edge sits
-                    flush against the bottom of the screen (the outer
-                    container's bottom padding was dropped on mobile for
-                    exactly this — see its own comment above).
+                    the card with zero gap, with a small breathing gap (see
+                    the outer container's pb-2 above) between its own bottom
+                    edge and the screen — enough that it doesn't read as
+                    resting directly on the viewport edge, without bringing
+                    back the old dead-space band around the pill.
 
                     This is NOT a real input — tapping it never focuses
                     anything in place, it just opens CommentSheet (the real
