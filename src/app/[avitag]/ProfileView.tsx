@@ -1016,36 +1016,45 @@ export function ProfileView({
                       use — first person, same as the wave next to it and
                       the bio right below: this reads as the profile owner
                       talking, not a narrator introducing them. */}
-                  <div className="flex items-center justify-center gap-2 md:justify-start">
-                    {/* A real emoji, not an icon glyph — icons in this set
-                        are all single-tone and none of them mean "greeting"
-                        anyway; the wave only reads as a wave in full color.
-                        transformOrigin sits near the wrist so the rotation
-                        pivots like an actual hand, not the whole emoji
-                        spinning around its own center. */}
-                    <motion.span
-                      aria-hidden
-                      className="inline-block text-2xl leading-none md:text-4xl"
-                      style={{ transformOrigin: "70% 70%" }}
-                      animate={{ rotate: [0, 14, -8, 14, -4, 10, 0] }}
-                      transition={{ duration: 0.8, repeat: Infinity, repeatDelay: 2.2, ease: "easeInOut" }}
-                    >
-                      👋
-                    </motion.span>
-                    <span className="font-nunito text-base font-extrabold text-ink md:text-xl">
-                      Oya, I&apos;m {avitag}
-                    </span>
-                  </div>
+                  {/* Reads as the profile owner greeting a VISITOR ("Oya,
+                      I'm {avitag}") — makes no sense addressed at yourself
+                      on your own profile, so it's skipped entirely there;
+                      bio/hobbies below still show either way. */}
+                  {!isOwnProfile && (
+                    <div className="flex items-center justify-center gap-2 md:justify-start">
+                      {/* A real emoji, not an icon glyph — icons in this set
+                          are all single-tone and none of them mean "greeting"
+                          anyway; the wave only reads as a wave in full color.
+                          transformOrigin sits near the wrist so the rotation
+                          pivots like an actual hand, not the whole emoji
+                          spinning around its own center. */}
+                      <motion.span
+                        aria-hidden
+                        className="inline-block text-2xl leading-none md:text-4xl"
+                        style={{ transformOrigin: "70% 70%" }}
+                        animate={{ rotate: [0, 14, -8, 14, -4, 10, 0] }}
+                        transition={{ duration: 0.8, repeat: Infinity, repeatDelay: 2.2, ease: "easeInOut" }}
+                      >
+                        👋
+                      </motion.span>
+                      <span className="font-nunito text-base font-extrabold text-ink md:text-xl">
+                        Oya, I&apos;m {avitag}
+                      </span>
+                    </div>
+                  )}
                   {bio && (
                     // Deliberately NOT matching InfoBoard's value text scale
                     // — that bold/extrabold treatment reads fine for a
                     // short fact ("Mathematics", "200") but a whole
                     // sentence (or several, up to LIMITS.bio) at that
                     // weight/size reads as shouty and eats a lot of
-                    // vertical space. Lighter weight, smaller on desktop —
-                    // still italic, since that's what actually marks this
-                    // as personal voice rather than another fact-card.
-                    <p className="mt-1.5 block break-words text-center font-nunito text-[11px] font-medium italic leading-snug md:mt-2.5 md:text-base">
+                    // vertical space. Lighter weight — still italic, since
+                    // that's what actually marks this as personal voice
+                    // rather than another fact-card. text-faint (not the
+                    // card's own inherited text-brand) matches the gist
+                    // card's date-text color — both are the same kind of
+                    // quiet, secondary metadata, not the card's main voice.
+                    <p className="mt-1.5 block break-words text-center font-nunito text-sm font-medium italic leading-snug text-faint md:mt-2.5 md:text-base">
                       {bio}
                     </p>
                   )}
