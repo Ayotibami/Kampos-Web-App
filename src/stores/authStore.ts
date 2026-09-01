@@ -407,6 +407,18 @@ export const useAuthStore = create<AuthState>()(
         import("@/stores/gistStore")
           .then((m) => m.useGistStore.setState({ feedSnapshot: null }))
           .catch(() => {});
+        // Same reasoning again, one layer deeper: feedSnapshot only clears
+        // the in-memory copy. The IndexedDB-backed dataCache (see
+        // dataCache.ts) is what gistStore's own list() actually reads FROM
+        // first (stale-while-revalidate) — it's keyed purely by URL/params,
+        // not by who asked, and it survives a logout/reload/browser
+        // restart. Left uncleared, whoever logs in next on this device
+        // would briefly see this account's own cached, campus-scoped feed
+        // (their own pending posts included) the instant they load the
+        // Gist tab, before the real fetch overwrites it a moment later.
+        import("@/lib/dataCache")
+          .then((m) => m.cacheClear())
+          .catch(() => {});
         set({
           user: null,
           profiles: [],
@@ -447,6 +459,20 @@ export const useAuthStore = create<AuthState>()(
         // isn't theirs, never having actually fetched it themselves.
         import("@/stores/gistStore")
           .then((m) => m.useGistStore.setState({ feedSnapshot: null }))
+          .catch(() => {});
+        // Same reasoning again, one layer deeper: feedSnapshot only clears
+        // the in-memory copy. The IndexedDB-backed dataCache (see
+        // dataCache.ts) is what gistStore's own list() actually reads FROM
+        // first (stale-while-revalidate) — it's keyed purely by URL/params,
+        // not by who asked, and it survives a logout/reload/browser
+        // restart. Left uncleared, whoever logs in next on this device
+        // would briefly see THIS account's own cached, campus-scoped feed
+        // (their own pending posts included) the instant they load the
+        // Gist tab, before the real fetch overwrites it a moment later —
+        // exactly the "saw someone else's unapproved gist from a different
+        // school" leak this closes.
+        import("@/lib/dataCache")
+          .then((m) => m.cacheClear())
           .catch(() => {});
         set({
           user: null,
