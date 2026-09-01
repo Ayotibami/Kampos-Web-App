@@ -88,15 +88,8 @@ export function useOverscrollNav<T extends HTMLElement>({
   committingRef,
 }: {
   surfaceRef: RefObject<HTMLElement | null>;
-  /** Called with the raw dragY value this card's exit is committing from
-   * (see onTouchEnd below) — GistStack uses it to start the INCOMING
-   * card's entrance from a position that mirrors this exact release point,
-   * instead of always a fixed distance, so the two cards move in lockstep
-   * regardless of how far the swipe was dragged before release. Callers
-   * that don't care (comment-panel expanded-caption nav, etc.) can just
-   * ignore the argument — it's only ever meaningful to GistStack. */
-  onNext?: (fromDragY?: number) => void;
-  onPrev?: (fromDragY?: number) => void;
+  onNext?: () => void;
+  onPrev?: () => void;
   enabled?: boolean;
   /** Shared live-position value — see this hook's own docstring. Falls
    * back to a local, unrendered value if the caller doesn't pass one. */
@@ -189,6 +182,19 @@ export function useOverscrollNav<T extends HTMLElement>({
     // happens to be scrolled to. Only a touch that starts ON the content
     // itself needs the boundary gate below.
     let startedInContent = true;
+    // Whether this touch was ALREADY at the top/bottom edge the moment it
+    // began — captured once at touchstart, not re-checked live as content
+    // scrolls during this same touch (see onTouchMove's claim check for
+    // why: a continuous flick that starts mid-content and scrolls all the
+    // way to the edge must NOT claim itself the instant it crosses that
+    // edge, since the person never let go — that's still one unbroken
+    // reading-scroll, not a fresh pull. Requiring the edge to already be
+    // true at touchstart means a real swipe now needs its own new press
+    // after reaching the end, not just momentum carrying an old one past
+    // it — the same distinction a person's own thumb makes intuitively
+    // ("I was still scrolling" vs. "I let go, then pulled again").
+    let atTopAtStart = false;
+    let atBottomAtStart = false;
     // True from the moment a commit is decided onward — never reset back
     // to false. onNext/onPrev fire immediately (see onTouchEnd below), but
     // this same card/listener stays mounted a little longer to finish its
@@ -219,6 +225,8 @@ export function useOverscrollNav<T extends HTMLElement>({
       lastMoveTime = performance.now();
       const target = e.touches[0].target;
       startedInContent = !!scrollRef.current && target instanceof Node && scrollRef.current.contains(target);
+      atTopAtStart = atTop();
+      atBottomAtStart = atBottom();
     };
 
     const onTouchMove = (e: TouchEvent) => {
@@ -227,13 +235,18 @@ export function useOverscrollNav<T extends HTMLElement>({
       const dy = currentY - startY;
       if (!claimed) {
         // Claim the gesture only once it's moved a real amount (not just
-        // tap jitter — see CLAIM_SLOP_PX) AND is trying to go past an edge
-        // it's already resting at — anywhere mid-content, or below the
-        // slop, this never fires, so a normal scroll (or a tap on a
-        // header/footer button) is never interrupted.
+        // tap jitter — see CLAIM_SLOP_PX) AND this touch already STARTED
+        // at the edge it's pulling past (atTopAtStart/atBottomAtStart —
+        // see their own docs above) — never the LIVE atTop()/atBottom(),
+        // which would let a touch that scrolled its way to the edge mid-
+        // gesture claim itself on the spot. Anywhere mid-content, below
+        // the slop, or reaching the edge only during this same touch, this
+        // never fires — a normal scroll (or a tap on a header/footer
+        // button) is never interrupted, and neither is a flick that
+        // happens to end exactly at the edge.
         if (Math.abs(dy) < CLAIM_SLOP_PX) return;
-        if (dy > 0 && atTop()) claimed = true;
-        else if (dy < 0 && atBottom()) claimed = true;
+        if (dy > 0 && atTopAtStart) claimed = true;
+        else if (dy < 0 && atBottomAtStart) claimed = true;
         else return;
       }
       // Once claimed, this touch is ours for the rest of the gesture —
@@ -302,11 +315,6 @@ export function useOverscrollNav<T extends HTMLElement>({
       // param's own docs on why a boolean flag here beats inferring it.
       if (committingRef) committingRef.current = true;
       const exitTarget = direction > 0 ? EXIT_DISTANCE_PX : -EXIT_DISTANCE_PX;
-      // Captured before animate() below starts moving it — this is the
-      // exact raw position the finger released at, handed to onNext/onPrev
-      // so the INCOMING card's entrance can start from a position that
-      // mirrors it (see this hook's own onNext/onPrev docs).
-      const releaseY = dragY.get();
       // Kicked off but deliberately not awaited — this card's own exit
       // keeps playing out on `dragY` regardless of what happens next.
       // onNext/onPrev fire IMMEDIATELY below, not once this resolves: the
@@ -320,8 +328,8 @@ export function useOverscrollNav<T extends HTMLElement>({
       // flies out at full opacity the whole way, no fade. `opacity` is
       // still accepted as a param (GistStack still owns and passes one) so
       // nothing downstream has to change shape, it's just never animated.
-      if (direction > 0) onPrev?.(releaseY);
-      else onNext?.(releaseY);
+      if (direction > 0) onPrev?.();
+      else onNext?.();
     };
 
     surface.addEventListener("touchstart", onTouchStart, { passive: true });

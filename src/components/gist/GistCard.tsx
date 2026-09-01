@@ -624,7 +624,7 @@ export const GistCard = memo(function GistCard({
       >
         <div
           ref={scrollRef}
-          // pb-[60px]: real slack between "I can see I've reached the end"
+          // pb-[80px]: real slack between "I can see I've reached the end"
           // and "I've actually hit the scroll boundary that claims a swipe"
           // — without it, atBottom() (useOverscrollNav) goes true the
           // instant the last pixel of content is visible, so a natural bit
@@ -632,9 +632,9 @@ export const GistCard = memo(function GistCard({
           // attempt instead of just... finishing the scroll. Covers both
           // branches below (media and long text-only) since they share
           // this one scrollable container. Skipped for `short`: ShortGist's
-          // color box never scrolls, so this was just eating 60px straight
+          // color box never scrolls, so this was just eating 80px straight
           // out of its height, leaving it short of the footer for no reason.
-          className={`h-full overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20 pr-1 ${short ? "" : "pb-[60px]"}`}
+          className={`h-full overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-brand-dark/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-brand-dark/20 pr-1 ${short ? "" : "pb-[80px]"}`}
         >
           {hasMedia ? (
             <>
