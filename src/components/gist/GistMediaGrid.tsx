@@ -161,6 +161,11 @@ export function MediaBlock({
             // Only the first (idx 0) gets a fit height — the second is the
             // deliberate peek, left to its own old fixed-cap sizing.
             fitHeightPx={idx === 0 ? firstFitHeightPx : undefined}
+            // The second tile still keeps its own flat-cap peek sizing
+            // (see fitHeightPx above), but shows the real, uncropped shape
+            // now too — matching the first tile's contain treatment
+            // instead of the cropped "teaser" look it used to have.
+            contain={idx === 1}
           />
         ))
       ) : isDuo ? (
@@ -202,6 +207,7 @@ function MediaTile({
   videoSyncRef,
   active,
   fitHeightPx,
+  contain = false,
 }: {
   item: GistMedia;
   cropped: boolean;
@@ -215,6 +221,13 @@ function MediaTile({
    * cap logic below is what runs when it isn't (Profile's calls, and a
    * duo's second/peek tile, which deliberately keeps the old behavior). */
   fitHeightPx?: number;
+  /** Only meaningful when fitHeightPx is undefined (fitHeightPx already
+   * always implies contain) — shows the real, uncropped shape within the
+   * tile's existing flat-cap sizing instead of the default cover-crop,
+   * same letterbox treatment (bg-brand-ink) as the fitHeightPx path.
+   * Feed-only (see MediaBlock's stackDuo second-tile call), never set for
+   * the profile grid's own tiles. */
+  contain?: boolean;
 }) {
   const isVideo = item.media_type?.toLowerCase().includes("video");
   const known = knownRatio(item);
@@ -236,6 +249,7 @@ function MediaTile({
         videoSyncRef={videoSyncRef}
         active={active}
         fitHeightPx={fitHeightPx}
+        contain={contain}
       />
     );
   }
@@ -266,17 +280,31 @@ function MediaTile({
     );
   }
 
+  // contain (only reachable when fitHeightPx is undefined — that path
+  // above already always shows the real shape) swaps in the same
+  // non-cropping source transform and letterbox fill as the fitHeightPx
+  // branch. Unlike the cropped/cover branches below, it has no forced
+  // extreme-ratio box and only a generous max-h-screen ceiling (not the
+  // tight 420px the cover branches use) — it renders at its own real size
+  // for any normal photo, height following naturally, only actually
+  // capping the rare pathological case (a stitched screenshot, an
+  // unusually extreme crop) instead of letting THAT run arbitrarily long.
+  // On a shorter screen a normal photo can still genuinely run past the
+  // card's own visible edge, same as long text already can — that
+  // overflow is exactly the "there's a second one here" peek, revealed in
+  // full by scrolling rather than artificially shrunk to fit inside a
+  // fixed box. See MediaTile's own doc on `contain`.
   return (
     <MediaImage
-      src={cloudinarySmartCrop(item.media_url)}
-      srcSet={cloudinarySrcSet(item.media_url)}
+      src={contain ? cloudinaryFit(item.media_url) : cloudinarySmartCrop(item.media_url)}
+      srcSet={contain ? cloudinaryFitSrcSet(item.media_url) : cloudinarySrcSet(item.media_url)}
       // Same real-width cap this tile's column renders at everywhere in the
       // app: max-w-[740px] from md (768px) up, full viewport width below.
       sizes="(min-width: 768px) 740px, 100vw"
       alt=""
       onClick={onOpenOverlay}
       onLoad={
-        cropped || known !== null
+        cropped || contain || known !== null
           ? undefined
           : (e) => {
               const img = e.currentTarget;
@@ -289,19 +317,24 @@ function MediaTile({
       // CSS `aspect-ratio` instead of waiting on the browser to decode the
       // image itself — for a photo that's rarely a visible difference, but
       // using the exact same mechanism VideoTile relies on (see its own
-      // note) means one code path, not two subtly different ones.
+      // note) means one code path, not two subtly different ones. Applied
+      // for `contain` regardless of `extreme` — that flag only exists to
+      // cap the cropped/cover branches, irrelevant once nothing here is
+      // capping anything.
       style={
         {
           WebkitUserDrag: "none",
-          ...(known !== null && !extreme ? { aspectRatio: known } : {}),
+          ...(known !== null && (contain || !extreme) ? { aspectRatio: known } : {}),
         } as React.CSSProperties
       }
       className={
         cropped
           ? "h-full w-full cursor-pointer rounded-2xl object-cover object-top"
-          : extreme
-            ? "aspect-[3/4] max-h-[420px] w-full cursor-pointer rounded-2xl object-cover object-top"
-            : "block w-full max-h-[420px] cursor-pointer rounded-2xl object-cover object-top"
+          : contain
+            ? "block w-full max-h-screen cursor-pointer rounded-2xl bg-brand-ink object-contain object-top"
+            : extreme
+              ? "aspect-[3/4] max-h-[420px] w-full cursor-pointer rounded-2xl object-cover object-top"
+              : "block w-full max-h-[420px] cursor-pointer rounded-2xl object-cover object-top"
       }
     />
   );
@@ -328,6 +361,7 @@ function VideoTile({
   videoSyncRef,
   active,
   fitHeightPx,
+  contain = false,
 }: {
   item: GistMedia;
   cropped: boolean;
@@ -339,6 +373,9 @@ function VideoTile({
    * concern images have (cloudinaryVideo negotiates codec, not crop, so
    * there's no separate "already cropped" URL to worry about here). */
   fitHeightPx?: number;
+  /** See MediaTile's own doc — only meaningful when fitHeightPx is
+   * undefined. */
+  contain?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   // Local "did I tap play" intent — combined with `active` (when the
@@ -425,18 +462,20 @@ function VideoTile({
       style={
         fitHeightPx !== undefined
           ? { height: fitHeightPx }
-          : known !== null && !cropped && !extreme
+          : known !== null && !cropped && (contain || !extreme)
             ? { aspectRatio: known }
             : undefined
       }
       className={
         fitHeightPx !== undefined
           ? "relative w-full"
-          : cropped
-            ? "relative h-full w-full"
-            : extreme
-              ? "relative aspect-[3/4] max-h-[420px] w-full"
-              : "relative w-full max-h-[420px]"
+          : contain
+            ? "relative w-full max-h-screen"
+            : cropped
+              ? "relative h-full w-full"
+              : extreme
+                ? "relative aspect-[3/4] max-h-[420px] w-full"
+                : "relative w-full max-h-[420px]"
       }
       onClick={canControl ? () => setPlaying((p) => !p) : undefined}
     >
@@ -456,7 +495,7 @@ function VideoTile({
         // visibly resize the moment someone hit play.
         preload="metadata"
         onLoadedMetadata={
-          fitHeightPx !== undefined || cropped || known !== null
+          fitHeightPx !== undefined || cropped || contain || known !== null
             ? undefined
             : (e) => {
                 const video = e.currentTarget;
@@ -465,7 +504,7 @@ function VideoTile({
               }
         }
         className={
-          fitHeightPx !== undefined
+          fitHeightPx !== undefined || contain
             ? "h-full w-full rounded-2xl bg-brand-ink object-contain"
             : "h-full w-full rounded-2xl object-cover object-top"
         }
