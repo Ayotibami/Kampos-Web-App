@@ -25,6 +25,21 @@ export interface Account {
   email: string;
   is_otp_verified?: boolean;
   created_at?: string;
+  /** Account-level admin tier, distinct from ProfileType (which is
+   * per-profile, e.g. an "idiot" PROFILE can exist for moderation reasons
+   * unrelated to this). 'idiot' = admin, 'king' = admin + can manage other
+   * admins. Absent/'user' = no admin access. See lib/roles.ts for the
+   * shared "is this an admin" check both server and client code call into. */
+  role?: "user" | "idiot" | "king";
+  /** ACTIVE unless the account has been deactivated (self), suspended
+   * (admin), or deleted (either) — see KamposBackend's account.repo.ts.
+   * A non-ACTIVE account is rejected at login/refresh before a session is
+   * ever resolved, so this field mainly matters for admin-facing UI
+   * (Accounts search/detail) rather than gating anything client-side. */
+  account_status?: "ACTIVE" | "DEACTIVATED" | "SUSPENDED" | "DELETED";
+  /** Set on admin-triggered suspend (not self-deactivate/delete, which
+   * don't carry one) — quoted back to the account owner. */
+  account_status_reason?: string | null;
   [key: string]: unknown;
 }
 

@@ -1,7 +1,9 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { env } from "./env";
 import { destinationFor } from "./authGate";
+import { isAdminRole } from "./roles";
 import type { AuthGateState } from "@/stores/authStore";
 import type { AccountProfileResponse, ProfileSummary } from "@/stores/authStore";
 import type { Account } from "@/types";
@@ -17,8 +19,14 @@ import type { Account } from "@/types";
  *
  * Never throws — an unreachable backend or a missing/dead session both
  * resolve cleanly (to "unknown" and "guest" respectively, see below).
+ *
+ * Wrapped in React's cache() — same reasoning as serverProfile.ts's
+ * fetchStudentProfileByAvitag: villagepeople's layout.tsx (the admin gate)
+ * and its admins/page.tsx (the stricter king-only re-check) both need this
+ * same per-request result, and without this they'd each trigger their own
+ * real round-trip to the backend for identical data.
  */
-export async function resolveServerAuthState(): Promise<{
+export const resolveServerAuthState = cache(async function resolveServerAuthState(): Promise<{
   state: AuthGateState;
   account: Account | null;
   profiles: ProfileSummary[];
@@ -59,7 +67,7 @@ export async function resolveServerAuthState(): Promise<{
     // as 5xx above. Don't log the user out for a transient connectivity blip.
     return { state: "unknown", account: null, profiles: [] };
   }
-}
+});
 
 /**
  * Call at the top of a page's server component. Resolves the real auth
@@ -83,4 +91,16 @@ export async function gateServer(allow: AuthGateState[]) {
     redirect(destinationFor(result.state));
   }
   return result;
+}
+
+/**
+ * "Is the account resolveServerAuthState() already resolved an admin" —
+ * takes the account straight from that call's own result rather than
+ * re-fetching, so a layout (or a page re-checking a stricter tier, e.g.
+ * villagepeople/admins wanting specifically 'king') can ask this without
+ * another network round-trip. See lib/roles.ts for the shared role check
+ * this and authStore's client-side mirror both call into.
+ */
+export function isAdminAccount(account: Account | null): boolean {
+  return isAdminRole(account?.role);
 }

@@ -116,6 +116,52 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(networkFirst(e.request, STATIC));
 });
 
+// ── Web Push (admin notifications) ──────────────────────────────────────────
+// Only ever sent to a browser that explicitly subscribed via the admin
+// panel's own opt-in (see src/lib/pushSubscription.ts) — this fires on
+// EVERY push this service worker receives, but the backend only ever pushes
+// to admin subscriptions in the first place, so there's nothing to further
+// gate here.
+
+self.addEventListener("push", (e) => {
+  let data = {};
+  try {
+    data = e.data ? e.data.json() : {};
+  } catch {
+    // Malformed/non-JSON payload — show nothing rather than crash the
+    // handler, same "don't let one bad message break the rest" reasoning
+    // as the raw ws gateway's own message parsing.
+  }
+  const title = data.title || "Kampos";
+  e.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.body || "",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      data: { url: data.url || "/villagepeople" },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = e.notification.data?.url || "/villagepeople";
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      // Focus an already-open tab on this origin rather than always opening
+      // a new one — same "don't pile up duplicate tabs" instinct as any
+      // native app's own notification-tap behavior.
+      for (const client of list) {
+        if ("focus" in client) {
+          client.navigate(url);
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(url);
+    }),
+  );
+});
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /** Serve from cache immediately, refresh cache in background. */

@@ -8,6 +8,7 @@ import { OfflineSync } from "@/components/auth/OfflineSync";
 import { ConnectivityPill } from "@/components/layout/ConnectivityPill";
 import { GistActionToast } from "@/components/gist/GistActionToast";
 import { AuthToast } from "@/components/auth/AuthToast";
+import { AdminNotificationToast } from "@/components/villagepeople/AdminNotificationToast";
 import { ThemeRouteSync } from "@/components/theme/ThemeRouteSync";
 import { FeedScrollLock } from "@/components/layout/FeedScrollLock";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
@@ -108,8 +109,16 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // suppressHydrationWarning (on <html> only, not <body>/children): the
+  // kampos-theme-init script below runs BEFORE hydration and toggles the
+  // `dark` class straight on this element from localStorage — the server
+  // has no way to know that value, so its SSR output never has `dark`
+  // even when the client is about to add it. That's the intended
+  // no-flash-of-wrong-theme behavior, not a bug; without this, React logs
+  // a hydration-mismatch warning for a difference it was never going to
+  // reconcile anyway.
   return (
-    <html lang="en" className={`${nunito.variable} h-full`}>
+    <html lang="en" className={`${nunito.variable} h-full`} suppressHydrationWarning>
       <body className="min-h-full antialiased">
         {/* Applies the saved theme before paint, so there's no flash — but
             defaults to light rather than following system preference, so a
@@ -153,6 +162,7 @@ export default function RootLayout({
         <ConnectivityPill />
         <GistActionToast />
         <AuthToast />
+        <AdminNotificationToast />
         <AuthPromptModal />
         <InstallPrompt />
         {children}

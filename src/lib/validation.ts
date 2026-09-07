@@ -100,6 +100,7 @@ const RESERVED_AVITAGS = new Set([
   "kappy",
   "ceo",
   "admin",
+  "villagepeople",
   "test",
 ]);
 

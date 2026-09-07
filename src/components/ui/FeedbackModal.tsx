@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Modal } from "./Modal";
 import { Button } from "./Button";
 import { AlertCircle, AlertTriangle, CheckCircle } from "./icons";
@@ -120,6 +120,95 @@ export function ConfirmModal({
           </Button>
           <Button
             onClick={onConfirm}
+            loading={loading}
+            className="flex-1 !bg-white !text-danger !shadow-none"
+          >
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * ConfirmReasonModal — ConfirmModal's confirm/cancel shell plus an optional
+ * free-text reason field, for moderation actions that both (a) need a
+ * confirm gate and (b) can optionally record why (reject a post/profile,
+ * dismiss a report — see /villagepeople/moderation). Not a genuinely
+ * destructive action the way ConfirmModal's usual callers are (revoke
+ * admin, delete a gist), but it reuses the same full-bleed danger-red
+ * treatment anyway: there's no third "routine decision" tone in this app's
+ * feedback-dialog family, and a reject/dismiss is still consequential
+ * enough that ErrorModal's soft amber would undersell it.
+ *
+ * The reason is genuinely optional per the backend contract (`{ reason }`
+ * is an optional body field on every reject/reject/dismiss endpoint this
+ * feeds) — `onConfirm` always receives it as `string | undefined`, never an
+ * empty string, so callers can pass it straight through to their API call
+ * without an extra `|| undefined` at each call site.
+ */
+export function ConfirmReasonModal({
+  open,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  confirmLabel = "Reject",
+  loading = false,
+  icon = <AlertTriangle size={26} strokeWidth={2} />,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: (reason?: string) => void;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  loading?: boolean;
+  icon?: ReactNode;
+}) {
+  const [reason, setReason] = useState("");
+
+  const handleClose = () => {
+    if (loading) return;
+    onClose();
+    // Reset after the close animation has room to finish, same timing as
+    // ReportModal's own reset-on-close.
+    setTimeout(() => setReason(""), 200);
+  };
+
+  const handleConfirm = () => {
+    const trimmed = reason.trim();
+    onConfirm(trimmed.length > 0 ? trimmed : undefined);
+  };
+
+  return (
+    <Modal open={open} onClose={handleClose}>
+      <div className="rounded-3xl bg-danger p-6 text-center shadow-2xl">
+        <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center text-white">
+          {icon}
+        </div>
+        <p className="mb-1.5 font-nunito text-sm font-semibold text-white">{title}</p>
+        <p className="mb-4 font-nunito text-sm text-white/80">{message}</p>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Reason (optional)"
+          rows={3}
+          maxLength={300}
+          disabled={loading}
+          className="mb-4 w-full resize-none rounded-2xl border border-white/25 bg-white/10 px-4 py-3 font-nunito text-sm text-white outline-none placeholder:text-white/50 focus:border-white/50 disabled:opacity-60"
+        />
+        <div className="flex gap-2">
+          <Button
+            onClick={handleClose}
+            disabled={loading}
+            className="flex-1 !bg-white/15 !text-white !shadow-none hover:!bg-white/25"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirm}
             loading={loading}
             className="flex-1 !bg-white !text-danger !shadow-none"
           >

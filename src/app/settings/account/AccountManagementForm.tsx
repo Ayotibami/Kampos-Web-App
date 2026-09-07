@@ -6,7 +6,7 @@ import { SettingsPageShell } from "@/components/settings/SettingsPageShell";
 import { TextInput } from "@/components/ui/TextInput";
 import { Button } from "@/components/ui/Button";
 import { ErrorModal, SuccessModal, ConfirmModal } from "@/components/ui/FeedbackModal";
-import { AlertTriangle } from "@/components/ui/icons";
+import { AlertTriangle, DeleteIconFill } from "@/components/ui/icons";
 import { PasswordChecklist, isPasswordValid } from "@/components/ui/PasswordChecklist";
 import { validatePassword, passwordsMatch, sanitizeInput } from "@/lib/validation";
 import { apiErrorMessage } from "@/lib/api";
@@ -19,6 +19,7 @@ export function AccountManagementForm() {
   const resolveAuthState = useAuthStore((s) => s.resolveAuthState);
   const changePassword = useAuthStore((s) => s.changePassword);
   const deactivateAccount = useAuthStore((s) => s.deactivateAccount);
+  const deleteMyAccount = useAuthStore((s) => s.deleteMyAccount);
 
   // `user` is populated by HydrateAuth's effect (see layout.tsx), which runs
   // a beat after this component's own first render — normally invisible
@@ -43,6 +44,8 @@ export function AccountManagementForm() {
 
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const confirmMismatch = confirmTouched && confirmPassword.length > 0 && confirmPassword !== newPassword;
 
@@ -91,19 +94,41 @@ export function AccountManagementForm() {
     }
   };
 
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await deleteMyAccount();
+      router.replace("/login");
+    } catch (err) {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+      fail(apiErrorMessage(err, "Failed to delete account"));
+    }
+  };
+
   return (
     <>
       <SuccessModal open={showSuccess} onClose={() => setShowSuccess(false)} message="Password don change!" />
       <ErrorModal open={showError} onClose={() => setShowError(false)} message={message} passwordErrors={pwErrors} />
       <ConfirmModal
         open={showDeactivateConfirm}
-        onClose={() => setShowDeactivateConfirm(false)}
+        onClose={() => (deactivating ? undefined : setShowDeactivateConfirm(false))}
         onConfirm={handleDeactivate}
         title="Deactivate your account?"
-        message="This go log you out and deactivate your Kampos account. Nothing dey delete right away — reach out to us if you change your mind."
+        message="This go log you out everywhere and switch your account off — nothing dey deleted. Log back in whenever you're ready and we'll turn it right back on for you."
         confirmLabel="Deactivate"
         icon={<AlertTriangle size={24} strokeWidth={2} />}
         loading={deactivating}
+      />
+      <ConfirmModal
+        open={showDeleteConfirm}
+        onClose={() => (deleting ? undefined : setShowDeleteConfirm(false))}
+        onConfirm={handleDelete}
+        title="Delete your account?"
+        message="This can't be undone — your account and everything on it go be gone for good. If you just want a break, Deactivate above is the reversible option."
+        confirmLabel="Delete"
+        icon={<DeleteIconFill size={24} weight="fill" />}
+        loading={deleting}
       />
       <SettingsPageShell title="Account" backHref="/settings">
         <div className="flex flex-col gap-10">
@@ -180,18 +205,29 @@ export function AccountManagementForm() {
             <div>
               <h2 className="font-nunito text-sm font-bold text-danger">Danger zone</h2>
               <p className="mt-1 font-nunito text-sm text-muted">
-                Deactivating logs you out right away and marks your account inactive — nothing is deleted
-                immediately. Changed your mind later? Just reach out to us.
+                Deactivating logs you out everywhere and switches your account off temporarily — nothing is
+                deleted, and logging back in turns it right back on. Deleting is permanent.
               </p>
             </div>
-            <Button
-              variant="secondary"
-              fullWidth={false}
-              className="!border-danger !text-danger hover:!bg-danger/5"
-              onClick={() => setShowDeactivateConfirm(true)}
-            >
-              Deactivate Account
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                fullWidth={false}
+                className="!border-warning !text-warning hover:!bg-warning/10"
+                onClick={() => setShowDeactivateConfirm(true)}
+              >
+                Deactivate Account
+              </Button>
+              <Button
+                variant="secondary"
+                fullWidth={false}
+                className="!border-danger !text-danger hover:!bg-danger/5"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                <DeleteIconFill className="h-3.5 w-3.5" weight="fill" />
+                Delete Account
+              </Button>
+            </div>
           </section>
         </div>
       </SettingsPageShell>

@@ -6,6 +6,7 @@ export {
   ArrowLeft,
   Search,
   X,
+  Menu,
   Camera,
   Check,
   Image as ImageIcon,
@@ -86,4 +87,17 @@ export {
   // sees in their own Safari toolbar, not just mean "share" abstractly.
   Export as ShareBoxIconFill,
   PlusSquare as AddToHomeIconFill,
+  // Village People (/villagepeople) admin section nav icons.
+  House as HQIconFill,
+  Crown as AdminsIconFill,
+  Gavel as ModerationIconFill,
+  UsersThree as UsersIconFill,
+  Newspaper as AllGistsIconFill,
+  IdentificationCard as ProfilesIconFill,
+  ClipboardText as AuditIconFill,
+  // HQ dashboard stat cards.
+  UserPlus as SignupIconFill,
+  SignIn as LoginIconFill,
+  ChatCircleDots as EngagementIconFill,
+  Warning as PendingIconFill,
 } from "@phosphor-icons/react";

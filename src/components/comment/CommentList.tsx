@@ -3,15 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Heart, RefreshCw } from "@/components/ui/icons";
+import { Heart, RefreshCw, DeleteIconFill } from "@/components/ui/icons";
 import { Illustration } from "@/components/brand/illustrations";
 import { Avatar } from "@/components/ui/Avatar";
 import { useCommentStore } from "@/stores/commentStore";
-import { useAuthStore } from "@/stores/authStore";
+import { useAuthStore, useIsAdmin } from "@/stores/authStore";
 import { requireAuth } from "@/lib/requireAuth";
 import { timeAgo } from "@/lib/format";
 import { apiErrorMessage } from "@/lib/api";
-import { ErrorModal } from "@/components/ui/FeedbackModal";
+import { ConfirmModal, ErrorModal } from "@/components/ui/FeedbackModal";
 import type { Comment, Gist } from "@/types";
 
 /**
@@ -94,6 +94,7 @@ function CommentBubble({
   index,
   highlighted,
   onReact,
+  onDelete,
 }: {
   comment: Comment;
   /** Position in the currently-loaded list — staggers the entrance so a
@@ -106,11 +107,38 @@ function CommentBubble({
    * every new bubble gets regardless of source. */
   highlighted: boolean;
   onReact: () => void;
+  /** Resolves/rejects with the real delete outcome — CommentList's own
+   * handleCommentDelete does the actual store call and surfaces a failure
+   * through its shared ErrorModal; this bubble only needs to know whether
+   * to stop its own spinner and close its own confirm modal. */
+  onDelete: () => Promise<void>;
 }) {
   const reacted = !!c.my_reaction;
   const avitag = useAuthStore((s) => s.avitag);
   const isOwn = c.avitag === avitag;
+  const isAdmin = useIsAdmin();
+  // Deleting a not-yet-synced comment isn't a supported flow (there's
+  // nothing on the server yet for DELETE /comments/:id to find) — same
+  // "offline-" id convention buildOfflineComment/handleCommentReact below
+  // already use to spot one.
+  const canDelete = (isOwn || isAdmin) && !c.comment_id.startsWith("offline-");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const displayName = c.first_name ?? null;
+
+  const handleConfirmDelete = async () => {
+    setDeleting(true);
+    try {
+      await onDelete();
+      setShowDeleteConfirm(false);
+    } catch {
+      // Failure is surfaced by CommentList's own shared ErrorModal — just
+      // stop spinning and leave the confirm modal open so the admin/author
+      // can see the error behind it and retry or cancel.
+    } finally {
+      setDeleting(false);
+    }
+  };
   // Only student profiles have campus/major — a non-student commenter (or
   // one who hasn't set these) just shows whichever piece is actually there.
   const schoolInfo = [c.major_tag, c.campus_tag].filter(Boolean).join(" ");
@@ -186,38 +214,73 @@ function CommentBubble({
           <CommentBody text={c.text} />
         </div>
 
-        {/* React — a lighter single tap-to-like than the gist's full 5-emoji
-            row; tapping toggles it on/off (see handleCommentReact), same as
-            gist reactions already do. */}
-        <button
-          type="button"
-          onClick={onReact}
-          aria-label={reacted ? "Remove reaction" : "React"}
-          className="mt-2 flex items-center gap-1 rounded-full py-0.5 pr-1 transition active:scale-90"
-        >
-          <motion.span
-            className="flex"
-            animate={reacted ? { scale: [1, 1.3, 1] } : {}}
-            transition={{ duration: 0.3 }}
+        {/* Bottom row — React on the left (a lighter single tap-to-like
+            than the gist's full 5-emoji row; tapping toggles it on/off, see
+            handleCommentReact), Delete on the right when this bubble is
+            either the viewer's own comment or the viewer is an admin
+            moderating someone else's. Icon-only, same compact footprint as
+            the heart, rather than a separate "..." menu — this bubble only
+            ever has these two actions, so a popup menu would be more
+            chrome than the content needs. */}
+        <div className="mt-2 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={onReact}
+            aria-label={reacted ? "Remove reaction" : "React"}
+            className="flex items-center gap-1 rounded-full py-0.5 pr-1 transition active:scale-90"
           >
-            <Heart
-              fill={reacted ? "currentColor" : "none"}
-              className={`h-3.5 w-3.5 transition ${
-                reacted ? "text-brand" : "text-muted dark:text-white/60"
-              }`}
-            />
-          </motion.span>
-          {!!c.reactions_count && (
-            <span
-              className={`font-nunito text-[11px] ${
-                reacted ? "text-brand" : "text-muted dark:text-white/60"
-              }`}
+            <motion.span
+              className="flex"
+              animate={reacted ? { scale: [1, 1.3, 1] } : {}}
+              transition={{ duration: 0.3 }}
             >
-              {c.reactions_count}
-            </span>
+              <Heart
+                fill={reacted ? "currentColor" : "none"}
+                className={`h-[18px] w-[18px] transition ${
+                  reacted ? "text-brand" : "text-muted dark:text-white/60"
+                }`}
+              />
+            </motion.span>
+            {!!c.reactions_count && (
+              <span
+                className={`font-nunito text-xs ${
+                  reacted ? "text-brand" : "text-muted dark:text-white/60"
+                }`}
+              >
+                {c.reactions_count}
+              </span>
+            )}
+          </button>
+
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              aria-label="Delete comment"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-danger transition hover:bg-danger/10 active:scale-90"
+            >
+              <DeleteIconFill className="h-4 w-4" />
+            </button>
           )}
-        </button>
+        </div>
       </motion.div>
+
+      {canDelete && (
+        <ConfirmModal
+          open={showDeleteConfirm}
+          onClose={() => (deleting ? undefined : setShowDeleteConfirm(false))}
+          onConfirm={handleConfirmDelete}
+          loading={deleting}
+          title={isOwn ? "Delete your comment?" : `Delete ${c.avitag ? `@${c.avitag}'s` : "this"} comment?`}
+          message={
+            isOwn
+              ? "This can't be undone."
+              : "This can't be undone — you're deleting this as an admin."
+          }
+          confirmLabel="Delete"
+          icon={<DeleteIconFill size={26} weight="fill" />}
+        />
+      )}
     </motion.li>
   );
 }
@@ -230,9 +293,11 @@ function CommentBubble({
  * with the real desktop panel over time.
  */
 export function CommentList({ gist, className = "" }: { gist: Gist | undefined; className?: string }) {
-  const { itemsByGist, errorByGist, loadingMoreByGist, recentlyLiveIds, listByGist, loadMoreByGist, reactComment, unreactComment } =
+  const { itemsByGist, errorByGist, loadingMoreByGist, recentlyLiveIds, listByGist, loadMoreByGist, reactComment, unreactComment, remove } =
     useCommentStore();
-  const [reactError, setReactError] = useState<string>();
+  // Shared error surface for both react and delete failures below — both
+  // are just "something went wrong, tell the viewer" cases for this list.
+  const [actionError, setActionError] = useState<string>();
 
   const items: Comment[] = (gist?.gist_id && itemsByGist[gist.gist_id]) || [];
   const cached = !!(gist?.gist_id && itemsByGist[gist.gist_id]);
@@ -268,14 +333,28 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
     // buildOfflineComment), so a reaction against it right now would just
     // 404 against an id that doesn't exist anywhere but this tab.
     if (commentId.startsWith("offline-")) {
-      setReactError("Still sending this comment — you can react to it once it's back online and synced.");
+      setActionError("Still sending this comment — you can react to it once it's back online and synced.");
       return;
     }
     try {
       if (alreadyReacted) await unreactComment(commentId, gistId);
       else await reactComment(commentId, gistId, "LOVE");
     } catch (err) {
-      setReactError(apiErrorMessage(err, "Failed to react — try again"));
+      setActionError(apiErrorMessage(err, "Failed to react — try again"));
+    }
+  };
+
+  // commentStore's own remove() already sets its own store-level `error`
+  // and rethrows on failure — caught here purely to surface it through
+  // this list's shared ErrorModal and let it propagate back up to the
+  // calling CommentBubble too, so its confirm modal knows to stop
+  // spinning (and stay open) rather than silently closing on a failure.
+  const handleCommentDelete = async (commentId: string, gistId: string) => {
+    try {
+      await remove(commentId, gistId);
+    } catch (err) {
+      setActionError(apiErrorMessage(err, "Failed to delete comment"));
+      throw err;
     }
   };
 
@@ -293,7 +372,7 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
         }
       }}
     >
-      <ErrorModal open={!!reactError} onClose={() => setReactError(undefined)} message={reactError} />
+      <ErrorModal open={!!actionError} onClose={() => setActionError(undefined)} message={actionError} />
       {showSkeleton ? (
         <ul className="space-y-4 py-4 pr-2">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -330,6 +409,11 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
               index={i}
               highlighted={!!recentlyLiveIds[c.comment_id]}
               onReact={() => gist?.gist_id && handleCommentReact(c.comment_id, gist.gist_id, !!c.my_reaction)}
+              onDelete={() =>
+                gist?.gist_id
+                  ? handleCommentDelete(c.comment_id, gist.gist_id)
+                  : Promise.reject(new Error("Missing gist"))
+              }
             />
           ))}
           {gist?.gist_id && loadingMoreByGist[gist.gist_id] && (

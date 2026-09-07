@@ -1,0 +1,17 @@
+{
+  "folders": [
+	{
+		"path": "."
+	},
+	{
+		"path": "../KamposBackend"
+	},
+	{
+		"path": "../kornerfrontend"
+	},
+	{
+		"path": "../KornerBackend"
+	}
+],
+  "settings": {}
+}

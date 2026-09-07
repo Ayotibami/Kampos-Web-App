@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import axios from "axios";
 import type { AxiosRequestConfig } from "axios";
 import { api, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
+import { isAdminRole } from "@/lib/roles";
 import { normalizeProfileType, type Account, type ProfileType } from "@/types";
 
 /**
@@ -108,11 +109,28 @@ interface AuthState {
     currentPassword: string;
     newPassword: string;
   }) => Promise<void>;
-  /** DELETE /account/delete — a soft delete server-side (account_status
-   * flips to DELETED; the session itself isn't invalidated by the backend),
-   * so this also clears local session state the same way logout does —
-   * what the UI calls "Deactivate Account". */
+  /** DELETE /account/delete — soft delete, terminal (account_status flips
+   * to DELETED; nothing, self or admin, can undo it after). The backend
+   * also kills every session this account has open anywhere (see
+   * KamposBackend's account.service.ts softDelete), so this clears local
+   * session state the same way logout does on top of that. Named
+   * `deleteMyAccount` (not `deactivateAccount`, which this used to be
+   * called despite doing a delete) to match what it actually does — see
+   * the real `deactivateAccount` below for the genuinely reversible one. */
+  deleteMyAccount: () => Promise<void>;
+  /** POST /account/deactivate — soft, self-reversible (account_status
+   * flips to DEACTIVATED, cleared back to ACTIVE by reactivateAccount
+   * below). Kills every open session immediately, same as delete — the
+   * point of deactivating is "I'm stepping away," which should apply
+   * everywhere this account is logged in, not just this device. */
   deactivateAccount: () => Promise<void>;
+  /** POST /auth/reactivate — the other half of deactivateAccount. Re-
+   * verifies credentials (this account has no valid session to prove who's
+   * asking, since deactivating just killed every one of them) and, on
+   * success, flips back to ACTIVE and returns a normal fresh session,
+   * exactly like login() — same return shape, same resolveAuthState()
+   * call underneath. */
+  reactivateAccount: (email: string, password: string) => Promise<AuthGateState>;
   logout: () => Promise<void>;
 }
 
@@ -376,20 +394,21 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      deactivateAccount: async () => {
+      deleteMyAccount: async () => {
         set({ loading: true, error: null });
         try {
           await api.delete("/account/delete");
         } catch (err) {
           set({
-            error: apiErrorMessage(err, "Failed to deactivate account"),
+            error: apiErrorMessage(err, "Failed to delete account"),
             loading: false,
           });
           throw err;
         }
         // Best-effort, same as logout() below — the account row is already
-        // flagged server-side by this point regardless of whether this call
-        // itself succeeds.
+        // flagged server-side by this point (and every session already
+        // revoked server-side too — see account.service.ts's softDelete)
+        // regardless of whether this call itself succeeds.
         try {
           await api.post("/auth/logout");
         } catch {
@@ -429,6 +448,58 @@ export const useAuthStore = create<AuthState>()(
           error: null,
           sessionExpired: false,
         });
+      },
+
+      // Same local-state teardown as deleteMyAccount above (and for the
+      // same reason — the backend already revoked every session this
+      // account has open, everywhere), just for the genuinely reversible
+      // action: see reactivateAccount below for the way back in.
+      deactivateAccount: async () => {
+        set({ loading: true, error: null });
+        try {
+          await api.post("/account/deactivate");
+        } catch (err) {
+          set({
+            error: apiErrorMessage(err, "Failed to deactivate account"),
+            loading: false,
+          });
+          throw err;
+        }
+        try {
+          await api.post("/auth/logout");
+        } catch {
+          /* best-effort */
+        }
+        import("@/lib/offlineQueue")
+          .then((m) => m.clearQueue())
+          .catch(() => {});
+        import("@/stores/gistStore")
+          .then((m) => m.useGistStore.setState({ feedSnapshot: null }))
+          .catch(() => {});
+        import("@/lib/dataCache")
+          .then((m) => m.cacheClear())
+          .catch(() => {});
+        set({
+          user: null,
+          profiles: [],
+          authState: "guest",
+          avitag: null,
+          profileType: null,
+          loading: false,
+          error: null,
+          sessionExpired: false,
+        });
+      },
+
+      reactivateAccount: async (email, password) => {
+        set({ loading: true, error: null });
+        try {
+          await api.post("/auth/reactivate", { email, password });
+          return await get().resolveAuthState();
+        } catch (err) {
+          set({ error: apiErrorMessage(err, "Failed to reactivate account"), loading: false });
+          throw err;
+        }
       },
 
       logout: async () => {
@@ -499,3 +570,16 @@ export const useAuthStore = create<AuthState>()(
     },
   ),
 );
+
+/**
+ * Client-side mirror of serverAuth.ts's isAdminAccount — same isAdminRole
+ * check (lib/roles.ts), just read off the store's own `user` instead of a
+ * fresh resolveServerAuthState() result. Used by client components that
+ * render conditionally on admin status (e.g. VillagePeopleRail deciding
+ * whether to show the "Admins" link) — never the sole gate on its own,
+ * since this is just what the last-hydrated account said, not a live
+ * server-side check.
+ */
+export function useIsAdmin(): boolean {
+  return useAuthStore((s) => isAdminRole(s.user?.role));
+}

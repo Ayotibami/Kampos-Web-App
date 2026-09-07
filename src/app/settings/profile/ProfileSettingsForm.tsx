@@ -8,8 +8,8 @@ import { TextInput } from "@/components/ui/TextInput";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Modal } from "@/components/ui/Modal";
-import { ErrorModal, SuccessModal } from "@/components/ui/FeedbackModal";
-import { Camera, Plus, Lock, EditIconFill } from "@/components/ui/icons";
+import { ErrorModal, SuccessModal, ConfirmModal } from "@/components/ui/FeedbackModal";
+import { AlertTriangle, Camera, DeleteIconFill, Plus, Lock, EditIconFill } from "@/components/ui/icons";
 import { api, apiErrorMessage } from "@/lib/api";
 import { validateName } from "@/lib/validation";
 import { LIMITS } from "@/lib/brand";
@@ -49,8 +49,11 @@ export function ProfileSettingsForm() {
   const router = useRouter();
   const avitag = useAuthStore((s) => s.avitag);
   const profileType = useAuthStore((s) => s.profileType);
+  const logout = useAuthStore((s) => s.logout);
   const getStudentProfile = useProfileStore((s) => s.getStudentProfile);
   const updateStudentProfile = useProfileStore((s) => s.updateStudentProfile);
+  const deactivateProfile = useProfileStore((s) => s.deactivateProfile);
+  const deleteProfileAction = useProfileStore((s) => s.deleteProfile);
 
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -95,6 +98,11 @@ export function ProfileSettingsForm() {
   const [savingFromModal, setSavingFromModal] = useState(false);
   const pendingProceedRef = useRef<(() => void) | null>(null);
   const setGuard = useUnsavedChangesStore((s) => s.setGuard);
+
+  const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingProfile, setDeletingProfile] = useState(false);
 
   const loadProfile = useCallback(async () => {
     // Non-student profile types render their own "not available yet" branch
@@ -276,13 +284,116 @@ export function ProfileSettingsForm() {
     if (ok) resumePendingNavigation();
   };
 
+  // Both end the session the same way account-level deactivate/delete
+  // already do (Settings > Account) — logging out and forcing a fresh
+  // login is what guarantees the JWT's own avitag claim actually clears
+  // (a fresh login never bakes one in), rather than leaving a client-side
+  // "no active profile" belief mismatched against a cookie that still
+  // names this now-deactivated/deleted avitag as active. There's no
+  // profile-switcher in this app yet to hand them straight to another
+  // profile even if they have one — logging back in re-resolves the gate
+  // fresh either way.
+  const handleDeactivateProfile = async () => {
+    if (!avitag || !profileType) return;
+    setDeactivating(true);
+    try {
+      await deactivateProfile(profileType, avitag);
+      await logout();
+      router.replace("/login");
+    } catch (err) {
+      setDeactivating(false);
+      setShowDeactivateConfirm(false);
+      setMessage(apiErrorMessage(err, "Failed to deactivate profile"));
+      setShowError(true);
+    }
+  };
+
+  const handleDeleteProfile = async () => {
+    if (!avitag || !profileType) return;
+    setDeletingProfile(true);
+    try {
+      await deleteProfileAction(profileType, avitag);
+      await logout();
+      router.replace("/login");
+    } catch (err) {
+      setDeletingProfile(false);
+      setShowDeleteConfirm(false);
+      setMessage(apiErrorMessage(err, "Failed to delete profile"));
+      setShowError(true);
+    }
+  };
+
+  // Defined once, used in both the "not student" placeholder branch below
+  // and the full student form branch further down — deactivating/deleting
+  // your own profile doesn't need editable fields to exist for that type,
+  // so this isn't gated behind the same "student only" restriction the
+  // rest of this page's form fields are.
+  const dangerZone = (
+    <>
+      <ConfirmModal
+        open={showDeactivateConfirm}
+        onClose={() => (deactivating ? undefined : setShowDeactivateConfirm(false))}
+        onConfirm={handleDeactivateProfile}
+        title="Deactivate this profile?"
+        message="This go log you out and switch this profile off — nothing dey deleted. Log back in whenever you're ready and we'll turn it right back on for you."
+        confirmLabel="Deactivate"
+        icon={<AlertTriangle size={24} strokeWidth={2} />}
+        loading={deactivating}
+      />
+      <ConfirmModal
+        open={showDeleteConfirm}
+        onClose={() => (deletingProfile ? undefined : setShowDeleteConfirm(false))}
+        onConfirm={handleDeleteProfile}
+        title="Delete this profile?"
+        message="This can't be undone — this profile and everything on it go be gone for good. If you just want a break, Deactivate above is the reversible option."
+        confirmLabel="Delete"
+        icon={<DeleteIconFill size={24} weight="fill" />}
+        loading={deletingProfile}
+      />
+      <section className="flex flex-col gap-4 border-t border-line/70 pt-8">
+        <div>
+          <h2 className="font-nunito text-sm font-bold text-danger">Danger zone</h2>
+          <p className="mt-1 font-nunito text-sm text-muted">
+            Deactivating logs you out and switches this profile off temporarily — nothing is deleted, and
+            logging back in turns it right back on. Deleting is permanent.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            fullWidth={false}
+            className="!border-warning !text-warning hover:!bg-warning/10"
+            onClick={() => setShowDeactivateConfirm(true)}
+          >
+            Deactivate Profile
+          </Button>
+          <Button
+            variant="secondary"
+            fullWidth={false}
+            className="!border-danger !text-danger hover:!bg-danger/5"
+            onClick={() => setShowDeleteConfirm(true)}
+          >
+            <DeleteIconFill className="h-3.5 w-3.5" weight="fill" />
+            Delete Profile
+          </Button>
+        </div>
+      </section>
+    </>
+  );
+
   if (avitag && profileType && profileType !== "student") {
     return (
-      <SettingsPageShell title="Profile" backHref="/settings">
-        <div className="flex flex-1 items-center justify-center text-center">
-          <p className="font-nunito text-sm text-muted">Editing dey come soon for this profile type.</p>
-        </div>
-      </SettingsPageShell>
+      <>
+        <ErrorModal open={showError} onClose={() => setShowError(false)} message={message} />
+        <SettingsPageShell title="Profile" backHref="/settings">
+          <div className="flex flex-1 flex-col gap-8">
+            <div className="flex flex-1 items-center justify-center text-center">
+              <p className="font-nunito text-sm text-muted">Editing dey come soon for this profile type.</p>
+            </div>
+            {dangerZone}
+          </div>
+        </SettingsPageShell>
+      </>
     );
   }
 
@@ -493,6 +604,8 @@ export function ProfileSettingsForm() {
         <Button onClick={handleSave} loading={saving} disabled={uploadingImage}>
           Save details
         </Button>
+
+        {dangerZone}
         </div>
       </SettingsPageShell>
     </>

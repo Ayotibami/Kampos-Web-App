@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { api, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
 import { cacheGet, cacheSet, cacheDelete } from "@/lib/dataCache";
+import { PROFILE_TYPE_PATH } from "@/lib/profileEditFields";
 import { useAuthStore } from "./authStore";
 import type { Profile, ProfileType, StudentProfilePayload } from "@/types";
 
@@ -33,6 +34,19 @@ interface ProfileState {
   /** PUT /profiles/students/:avitag — partial update, only the provided
    * keys are written. Ownership is enforced server-side (403 otherwise). */
   updateStudentProfile: (avitag: string, patch: StudentProfileUpdate) => Promise<Profile | undefined>;
+  /** PATCH /profiles/<type>/:avitag/deactivate — self-only (the backend
+   * rejects an admin bypass here on purpose, see KamposBackend's per-type
+   * controller.ts `deactivate`). Soft, self-reversible — see
+   * reactivateProfile below for the way back. Works for any profile type,
+   * not just students (deactivating your own profile doesn't need editable
+   * fields to exist for that type). */
+  deactivateProfile: (profileType: ProfileType, avitag: string) => Promise<void>;
+  reactivateProfile: (profileType: ProfileType, avitag: string) => Promise<void>;
+  /** DELETE /profiles/<type>/:avitag/delete — soft, terminal (see
+   * KamposBackend's students/repo.ts softDelete doc comment). Self-service
+   * here; the same endpoint also accepts an admin caller with a reason,
+   * which this consumer-facing action never sends. */
+  deleteProfile: (profileType: ProfileType, avitag: string) => Promise<void>;
 }
 
 /** Append scalar/array fields to FormData the same way mobile does. */
@@ -135,6 +149,42 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
       return res.data?.data;
     } catch (err) {
       set({ error: apiErrorMessage(err, "Failed to update profile"), loading: false });
+      throw err;
+    }
+  },
+
+  deactivateProfile: async (profileType, avitag) => {
+    set({ loading: true, error: null });
+    try {
+      const segment = PROFILE_TYPE_PATH[profileType];
+      await api.patch(`/profiles/${segment}/${avitag}/deactivate`);
+      set({ loading: false });
+    } catch (err) {
+      set({ error: apiErrorMessage(err, "Failed to deactivate profile"), loading: false });
+      throw err;
+    }
+  },
+
+  reactivateProfile: async (profileType, avitag) => {
+    set({ loading: true, error: null });
+    try {
+      const segment = PROFILE_TYPE_PATH[profileType];
+      await api.patch(`/profiles/${segment}/${avitag}/reactivate`);
+      set({ loading: false });
+    } catch (err) {
+      set({ error: apiErrorMessage(err, "Failed to reactivate profile"), loading: false });
+      throw err;
+    }
+  },
+
+  deleteProfile: async (profileType, avitag) => {
+    set({ loading: true, error: null });
+    try {
+      const segment = PROFILE_TYPE_PATH[profileType];
+      await api.delete(`/profiles/${segment}/${avitag}/delete`);
+      set({ loading: false });
+    } catch (err) {
+      set({ error: apiErrorMessage(err, "Failed to delete profile"), loading: false });
       throw err;
     }
   },

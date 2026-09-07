@@ -1204,7 +1204,18 @@ export function ProfileView({
                   background scrolls past underneath this STICKY box as the
                   page moves, so without an opaque base of its own, that
                   moving doodle showed straight through the tint. */}
-                  <div className="sticky top-0 flex h-dvh flex-col bg-surface">
+                  {/* h-[calc(100dvh-60px)], not h-dvh: this box sticks at
+                      top:0 of the scroll container above, but that
+                      container reserves pt-[60px] for its own floating
+                      scroll-aware header — sticky respects that padding, so
+                      the box's actual stuck top sits 60px down the viewport,
+                      not flush at 0. Sizing it to the full 100dvh anyway
+                      made it run exactly 60px past the real viewport
+                      bottom — invisibly, since nothing clips it — pushing
+                      CommentPanel's composer (the last flex child at its
+                      bottom) that same 60px below the fold. Keep this in
+                      sync with the scroll container's own pt-[60px] above. */}
+                  <div className="sticky top-0 flex h-[calc(100dvh-60px)] flex-col bg-surface">
                     <ActiveGistStrip
                       gist={activeGist}
                       onClose={() => setCommentsOpen(false)}
