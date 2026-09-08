@@ -11,6 +11,7 @@ export {
   Check,
   Image as ImageIcon,
   Send,
+  Megaphone as BroadcastsIconFill,
   MessageCircle,
   Plus,
   Heart,

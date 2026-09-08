@@ -7,6 +7,7 @@ import {
   ProfilesIconFill,
   AuditIconFill,
   CampusIconFill,
+  BroadcastsIconFill,
 } from "@/components/ui/icons";
 
 export interface NavItem {
@@ -78,6 +79,7 @@ export function getNavGroups(isKing: boolean): NavGroup[] {
             items: [
               { href: "/villagepeople/admins", label: "Admins", icon: AdminsIconFill },
               { href: "/villagepeople/audit", label: "Activity log", icon: AuditIconFill },
+              { href: "/villagepeople/broadcasts", label: "Broadcasts", icon: BroadcastsIconFill },
             ],
           },
         ]
