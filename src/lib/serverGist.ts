@@ -81,12 +81,24 @@ export async function fetchGistContext(
  *
  * The backend defaults to 20 gists per page (see gist.controller.ts's list
  * handler), matching what the client-side gistStore.list() already requests.
+ *
+ * `feed_mode=gist` here matters, not just cosmetic: FeedContent's tab (and
+ * gistStore's activeFeedMode) both default to "gist", so the client's own
+ * first fetch always asks for the viewer's own-campus pool. Without this
+ * param the backend falls back to Amebo's completely unfiltered pool (see
+ * gist.controller.ts's own feedModeRaw default) — the very first paint the
+ * user ever sees was every campus's posts mislabeled under the Gist tab,
+ * for exactly as long as it took the client-side fetch to overwrite it.
+ * The backend resolves the viewer's own campus itself from the forwarded
+ * session cookie (never from a client-supplied campus_tag), so this is
+ * safe for guests and non-student viewers too — both gracefully degrade to
+ * the same unfiltered pool server-side, same as the client-side path.
  */
 export async function fetchFeedGists(): Promise<Gist[]> {
   try {
     const cookieStore = await cookies();
     const cookieHeader = cookieStore.toString();
-    const res = await fetch(`${env.API_BASE}/gists?limit=30`, {
+    const res = await fetch(`${env.API_BASE}/gists?limit=30&feed_mode=gist`, {
       headers: cookieHeader ? { Cookie: cookieHeader } : {},
       cache: "no-store",
     });

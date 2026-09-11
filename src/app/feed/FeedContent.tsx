@@ -749,6 +749,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                     onNearEnd={loadMore}
                     mediaPaused={showCreate || showCommentSheet}
                     exhausted={exhausted}
+                    loadingMore={loadingMore}
                   />
                 </div>
                 {/* Natural height only (shrink-0) — sits immediately below

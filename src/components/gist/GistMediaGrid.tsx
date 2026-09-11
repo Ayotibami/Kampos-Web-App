@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { MediaImage, MediaVideo } from "@/components/ui/MediaFrame";
 import {
   PlayIconFill,
@@ -128,6 +128,24 @@ export function MediaBlock({
 }) {
   const items = media.slice(0, 2);
   const isDuo = items.length === 2;
+  // Which of the two tiles (by index) is the one currently allowed to
+  // play — only meaningful when both are videos. Owned here, not inside
+  // either VideoTile, because the two tiles are siblings with no other
+  // way to know about each other; MediaBlock is the one place that
+  // already renders both. A tile claims this (see VideoTile's own
+  // `onRequestPlay`) the instant IT starts playing — whether that's the
+  // first tile autoplaying, or a manual tap on either one — which is what
+  // makes tapping the second video while the first is already playing
+  // pause the first, and vice versa, instead of both playing at once.
+  const [activePlayIdx, setActivePlayIdx] = useState<number | null>(null);
+  // Stable identity across renders — VideoTile's own claim effect depends
+  // on this, and an inline closure recreated on every MediaBlock render
+  // would retrigger that effect every time too (harmless in the end
+  // since it'd just re-set the same idx, but needless churn — same
+  // "don't hand a memoized child a fresh callback every render" reasoning
+  // GistStack's own handleOverlayOpenChange is built around).
+  const handleRequestPlay0 = useCallback(() => setActivePlayIdx(0), []);
+  const handleRequestPlay1 = useCallback(() => setActivePlayIdx(1), []);
   // Only the FIRST tile ever gets a fit-to-budget height — reserving a
   // slice for the second one's peek when there is a second one, otherwise
   // using the whole measured budget for the one photo there is.
@@ -166,6 +184,16 @@ export function MediaBlock({
             // now too — matching the first tile's contain treatment
             // instead of the cropped "teaser" look it used to have.
             contain={idx === 1}
+            // If BOTH items happen to be videos, only the first (the real
+            // content, not the peek) should ever autoplay — see VideoTile's
+            // own doc on `autoplay` for why a second one auto-starting too
+            // is exactly the double-audio problem this file already
+            // guards against elsewhere. Still fully tappable either way —
+            // this only gates the automatic start, not manual play.
+            autoplay={idx === 0}
+            // Mutual exclusion for a manual tap — see activePlayIdx above.
+            forcePause={activePlayIdx !== null && activePlayIdx !== idx}
+            onRequestPlay={idx === 0 ? handleRequestPlay0 : handleRequestPlay1}
           />
         ))
       ) : isDuo ? (
@@ -181,6 +209,9 @@ export function MediaBlock({
               overlayOpen={overlayOpen}
               videoSyncRef={videoSyncRef}
               active={active}
+              autoplay={idx === 0}
+              forcePause={activePlayIdx !== null && activePlayIdx !== idx}
+              onRequestPlay={idx === 0 ? handleRequestPlay0 : handleRequestPlay1}
             />
           </div>
         ))
@@ -208,6 +239,9 @@ function MediaTile({
   active,
   fitHeightPx,
   contain = false,
+  autoplay = true,
+  forcePause = false,
+  onRequestPlay,
 }: {
   item: GistMedia;
   cropped: boolean;
@@ -228,6 +262,21 @@ function MediaTile({
    * Feed-only (see MediaBlock's stackDuo second-tile call), never set for
    * the profile grid's own tiles. */
   contain?: boolean;
+  /** Video-only (see VideoTile's own doc) — whether THIS tile is allowed
+   * to auto-start when its card becomes active. Defaults true (single-item
+   * gists, profile grid); MediaBlock explicitly sets this false on a duo's
+   * second item so two videos in one gist never both start playing (and
+   * playing audio) at once — the second stays fully tappable, it just
+   * doesn't start on its own. */
+  autoplay?: boolean;
+  /** Video-only (see VideoTile's own doc) — MediaBlock sets this true on
+   * whichever duo tile ISN'T the one currently claimed as playing, so a
+   * manual tap on one video always pauses the other, not just autoplay. */
+  forcePause?: boolean;
+  /** Video-only — called the instant this tile starts playing (autoplay
+   * OR a manual tap), so MediaBlock can record it as the one duo tile
+   * allowed to play and force the sibling to pause. */
+  onRequestPlay?: () => void;
 }) {
   const isVideo = item.media_type?.toLowerCase().includes("video");
   const known = knownRatio(item);
@@ -248,6 +297,9 @@ function MediaTile({
         overlayOpen={overlayOpen}
         videoSyncRef={videoSyncRef}
         active={active}
+        autoplay={autoplay}
+        forcePause={forcePause}
+        onRequestPlay={onRequestPlay}
         fitHeightPx={fitHeightPx}
         contain={contain}
       />
@@ -362,6 +414,9 @@ function VideoTile({
   active,
   fitHeightPx,
   contain = false,
+  autoplay = true,
+  forcePause = false,
+  onRequestPlay,
 }: {
   item: GistMedia;
   cropped: boolean;
@@ -376,19 +431,46 @@ function VideoTile({
   /** See MediaTile's own doc — only meaningful when fitHeightPx is
    * undefined. */
   contain?: boolean;
+  /** Whether THIS tile is allowed to auto-start when `active` becomes
+   * true — see MediaTile's own doc. Purely gates the two automatic-start
+   * spots below (initial mount, becoming active later); manual tap-to-
+   * play/pause (`canControl`/`shouldPlay`) is untouched by this and stays
+   * governed by `active` alone, same as before. */
+  autoplay?: boolean;
+  /** See MediaTile's own doc — set by MediaBlock when a SIBLING duo tile
+   * is the one currently claimed as playing. Unlike `autoplay`, this DOES
+   * reach manual tap-to-play too (via `shouldPlay` below) — the whole
+   * point is that tapping the other video should win, pausing this one,
+   * not just suppress this one's own automatic start. */
+  forcePause?: boolean;
+  /** See MediaTile's own doc. */
+  onRequestPlay?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  // Local "did I tap play" intent — combined with `active` (when the
-  // caller passes it) to decide real playback below.
-  const [playing, setPlaying] = useState(false);
-  const [muted, setMuted] = useState(true);
+  // Local play/pause intent — combined with `active` (when the caller
+  // passes it) to decide real playback below. Starts true when this tile
+  // is already the active front card at mount AND allowed to autoplay
+  // (the very first gist the feed opens on, or the first of a duo) — see
+  // the `prevActive` effect below for the same autoplay applied every
+  // time a card BECOMES active later (swiping to it), not just this
+  // initial-mount case.
+  const [playing, setPlaying] = useState(() => autoplay && active === true);
+  // Muted by default only for a tile that can actually autoplay — that's
+  // the ONLY reason anything here is ever muted to begin with (browsers
+  // require it for playback with no user gesture). A tile with
+  // autoplay=false (a duo's second video) can only ever start via an
+  // explicit tap, which already IS a real user gesture — nothing stops it
+  // from playing with sound immediately, so there's no reason to make
+  // someone tap twice (once to play, once to unmute) just because it
+  // happens to share a gist with a video that autoplays.
+  const [muted, setMuted] = useState(autoplay);
   const known = knownRatio(item);
   const [measuredExtreme, setMeasuredExtreme] = useState(false);
   const extreme =
     known !== null ? known < EXTREME_ASPECT_RATIO : measuredExtreme;
 
   const stackDriven = active !== undefined;
-  const shouldPlay = stackDriven ? active && playing : playing;
+  const shouldPlay = (stackDriven ? active && playing : playing) && !forcePause;
 
   // Populate the sync ref so a caller can read the current playback
   // position when opening the overlay and seek the in-card video when the
@@ -426,23 +508,70 @@ function VideoTile({
     if (overlayOpen) setPlaying(false);
   }
 
-  // Stack-driven mode: reset to "not playing" the moment this card stops
-  // being the active one, so it doesn't silently resume (still muted-off,
-  // stale `playing=true`) the next time it becomes active again without
-  // the user having actually pressed play that time. Mirrors the same
-  // reset-during-render pattern this file's own MediaBlock-level active
-  // reset (see the profile-grid-vs-feed comment above) mirrors.
+  // Stack-driven mode: pause the moment this card stops being the active
+  // one (so it doesn't keep playing — and its audio, once unmuted, keep
+  // going — silently in the background once swiped away from), and
+  // (re)start the moment it becomes the active one AND this tile is
+  // allowed to autoplay, matching the TikTok/Reels-style feed convention:
+  // whichever card is currently front and center always plays, muted,
+  // with no tap required — a tap only ever unmutes or explicitly pauses
+  // it, same as before. This re-fires on every single swipe onto a video
+  // gist, not just the very first one. The `autoplay` gate is what keeps
+  // a duo's second video from auto-starting alongside the first — see
+  // MediaTile's own doc; it stays fully tappable either way, it just
+  // never starts on its own.
   const [prevActive, setPrevActive] = useState(active);
   if (stackDriven && active !== prevActive) {
     setPrevActive(active);
     if (!active) setPlaying(false);
+    else if (autoplay) setPlaying(true);
   }
+
+  // Mutual exclusion between a duo's two tiles (see MediaBlock's own
+  // activePlayIdx/forcePause docs) — reset THIS tile's own local intent
+  // back to false the moment a sibling claims playback, not just
+  // `shouldPlay` (which already stops the actual <video> via the effect
+  // below regardless). Without this, `playing` would stay stuck at `true`
+  // internally while only visually paused, so tapping this tile again
+  // afterward would toggle it to `false` (since it "thinks" it's still
+  // playing) instead of resuming it — a confusing "first tap does
+  // nothing, second tap plays" bug. Reset-during-render, same pattern as
+  // `prevOverlayOpen`/`prevActive` above.
+  const [prevForcePause, setPrevForcePause] = useState(forcePause);
+  if (forcePause !== prevForcePause) {
+    setPrevForcePause(forcePause);
+    if (forcePause) setPlaying(false);
+  }
+
+  // The other half of the same mechanism: claim this tile as the active
+  // one the instant it actually starts playing, for ANY reason — a manual
+  // tap (either tap target below just calls setPlaying, nothing else
+  // needed) or an automatic start (the two effects above/below). Keyed on
+  // `playing` alone, deliberately NOT `shouldPlay` — `shouldPlay` already
+  // factors in `forcePause`, so gating the claim on it too would deadlock:
+  // this tile could never claim itself away from a sibling that's already
+  // forcing it paused, since it'd never be allowed to actually play in
+  // order to claim in the first place. Claiming on raw intent instead lets
+  // a tap "win" immediately, which is what flips forcePause on the OTHER
+  // tile and lets THIS one actually start on the very next render.
+  useEffect(() => {
+    if (playing) onRequestPlay?.();
+  }, [playing, onRequestPlay]);
 
   // Autoplay-on-scroll-into-view — ONLY when nobody's telling this tile
   // what to do via `active` (the profile grid's own case). See this
   // component's own docstring for why the feed can't share this.
+  //
+  // Also skipped when `autoplay` is false — same reasoning as the
+  // stack-driven branch above: a duo's second video is a whole separate
+  // tile with its OWN independent observer watching its OWN visibility, so
+  // without this it could easily cross the 50% threshold at the same
+  // moment as the first tile (they're right next to each other) and start
+  // itself up too — two videos (and, once either gets unmuted, two audio
+  // tracks) playing at once. Manual tap-to-play is untouched; this only
+  // stops it from starting on its own.
   useEffect(() => {
-    if (stackDriven) return;
+    if (stackDriven || !autoplay) return;
     const video = videoRef.current;
     if (!video) return;
     const observer = new IntersectionObserver(
@@ -453,7 +582,7 @@ function VideoTile({
     );
     observer.observe(video);
     return () => observer.disconnect();
-  }, [stackDriven]);
+  }, [stackDriven, autoplay]);
 
   const canControl = stackDriven ? !!active && !overlayOpen : !overlayOpen;
 

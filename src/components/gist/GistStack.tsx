@@ -12,6 +12,7 @@ import {
   type MotionValue,
 } from "framer-motion";
 import { GistCard } from "./GistCard";
+import { GistCardSkeleton } from "./GistCardSkeleton";
 import { MediaImage } from "@/components/ui/MediaFrame";
 import { Illustration } from "@/components/brand/illustrations";
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from "@/components/ui/icons";
@@ -70,6 +71,7 @@ export function GistStack({
   onGistEdited,
   onNearEnd,
   exhausted = false,
+  loadingMore = false,
   mediaPaused = false,
   resetToTopSignal,
   showCampusTag = true,
@@ -94,10 +96,20 @@ export function GistStack({
   /** True once the parent has confirmed there's genuinely nothing more to
    * fetch (a "load more" call already came back empty/all-duplicate) — see
    * FeedContent's own loadMore. Lets the stack tell "still might be more,
-   * just haven't heard back yet" apart from "no, that's actually it" —
-   * the difference between blocking a swipe outright (see canGoNext below)
-   * and revealing the end-of-feed card. */
+   * just haven't heard back yet" (see `loadingMore` below, which covers
+   * that case) apart from "no, that's actually it" — the difference
+   * between the loading-skeleton slot and the real end-of-feed card. */
   exhausted?: boolean;
+  /** True while the parent's "load more" call is actually in flight — see
+   * FeedContent's own loadingMore. Distinct from `exhausted` (the OUTCOME
+   * of that call): this is what lets a swipe past the last loaded gist
+   * through to a loading-skeleton slot instead of just refusing the swipe
+   * outright while the answer is still unknown. Once the call resolves,
+   * either `exhausted` flips true (nothing more — the end-of-feed card
+   * takes over) or the parent's `gists` array grows (this slot's `atEndCard`
+   * math naturally stops applying, revealing the real next gist instead) —
+   * this stack never has to be told explicitly which one happened. */
+  loadingMore?: boolean;
   /** True while something feed-level is covering the card (the comment
    * sheet, the new-gist compose sheet) — the front card's own video should
    * pause for the same reason it already pauses for peeking/inactive cards,
@@ -135,28 +147,63 @@ export function GistStack({
   // (it fell out of a fresh page-one fetch, or was deleted) — same as
   // before. Render-phase, not an effect, to avoid a setState-in-effect
   // cascade, same as the resetToTopSignal clamp below.
+  // Both clamps below can fire in the SAME render (pull-to-refresh lands a
+  // freshly-fetched list — `gists !== prevGists` — in the exact render that
+  // also bumps resetToTopSignal, since load() sets both in one batched
+  // update). They're combined into one `nextIndex` computation, applied
+  // with a single setIndex at the end, specifically so resetToTopSignal can
+  // unconditionally override whatever the reorder-continuity block below
+  // decided. Keeping them as two independent blocks that each separately
+  // read `index` and call setIndex used to mean resetToTopSignal's own
+  // `if (index !== 0)` guard checked the stale PRE-render index (always 0 —
+  // pull-to-refresh only arms at the first card) and concluded "already at
+  // 0, nothing to do," silently skipping the reset even though the
+  // continuity block had just moved `index` elsewhere in this same pass —
+  // landing pull-to-refresh on a random leftover gist instead of the fresh
+  // top card.
   const [prevGists, setPrevGists] = useState(gists);
-  if (gists !== prevGists) {
-    const priorId = prevGists[index]?.gist_id;
-    setPrevGists(gists);
-    if (priorId !== undefined && gists[index]?.gist_id !== priorId) {
-      const newPos = gists.findIndex((g) => g.gist_id === priorId);
-      if (newPos !== -1) {
-        setIndex(newPos);
-      } else if (index > gists.length - 1) {
-        setIndex(Math.max(gists.length - 1, 0));
-      }
-    } else if (index > gists.length - 1) {
-      setIndex(Math.max(gists.length - 1, 0));
-    }
-  }
-
-  // Same render-phase-clamp pattern as above, not an effect — snaps back
-  // to the first card whenever the parent bumps resetToTopSignal.
   const [prevResetSignal, setPrevResetSignal] = useState(resetToTopSignal);
-  if (resetToTopSignal !== undefined && resetToTopSignal !== prevResetSignal) {
-    setPrevResetSignal(resetToTopSignal);
-    if (index !== 0) setIndex(0);
+  const resetRequested = resetToTopSignal !== undefined && resetToTopSignal !== prevResetSignal;
+  if (gists !== prevGists || resetRequested) {
+    let nextIndex = index;
+    // The gist list is owned by the parent (feed page) and its identity can
+    // change out from under the stack for reasons that have nothing to do
+    // with the user navigating — most notably a background refresh after
+    // the offline queue syncs (see FeedContent's kampos:gists-synced
+    // listener), which re-fetches page one fresh and can land the same
+    // gists in a different order (decay-score re-ranking, a newly-synced
+    // gist inserted near the top). Re-pointing `index` at wherever the card
+    // the user was actually looking at ended up keeps that card on screen
+    // through a reorder instead of silently swapping in whatever now sits
+    // at the same numeric slot — which is what was producing the "why did
+    // the feed just scroll to something else" jump on reconnect. Falls back
+    // to the old length-based clamp when the gist genuinely isn't in the
+    // new list at all (it fell out of a fresh page-one fetch, or was
+    // deleted) — same as before. Render-phase, not an effect, to avoid a
+    // setState-in-effect cascade.
+    if (gists !== prevGists) {
+      const priorId = prevGists[index]?.gist_id;
+      setPrevGists(gists);
+      if (priorId !== undefined && gists[index]?.gist_id !== priorId) {
+        const newPos = gists.findIndex((g) => g.gist_id === priorId);
+        if (newPos !== -1) {
+          nextIndex = newPos;
+        } else if (index > gists.length - 1) {
+          nextIndex = Math.max(gists.length - 1, 0);
+        }
+      } else if (index > gists.length - 1) {
+        nextIndex = Math.max(gists.length - 1, 0);
+      }
+    }
+    // Snaps back to the first card whenever the parent bumps
+    // resetToTopSignal (e.g. after a pull-to-refresh) — applied AFTER the
+    // continuity logic above so it always wins over it, not just whenever
+    // the stale pre-render `index` happened to already be 0.
+    if (resetRequested) {
+      setPrevResetSignal(resetToTopSignal);
+      nextIndex = 0;
+    }
+    if (nextIndex !== index) setIndex(nextIndex);
   }
 
   const [showHint, setShowHint] = useState(false);
@@ -216,6 +263,33 @@ export function GistStack({
   const lastNavAtRef = useRef(0);
   const NAV_DEBOUNCE_MS = 150;
 
+  // Mobile-only: a fresh "visit id" bumped on every next()/prev(), folded
+  // into the AnimatePresence key below instead of relying on gist_id alone.
+  // Why this exists: swipe A -> B starts A's exit (kept mounted a little
+  // longer by AnimatePresence to finish playing it — see GistStackCard's
+  // own usePresence effect); swiping straight back B -> A before that exit
+  // finishes asks to show a card keyed by A's gist_id again WHILE a still-
+  // exiting instance under that exact same key is still in the tree. React
+  // reconciles same-key-same-type as the SAME fiber, not a new one — so
+  // the "new" A is actually the old, still-exiting instance: its dragY is
+  // stuck wherever the interrupted exit tween left it (usually off-screen),
+  // and useOverscrollNav's own closure-local `committing` flag (set true
+  // the instant that exit began, and — deliberately, see its own comment —
+  // never reset) permanently ignores every touch on it from then on. That's
+  // both this session's "card disappears" AND "feed freezes, can't scroll"
+  // reports at once, same root cause. Suffixing the key with a number that
+  // changes on every single navigation (forward, back, no matter how fast
+  // or how many times the same gist is revisited) guarantees a revisit
+  // never matches a still-exiting instance's key — React always mounts a
+  // genuinely fresh one instead, with its own fresh dragY/committingRef/
+  // gesture-closure state, exactly like a revisit after the old instance
+  // had already fully unmounted already correctly does.
+  //
+  // Real state, not a ref — this value feeds directly into what's rendered
+  // (the AnimatePresence key below), and reading a ref during render isn't
+  // safe to rely on.
+  const [navSeq, setNavSeq] = useState(0);
+
   // Mobile-only: which way the fall/rise transition should play (see
   // fallRiseVariants) — +1 for next, -1 for prev. Set in the same event
   // handler as setIndex, so React 18's automatic batching applies both in
@@ -229,16 +303,21 @@ export function GistStack({
     lastNavAtRef.current = now;
     dismissHint();
     setDirection(1);
+    setNavSeq((n) => n + 1);
     // `gists.length` itself (one past the last real gist) is a genuine,
-    // reachable position once exhausted — that's the end-of-feed card's
-    // own slot (see the render below). Not reachable at all otherwise:
-    // canGoNext (passed into useOverscrollNav) already blocks a swipe from
-    // committing past the last real gist while more might still be
-    // coming, so this clamp is really just the desktop/keyboard/wheel
-    // paths' own version of the same rule.
-    const maxIndex = Math.max(exhausted ? gists.length : gists.length - 1, 0);
+    // reachable position once exhausted OR while a "load more" call is
+    // still in flight — that's the end-of-feed/loading-skeleton slot (see
+    // the render below and GistStack's own `loadingMore` doc). Not
+    // reachable at all otherwise: canGoNext (passed into useOverscrollNav)
+    // already blocks a swipe from committing past the last real gist in
+    // that case, so this clamp is really just the desktop/keyboard/wheel
+    // paths' own version of the same rule — it has to match canGoNext's
+    // own condition exactly, or those paths (which call next() directly,
+    // bypassing canGoNext entirely) end up stuck one short of where a
+    // touch swipe would have landed.
+    const maxIndex = Math.max((exhausted || loadingMore) ? gists.length : gists.length - 1, 0);
     setIndex((i) => Math.min(i + 1, maxIndex));
-  }, [gists.length, exhausted, dismissHint, isMobile]);
+  }, [gists.length, exhausted, loadingMore, dismissHint, isMobile]);
 
   const prev = useCallback(() => {
     const now = Date.now();
@@ -246,6 +325,7 @@ export function GistStack({
     lastNavAtRef.current = now;
     dismissHint();
     setDirection(-1);
+    setNavSeq((n) => n + 1);
     setIndex((i) => Math.max(i - 1, 0));
   }, [dismissHint, isMobile]);
 
@@ -300,17 +380,23 @@ export function GistStack({
   // vertical gesture only; desktop's horizontal drag springs back on its
   // own for free via Framer's own dragConstraints, since its resting
   // position is derived from `offset`, which simply doesn't move when
-  // `index` doesn't). Three distinct positions:
+  // `index` doesn't). Four distinct positions:
   //  - a real gist with another real gist already loaded after it: next
   //    always allowed.
-  //  - the LAST loaded real gist: next only allowed once `exhausted` is
-  //    confirmed true — otherwise a commit here would fly the card off
-  //    toward a next gist that doesn't exist yet (this is the exact bug
-  //    that produced a blank space).
-  //  - the end-of-feed card itself (index === gists.length, only reachable
-  //    once exhausted): nothing past it, ever.
+  //  - the LAST loaded real gist while a "load more" call is still in
+  //    flight: next is allowed too now — it lands on a loading-skeleton
+  //    slot (see isLoadingMore below) instead of just refusing the swipe
+  //    with no explanation while the answer is still unknown.
+  //  - the LAST loaded real gist once `exhausted` is confirmed true: next
+  //    allowed, lands on the real end-of-feed card.
+  //  - the LAST loaded real gist with NEITHER of the above yet true (the
+  //    parent hasn't started loading more yet — a brief window before
+  //    onNearEnd's own trigger fires): blocked, same as before — nothing
+  //    exists to show there yet.
+  //  - the end-of-feed/loading slot itself (index === gists.length): nothing
+  //    past it, ever.
   const atEndCard = index >= gists.length;
-  const canGoNextValue = atEndCard ? false : index < gists.length - 1 || exhausted;
+  const canGoNextValue = atEndCard ? false : index < gists.length - 1 || exhausted || loadingMore;
   const canGoPrevValue = index > 0;
 
   return (
@@ -337,8 +423,9 @@ export function GistStack({
           <AnimatePresence initial={false}>
             {(gists[index] || atEndCard) && (
               <GistStackCard
-                key={atEndCard ? "__end_of_feed__" : gists[index].gist_id}
+                key={`${atEndCard ? "__end_of_feed__" : gists[index].gist_id}-${navSeq}`}
                 gist={atEndCard ? null : gists[index]}
+                isLoadingMore={loadingMore}
                 offset={0}
                 isMobile
                 direction={direction}
@@ -389,6 +476,7 @@ export function GistStack({
               <GistStackCard
                 key="__end_of_feed__"
                 gist={null}
+                isLoadingMore={loadingMore}
                 offset={0}
                 isMobile={false}
                 direction={1}
@@ -437,6 +525,7 @@ export function GistStack({
  */
 function GistStackCard({
   gist,
+  isLoadingMore = false,
   offset,
   isMobile,
   direction,
@@ -454,6 +543,10 @@ function GistStackCard({
   /** null renders the end-of-feed slot (see EndOfFeedCard) instead of a
    * real GistCard — see GistStack's own `atEndCard`. */
   gist: Gist | null;
+  /** Only meaningful when `gist` is null — see EndOfFeedCard's own doc.
+   * Tells that slot to show a loading skeleton (a "load more" call is
+   * still in flight) instead of the real "nothing dey again" message. */
+  isLoadingMore?: boolean;
   offset: number;
   isMobile: boolean;
   /** Mobile only — which side a freshly mounted card's entrance rises in
@@ -609,6 +702,7 @@ function GistStackCard({
             />
           ) : (
             <EndOfFeedCard
+              isLoadingMore={isLoadingMore}
               onNext={next}
               onPrev={prev}
               canGoNext={canGoNext}
@@ -662,7 +756,7 @@ function GistStackCard({
             touchSurfaceRef={touchSurfaceRef}
           />
         ) : (
-          <EndOfFeedCard onNext={next} onPrev={prev} canGoNext={canGoNext} canGoPrev={canGoPrev} touchSurfaceRef={touchSurfaceRef} />
+          <EndOfFeedCard isLoadingMore={isLoadingMore} onNext={next} onPrev={prev} canGoNext={canGoNext} canGoPrev={canGoPrev} touchSurfaceRef={touchSurfaceRef} />
         )}
         {/* Swipe-peek tease (desktop only). Peeking cards (offset > 0)
             already sit rotated/offset behind the front card, so a sliver
@@ -696,15 +790,22 @@ function GistStackCard({
 }
 
 /**
- * The stack's own "you've reached the end" slot — rendered by GistStackCard
- * in place of a real GistCard once `index` advances past the last loaded
- * gist and the parent has confirmed there's genuinely nothing more (see
- * GistStack's own `atEndCard`/`exhausted`). A real, swipeable destination,
- * not a dead end: `canGoNext` is always false here (nothing exists past
- * it), so swiping forward from this card just springs back, same as
- * hitting it from the last real gist while still waiting on "load more" —
- * but swiping back down still works exactly like it does from any other
- * card, landing back on the last real gist.
+ * The stack's own "one past the last loaded gist" slot — rendered by
+ * GistStackCard in place of a real GistCard once `index` advances past the
+ * last loaded one (see GistStack's own `atEndCard`). Two different things
+ * can occupy it, both real, swipeable destinations rather than a dead end:
+ *  - `isLoadingMore` true: the parent's "load more" call is still in
+ *    flight — shows the same GistCardSkeleton the very first page load
+ *    uses, so reaching here reads as "more is coming," not "you're stuck."
+ *    Nothing here re-fetches or polls; the moment the real gists actually
+ *    arrive and get appended, GistStack's own index math stops pointing at
+ *    this slot at all and the real next card takes over in its place.
+ *  - otherwise: the parent has confirmed there's genuinely nothing more
+ *    (`exhausted`) — the "nothing dey again" message.
+ * `canGoNext` is always false here (nothing exists past this slot, ever),
+ * so swiping forward just springs back either way; swiping back down still
+ * works exactly like it does from any other card, landing back on the last
+ * real gist.
  *
  * Wires up its own useOverscrollNav call so that back-swipe keeps working
  * — there's no GistCard here to provide it internally. Desktop's
@@ -714,6 +815,7 @@ function GistStackCard({
  * GistCard's identical unconditional call.
  */
 function EndOfFeedCard({
+  isLoadingMore = false,
   onNext,
   onPrev,
   canGoNext,
@@ -723,6 +825,7 @@ function EndOfFeedCard({
   opacity,
   committingRef,
 }: {
+  isLoadingMore?: boolean;
   onNext: () => void;
   onPrev: () => void;
   canGoNext: boolean;
@@ -749,6 +852,17 @@ function EndOfFeedCard({
     canGoNext,
     canGoPrev,
   });
+
+  if (isLoadingMore) {
+    // GistCardSkeleton already brings its own full card chrome (rounding,
+    // shadow, ring) — this wrapper exists purely to carry the swipe-back
+    // gesture ref, not to add any visual styling of its own.
+    return (
+      <div ref={scrollRef} className="h-full w-full">
+        <GistCardSkeleton />
+      </div>
+    );
+  }
 
   return (
     <div
