@@ -6,7 +6,7 @@ import { cacheGet, cacheSet, cacheDeleteMatching } from "@/lib/dataCache";
 import { enqueue, getQueuedActions } from "@/lib/offlineQueue";
 import { wsClient } from "@/lib/ws";
 import { useAuthStore } from "@/stores/authStore";
-import type { Gist, GistCounts, GistMedia, ReactionType } from "@/types";
+import type { Gist, GistCounts, GistMedia, GistPoll, ReactionType } from "@/types";
 
 /** Which of the three legs of a direct-to-Cloudinary upload failed — lets
  * `CreateGistSheet` show a genuinely specific, brand-voice message per
@@ -410,6 +410,11 @@ interface GistState {
   share: (gistId: string, platform?: string) => Promise<void>;
   react: (gistId: string, type: ReactionType) => Promise<void>;
   unreact: (gistId: string) => Promise<void>;
+  /** Casts (or changes) the viewer's vote on a gist's poll — upsert, same
+   * as react() above: voting again just moves the pick, never errors for
+   * "already voted." Throws (and rolls the optimistic update back) on
+   * failure, same convention every other mutation here follows. */
+  votePoll: (gistId: string, optionId: string) => Promise<void>;
   /** Replay all offline-queued write mutations and invalidate the gist
    * cache so the next feed read includes them. Call this from
    * useNetworkStatus when coming back online. */
@@ -997,6 +1002,59 @@ export const useGistStore = create<GistState>((set, get) => ({
     }
   },
 
+  votePoll: async (gistId, optionId) => {
+    // Optimistic, same shape as react() above: move the vote and adjust
+    // both options' counts immediately, not after the round trip. No
+    // offline-queue path here (unlike react/unreact) — a poll vote is
+    // meaningless without seeing where it landed relative to everyone
+    // else's, so this just fails outright while offline instead of
+    // pretending to succeed.
+    let previous: Gist | undefined;
+    set((s) => ({
+      items: s.items.map((g) => {
+        if (g.gist_id !== gistId || !g.poll) return g;
+        previous = g;
+        const priorOptionId = g.poll.my_vote_option_id;
+        if (priorOptionId === optionId) return g;
+        const poll: GistPoll = {
+          ...g.poll,
+          my_vote_option_id: optionId,
+          options: g.poll.options.map((o) => {
+            if (o.option_id === optionId) return { ...o, votes_count: o.votes_count + 1 };
+            if (o.option_id === priorOptionId) return { ...o, votes_count: Math.max(0, o.votes_count - 1) };
+            return o;
+          }),
+        };
+        return { ...g, poll };
+      }),
+    }));
+    try {
+      const res = await api.post<ApiEnvelope<{ my_vote_option_id: string; poll: Omit<GistPoll, "my_vote_option_id"> }>>(
+        `/gists/${encodeURIComponent(gistId)}/poll/vote`,
+        { option_id: optionId },
+      );
+      // The server's own tallies win over the optimistic math above — other
+      // viewers voting in the same window mean the real counts can already
+      // differ from what a single +1/-1 guessed.
+      const fresh = res.data?.data;
+      if (fresh) {
+        set((s) => ({
+          items: s.items.map((g) =>
+            g.gist_id === gistId && g.poll
+              ? { ...g, poll: { ...fresh.poll, my_vote_option_id: fresh.my_vote_option_id } }
+              : g,
+          ),
+        }));
+      }
+    } catch (err) {
+      if (previous) {
+        set((s) => ({ items: s.items.map((g) => (g.gist_id === gistId ? previous! : g)) }));
+      }
+      set({ error: apiErrorMessage(err, "Failed to vote") });
+      throw err;
+    }
+  },
+
   /** Replays all queued offline mutations (create/update/delete gist,
    * react/unreact, create-comment) in FIFO order and then invalidates the
    * gist cache so the next feed read picks up the new data. Call this from
@@ -1273,9 +1331,11 @@ let pillRevealTimer: ReturnType<typeof setTimeout> | null = null;
 const wsHandles = globalThis as unknown as {
   __kamposFeedGlobalUnsub?: () => void;
   __kamposCountsUnsub?: () => void;
+  __kamposPollUnsub?: () => void;
 };
 wsHandles.__kamposFeedGlobalUnsub?.();
 wsHandles.__kamposCountsUnsub?.();
+wsHandles.__kamposPollUnsub?.();
 
 if (typeof window !== "undefined") {
   wsHandles.__kamposFeedGlobalUnsub = wsClient.subscribe("feed.global", (payload) => {
@@ -1376,5 +1436,29 @@ if (typeof window !== "undefined") {
       items: s.items.map((g) => (g.gist_id === gistId ? { ...g, counts: { ...g.counts, ...patch } as Gist["counts"] } : g)),
     }));
     window.dispatchEvent(new CustomEvent("kampos:gist-counts-updated", { detail: { gist_id: gistId, counts: patch } }));
+  });
+
+  // Live poll votes — same split as counts:updated just above: patch the
+  // store's own `items` for anything reading from there, and broadcast a
+  // DOM event for the feed/profile page, which keep their own local gists
+  // copy. This is what lets someone ELSE'S vote animate in live on a poll
+  // you're already looking at, not just your own. The backend sends
+  // { gist_id, poll } (see poll.controller.ts's vote()) — `poll` here never
+  // carries a `my_vote_option_id` (a broadcast has no single "viewer" to
+  // compute that for), so the patch below only ever touches `options`,
+  // leaving whatever this viewer's own vote already showed as untouched.
+  wsHandles.__kamposPollUnsub = wsClient.subscribe("poll:voted", (payload) => {
+    const p = payload as
+      | { gist_id?: string; poll?: { poll_id: string; options: GistPoll["options"] } }
+      | undefined;
+    if (!p?.gist_id || !p.poll) return;
+    const gistId = p.gist_id;
+    const options = p.poll.options;
+    useGistStore.setState((s) => ({
+      items: s.items.map((g) =>
+        g.gist_id === gistId && g.poll ? { ...g, poll: { ...g.poll, options } } : g,
+      ),
+    }));
+    window.dispatchEvent(new CustomEvent("kampos:gist-poll-updated", { detail: { gist_id: gistId, options } }));
   });
 }

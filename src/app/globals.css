@@ -104,6 +104,38 @@ body {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
+/* The browser's own default focus ring fires on a plain mouse click or
+   touch tap, not just real keyboard navigation — that's the "ugly white
+   or dark border" flash on buttons after interacting with them. Plain
+   :focus-visible alone isn't a reliable enough fix for that on its own:
+   Safari/iOS in particular still lights up :focus-visible on a plain tap
+   for native <button>s, so the flash kept showing up there. InputModalitySync
+   (see src/components/layout/InputModalitySync.tsx) sidesteps that browser
+   heuristic entirely by tracking modality directly — tagging <html
+   data-input="keyboard"> only when the last input anywhere on the page was
+   a real Tab keypress, "pointer" for any click/touch. The ring below is
+   gated on that instead of trusting :focus-visible's own judgment — never
+   remove focus styling outright, that's a real accessibility regression,
+   not a fix, just make sure it only ever shows for real keyboard users.
+   -webkit-tap-highlight-color is the other half of the same complaint on
+   mobile — a translucent gray flash Safari/Chrome overlay on tap, pure
+   noise here since almost every button already has its own deliberate tap
+   feedback (active:scale-95, whileTap springs). */
+:focus {
+  outline: none;
+}
+html[data-input="keyboard"] :focus-visible {
+  outline: 2px solid var(--color-brand-accent);
+  outline-offset: 2px;
+}
+button,
+a,
+[role="button"],
+input,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* Hide scrollbars where we drive scrolling ourselves (feed rails, media strips). */
 .no-scrollbar {
   -ms-overflow-style: none;

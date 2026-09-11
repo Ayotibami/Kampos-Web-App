@@ -82,6 +82,7 @@ export {
   GraduationCap as CampusIconFill,
   BookOpen as MajorIconFill,
   TrendUp as LevelIconFill,
+  ChartBar as PollIconFill,
   // The actual iOS share-sheet glyph (box, arrow pointing up out of it) —
   // deliberately not ShareIconFill (a paper plane) for the install-prompt
   // instructions, since that icon needs to visually match what someone

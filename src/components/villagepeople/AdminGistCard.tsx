@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { ShortGist } from "@/components/gist/GistCard";
 import { ExpandableText, MediaBlock, SHORT_TEXT } from "@/components/gist/GistMediaGrid";
 import { GistMediaOverlay } from "@/components/gist/GistMediaOverlay";
+import { AdminPollPreview } from "./AdminPollPreview";
 import { ConfirmModal, ConfirmReasonModal, ErrorModal } from "@/components/ui/FeedbackModal";
 import {
   Check,
@@ -93,7 +94,10 @@ export function AdminGistCard({
   const [overlayIndex, setOverlayIndex] = useState<number | null>(null);
 
   const hasMedia = !!gist.media && gist.media.length > 0;
-  const short = (gist.gist_text?.length ?? 0) < SHORT_TEXT && !hasMedia;
+  const hasPoll = !!gist.poll;
+  // Same rule the consumer cards use — a poll never gets the colored hero
+  // box, always plain text above it.
+  const short = (gist.gist_text?.length ?? 0) < SHORT_TEXT && !hasMedia && !hasPoll;
   const isApproved = gist.gist_status === "APPROVED";
   const isRejected = gist.gist_status === "REJECTED";
   const busy = busyAction !== null;
@@ -194,6 +198,8 @@ export function AdminGistCard({
         ) : (
           gist.gist_text && <ExpandableText text={gist.gist_text} />
         )}
+
+        {hasPoll && <AdminPollPreview poll={gist.poll!} />}
 
         {hasMedia && (
           <MediaBlock media={gist.media!} onOpenOverlay={setOverlayIndex} overlayOpen={overlayIndex !== null} />

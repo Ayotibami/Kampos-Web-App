@@ -140,7 +140,27 @@ export interface Gist {
    * back verbatim as the next page's `cursor`, same as a plain gist_id
    * used to be handed back before the feed was ranked. */
   _feed_cursor?: string;
+  /** Null for the vast majority of gists — only present when the poster
+   * chose "poll" instead of media in the composer. Mutually exclusive with
+   * `media`; a gist never has both (see CreateGistSheet's own poll mode). */
+  poll?: GistPoll | null;
   [key: string]: unknown;
+}
+
+export interface GistPollOption {
+  option_id: string;
+  option_text: string;
+  /** Live vote count — always present, even before the viewer has voted
+   * (the UI just doesn't show it until they do, see PollBlock). */
+  votes_count: number;
+}
+
+export interface GistPoll {
+  poll_id: string;
+  /** 2-4 entries, in the order the poster added them. */
+  options: GistPollOption[];
+  /** null for a guest, or a viewer who hasn't voted on this poll yet. */
+  my_vote_option_id: string | null;
 }
 
 export interface Comment {

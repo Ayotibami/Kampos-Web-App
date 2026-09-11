@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { MediaImage, MediaVideo } from "@/components/ui/MediaFrame";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
-import { CameraIconFill, ImageIconFill, PaletteIconFill, X, Video, Sticker } from "@/components/ui/icons";
+import { CameraIconFill, ImageIconFill, PaletteIconFill, PollIconFill, X, Video, Sticker, Plus as PlusIcon } from "@/components/ui/icons";
 import { useGistStore, MediaUploadError, buildOfflineGistMedia, notifyActionSucceeded } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { apiErrorMessage } from "@/lib/api";
@@ -64,14 +64,16 @@ interface PickedMedia {
   existingId?: string;
 }
 
-// Thresholds scale with LIMITS.gist (20%/10% of the limit remaining), so
-// they stay proportionally meaningful if the limit ever changes again.
-// Punchier, more saturated than the app's semantic success/warning/danger
-// tokens (those are tuned for subtle badges/borders, not a small filled
-// ring that needs to actually read as a color at a glance).
-function countColor(remaining: number): string {
-  if (remaining > LIMITS.gist * 0.2) return "#22c55e";
-  if (remaining > LIMITS.gist * 0.1) return "#f59e0b";
+// Thresholds scale with whatever cap is actually in effect (20%/10% of it
+// remaining) — the normal LIMITS.gist for a text/media gist, or the
+// shorter LIMITS.pollGistTextMax once a poll is attached (see showPoll) —
+// so they stay proportionally meaningful either way. Punchier, more
+// saturated than the app's semantic success/warning/danger tokens (those
+// are tuned for subtle badges/borders, not a small filled ring that needs
+// to actually read as a color at a glance).
+function countColor(remaining: number, max: number): string {
+  if (remaining > max * 0.2) return "#22c55e";
+  if (remaining > max * 0.1) return "#f59e0b";
   return "#ef4444";
 }
 
@@ -81,16 +83,21 @@ function countColor(remaining: number): string {
  * the ring alone is the whole signal, same as it works everywhere else. */
 function CharCountRing({ length, max }: { length: number; max: number }) {
   const remaining = max - length;
-  const size = 26;
+  // Sized to give a 3-digit number (a poll's shorter cap can now go
+  // negative into the low hundreds — see the poll-toggle handler below,
+  // which deliberately stops trimming existing text) real room inside the
+  // ring instead of butting up against the stroke — the original 26px ring
+  // was sized for 1-2 digits only.
+  const size = 30;
   const stroke = 2.5;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const progress = Math.min(length / max, 1);
-  const color = countColor(remaining);
+  const color = countColor(remaining, max);
   const showNumber = remaining <= max * 0.1;
 
   return (
-    <div className="relative flex h-7 w-7 shrink-0 items-center justify-center">
+    <div className="relative flex h-8 w-8 shrink-0 items-center justify-center">
       <svg width={size} height={size} className="-rotate-90">
         <circle
           cx={size / 2}
@@ -266,13 +273,24 @@ export function CreateGistSheet({
   }, [text, updateScrollThumb]);
 
   const [media, setMedia] = useState<PickedMedia[]>([]);
+  // Poll mode — mutually exclusive with media (see handlePost) and with the
+  // colored hero background (see colorPickerEligible below): a poll always
+  // renders as plain text above its options, never the big centered
+  // graphic. Two empty slots to start, same as X's own composer; up to
+  // LIMITS.pollMaxOptions. Creation-only, same reasoning color_key already
+  // has — there's no edit-a-poll-after-posting flow, so the toggle itself
+  // is hidden entirely while isEditing (see the button below).
+  const [showPoll, setShowPoll] = useState(false);
+  const [pollOptions, setPollOptions] = useState<string[]>(["", ""]);
   // Same rendering rule GistCard uses to decide "colored hero card vs plain
   // text + media" (SHORT_TEXT there) — a color pick only ever matters while
   // this is true, since otherwise the plain layout never shows it at all.
   // Also creation-only for now: `update()` doesn't send color_key through to
   // the backend's PATCH route, so offering the picker mid-edit would look
-  // like it works and then silently not save.
-  const colorPickerEligible = !isEditing && text.length < 200 && media.length === 0;
+  // like it works and then silently not save. showPoll excluded too — a
+  // poll gist never gets the colored treatment, see this component's own
+  // doc on showPoll above.
+  const colorPickerEligible = !isEditing && !showPoll && text.length < 200 && media.length === 0;
   // Live WYSIWYG preview only kicks in once an actual pick has been made —
   // before that there's no way to know what the eventual gist_id-hash-based
   // fallback color would be (it doesn't exist yet), so showing some
@@ -362,6 +380,8 @@ export function CreateGistSheet({
     setText(editGist?.gist_text ?? initialText ?? "");
     setPickedColor(null);
     setShowColorPicker(false);
+    setShowPoll(false);
+    setPollOptions(["", ""]);
     setRemovedMediaIds([]);
     setMedia(
       (editGist?.media ?? []).map((m) => ({
@@ -374,7 +394,11 @@ export function CreateGistSheet({
     );
   }
 
-  const remaining = LIMITS.gist - text.length;
+  // A poll's question is capped shorter than a normal gist (see showPoll's
+  // own doc and LIMITS.pollGistTextMax) — mirrors the backend's own
+  // POLL_GIST_TEXT_MAX_LEN check in schemas/gist.ts.
+  const textMax = showPoll ? LIMITS.pollGistTextMax : LIMITS.gist;
+  const remaining = textMax - text.length;
 
   const addMedia = (items: PickedMedia[]) => {
     setMedia((cur) => {
@@ -485,7 +509,32 @@ export function CreateGistSheet({
     setMedia([]);
     setRemovedMediaIds([]);
     setUploadProgress({});
+    setShowPoll(false);
+    setPollOptions(["", ""]);
   };
+
+  // Helpers for the poll option inputs below — kept close to pollOptions
+  // itself rather than inlined three times in the JSX. Same
+  // stripInvisibleChars-on-every-keystroke treatment the main textarea's
+  // own onChange already gets (see its handler above) — without it, an
+  // option could carry invisible/control characters the gist text is
+  // explicitly guarded against, just because it's a different input.
+  const validPollOptions = pollOptions.map((o) => sanitizeForSubmit(o)).filter(Boolean);
+  // Distinct from validPollOptions.length < pollMinOptions below: that only
+  // catches too FEW filled-in options overall, so 3 filled + 1 left blank
+  // out of 4 boxes would silently post as a 3-option poll instead of
+  // flagging the blank one. This blocks on ANY empty box while showPoll is
+  // on — every option the user added a field for has to actually have text
+  // (or be removed via its own trash button), not just quietly dropped.
+  const hasEmptyPollOption = showPoll && pollOptions.some((o) => !sanitizeForSubmit(o));
+  const updatePollOption = (index: number, value: string) =>
+    setPollOptions((cur) =>
+      cur.map((o, i) => (i === index ? stripInvisibleChars(value).slice(0, LIMITS.pollOptionMax) : o)),
+    );
+  const addPollOption = () =>
+    setPollOptions((cur) => (cur.length >= LIMITS.pollMaxOptions ? cur : [...cur, ""]));
+  const removePollOption = (index: number) =>
+    setPollOptions((cur) => (cur.length <= LIMITS.pollMinOptions ? cur : cur.filter((_, i) => i !== index)));
 
   /** Turns whatever a failed upload actually threw into a specific,
    * brand-voice reason — "no vex" is this app's established error voice
@@ -519,8 +568,20 @@ export function CreateGistSheet({
   const handlePost = async () => {
     const clean = sanitizeForSubmit(text);
     if (!clean || remaining < 0) return;
+    if (showPoll && (validPollOptions.length < LIMITS.pollMinOptions || hasEmptyPollOption)) return;
     setPosting(true);
     setUploadProgress({});
+    // A poll needs to land for real, live, so everyone's voting against
+    // the same shared tally from the moment it posts — unlike media, there
+    // isn't a sensible "looks posted already, syncs for real later"
+    // optimistic placeholder for it, so this fails outright with a clear
+    // reason instead of silently behaving like a queued draft.
+    if (showPoll && typeof navigator !== "undefined" && !navigator.onLine) {
+      setPosting(false);
+      setError("No vex — polls need a real connection to post, try again once you're back online.");
+      setShowError(true);
+      return;
+    }
     // All-or-none: a media item failing must never leave the gist posted
     // with just its text (or, when editing, half-applied). Every branch
     // below uploads media FIRST and only commits the text/removals once
@@ -618,13 +679,18 @@ export function CreateGistSheet({
       } else {
         // Text creates the gist row first (unavoidable with the current
         // two-step API), but if any media fails, that gist is deleted
-        // again immediately rather than left behind text-only.
+        // again immediately rather than left behind text-only. A poll
+        // rides along in this same create call (the backend attaches it
+        // server-side, atomically enough — see gist.controller.ts) rather
+        // than a second round trip the way media needs, since it's just
+        // plain option text, nothing to upload.
         const gist = await create({
           gist_text: clean,
           color_key: colorPickerEligible ? pickedColor : null,
+          ...(showPoll ? { poll: { options: validPollOptions } } : {}),
         });
         const gistId = gist!.gist_id;
-        if (media.length) {
+        if (!showPoll && media.length) {
           const results = await Promise.allSettled(
             media.map((m) =>
               m.remoteUrl
@@ -672,18 +738,29 @@ export function CreateGistSheet({
             </button>
           </div>
 
-          {/* Compose — avatar and the media strip below stay put; only the
-              textarea itself scrolls internally once its own text overflows
-              its fixed height, so a long draft never pushes media (or the
-              header/actions) out of view. */}
-          <div className="flex min-h-0 flex-1 flex-col px-5 pt-4 md:flex-none">
-            {/* flex-1 here (mobile only) is what actually gives the
-                textarea most of the sheet's now-much-taller 80vh — it eats
-                whatever's left after the header and the actions bar below,
-                and the textarea itself (h-full) fills that. Desktop keeps
-                its original fixed h-40 behavior (md:flex-none/md:h-40),
-                since its container is already generously sized on its own. */}
-            <div className="flex min-h-0 flex-1 items-stretch gap-3 md:flex-none md:items-start">
+          {/* Compose — header and actions bar (below) always stay put; this
+              whole middle section is the one thing that scrolls, as a unit,
+              so a long caption and a full set of poll options never fight
+              each other for room. Previously only the textarea scrolled
+              internally while the poll/media blocks just stacked below it
+              uncontained — once both were tall enough, the textarea (flex-1)
+              had nowhere to go but visibly shrink toward nothing instead of
+              the sheet just scrolling. overflow-y-auto here is that missing
+              escape valve. */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-4 no-scrollbar">
+            {/* The textarea gets a floor height (min-h-36) instead of eating
+                "whatever's left" (flex-1) — that's what used to let it get
+                squeezed to nothing once poll options pushed in below it. It
+                can still grow a little and scrolls internally past max-h-56
+                for a long caption, same as before, just never below a
+                usable size. Hero-preview mode (colored short-text gists)
+                keeps its own flex-1 fill/centering behavior — untouched,
+                since nothing else ever shares this row while it's active. */}
+            <div
+              className={`flex min-h-0 gap-3 items-stretch md:items-start md:flex-none ${
+                heroPreviewActive ? "flex-1" : "shrink-0"
+              }`}
+            >
               {/* Who this is posting as — same anchor X/Facebook/LinkedIn's
                   own compose dialogs use, so it doesn't read as posting into
                   a void. Hidden in hero-preview mode: the actual posted
@@ -712,13 +789,13 @@ export function CreateGistSheet({
                   ref={textareaRef}
                   autoFocus
                   value={text}
-                  onChange={(e) => setText(stripInvisibleChars(e.target.value).slice(0, LIMITS.gist))}
+                  onChange={(e) => setText(stripInvisibleChars(e.target.value).slice(0, textMax))}
                   onScroll={updateScrollThumb}
                   placeholder={typedPlaceholder}
                   className={
                     heroPreviewActive
                       ? "w-full resize-none overflow-hidden bg-transparent text-center font-nunito font-bold leading-snug text-white outline-none placeholder:text-white/60 no-scrollbar"
-                      : "h-full w-full resize-none overflow-y-auto bg-transparent py-2 pr-3 font-nunito text-[15px] leading-relaxed text-ink outline-none placeholder:text-faint no-scrollbar md:h-40"
+                      : "min-h-36 max-h-56 w-full resize-none overflow-y-auto bg-transparent py-2 pr-3 font-nunito text-[15px] leading-relaxed text-ink outline-none placeholder:text-faint no-scrollbar md:h-40 md:max-h-none"
                   }
                 />
                 {/* A sleeker stand-in for the native scrollbar (hidden via
@@ -736,20 +813,79 @@ export function CreateGistSheet({
               </div>
             </div>
 
+            {/* Poll options — 2 to LIMITS.pollMaxOptions, styled as a live
+                preview of the actual vote pill (see PollBlock's own option
+                buttons: rounded-2xl, ring-1, a brand-tinted fill) rather
+                than plain form fields — what gets typed here is already a
+                near-exact preview of what a voter will see, just without a
+                percentage yet. Wrapped in its own tinted card (shrink-0, so
+                it never competes with the textarea for the flex-1 budget
+                that used to squeeze it — see the scroll container above)
+                so it reads as one distinct block, not more stacked inputs
+                trailing off the caption. */}
+            {showPoll && (
+              <div className="mt-3 flex shrink-0 flex-col gap-2 rounded-2xl bg-white/40 p-3 ring-1 ring-black/5 dark:bg-white/5">
+                <span className="flex items-center gap-1.5 px-0.5 font-nunito text-[11px] font-bold uppercase tracking-wide text-brand">
+                  <PollIconFill className="h-3.5 w-3.5" weight="fill" />
+                  Poll options
+                </span>
+                {pollOptions.map((option, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 rounded-2xl bg-brand/[0.06] px-2.5 py-2 ring-1 ring-black/10 transition focus-within:ring-2 focus-within:ring-brand dark:bg-white/10"
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/80 font-nunito text-[11px] font-bold text-brand dark:bg-white/10">
+                      {i + 1}
+                    </span>
+                    <input
+                      type="text"
+                      value={option}
+                      onChange={(e) => updatePollOption(i, e.target.value)}
+                      placeholder={`Option ${i + 1}`}
+                      maxLength={LIMITS.pollOptionMax}
+                      className="min-w-0 flex-1 bg-transparent font-nunito text-sm font-semibold text-ink outline-none placeholder:font-normal placeholder:text-faint"
+                    />
+                    {pollOptions.length > LIMITS.pollMinOptions && (
+                      <button
+                        type="button"
+                        onClick={() => removePollOption(i)}
+                        aria-label={`Remove option ${i + 1}`}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-faint transition hover:bg-black/10 hover:text-danger active:scale-90"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {pollOptions.length < LIMITS.pollMaxOptions && (
+                  <button
+                    type="button"
+                    onClick={addPollOption}
+                    className="flex items-center justify-center gap-1.5 rounded-2xl border border-dashed border-brand/40 py-2.5 font-nunito text-xs font-semibold text-brand transition hover:bg-brand/10 active:scale-[0.98]"
+                  >
+                    <PlusIcon className="h-3.5 w-3.5" />
+                    Add option
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Attached media — kept small and out of the way (fixed-size
                 thumbnails, not a growing aspect-square grid) so it never
                 eats into the textarea's room; it's a preview strip, not the
                 main content of the compose view. Before anything's attached,
                 this is the one place the 2-media cap gets mentioned at all —
                 otherwise nothing tells you the limit exists until you've
-                already hit it. */}
-            {media.length === 0 && (
+                already hit it. Hidden entirely in poll mode — the two are
+                mutually exclusive, so there's nothing here worth mentioning
+                while showPoll is on. */}
+            {!showPoll && media.length === 0 && (
               <p className="mt-3 font-nunito text-xs text-faint">
                 You can attach up to {LIMITS.maxMediaPerGist} photos or videos.
               </p>
             )}
 
-            {media.length > 0 && (
+            {!showPoll && media.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2 pb-2">
                 {media.map((m) => (
                   <div
@@ -831,7 +967,7 @@ export function CreateGistSheet({
                 type="button"
                 onClick={() => setShowCamera(true)}
                 aria-label="Open camera"
-                disabled={media.length >= LIMITS.maxMediaPerGist}
+                disabled={showPoll || media.length >= LIMITS.maxMediaPerGist}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95 disabled:opacity-40 disabled:shadow-none disabled:active:scale-100"
               >
                 <CameraIconFill className="h-5 w-5" weight="fill" />
@@ -840,7 +976,7 @@ export function CreateGistSheet({
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 aria-label="Add photos or videos"
-                disabled={media.length >= LIMITS.maxMediaPerGist}
+                disabled={showPoll || media.length >= LIMITS.maxMediaPerGist}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95 disabled:opacity-40 disabled:shadow-none disabled:active:scale-100"
               >
                 <ImageIconFill className="h-5 w-5" weight="fill" />
@@ -849,11 +985,52 @@ export function CreateGistSheet({
                 type="button"
                 onClick={() => setShowGifPicker(true)}
                 aria-label="Add a GIF or sticker"
-                disabled={media.length >= LIMITS.maxMediaPerGist}
+                disabled={showPoll || media.length >= LIMITS.maxMediaPerGist}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95 disabled:opacity-40 disabled:shadow-none disabled:active:scale-100"
               >
                 <Sticker className="h-5 w-5" />
               </button>
+              {/* Poll — create-only (see this component's own doc on
+                  showPoll) and mutually exclusive with media in the other
+                  direction too: picking a poll disables the three buttons
+                  above, and having any media already attached disables
+                  this one, rather than letting either silently clobber the
+                  other. */}
+              {!isEditing && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowPoll((v) => {
+                      const next = !v;
+                      if (next) {
+                        setShowColorPicker(false);
+                        setPickedColor(null);
+                        // Deliberately NOT trimming `text` down to the
+                        // poll's shorter cap here. Whatever was already
+                        // typed stays exactly as typed — if it's over
+                        // LIMITS.pollGistTextMax, `remaining` just goes
+                        // negative (same mechanism the normal 700-char cap
+                        // already relies on), CharCountRing goes red, and
+                        // Post stays disabled until the user trims it
+                        // themselves. Silently deleting whatever came after
+                        // character 150 the instant this button is tapped —
+                        // with no edit to the text itself, no warning, no
+                        // undo — is real, unrecoverable data loss; letting
+                        // them see the overage and cut it themselves isn't.
+                      }
+                      return next;
+                    })
+                  }
+                  aria-label={showPoll ? "Remove poll" : "Add a poll"}
+                  aria-pressed={showPoll}
+                  disabled={media.length > 0}
+                  className={`flex h-11 w-11 items-center justify-center rounded-full text-white shadow-sm transition active:scale-95 disabled:opacity-40 disabled:shadow-none disabled:active:scale-100 ${
+                    showPoll ? "bg-brand-dark shadow-brand/40" : "bg-brand shadow-brand/30 hover:bg-brand-dark"
+                  }`}
+                >
+                  <PollIconFill className="h-5 w-5" weight="fill" />
+                </button>
+              )}
               <input
                 ref={fileRef}
                 type="file"
@@ -878,14 +1055,19 @@ export function CreateGistSheet({
                 >
                   <PaletteIconFill className="h-4 w-4" weight="fill" />
                 </button>
-                <CharCountRing length={text.length} max={LIMITS.gist} />
+                <CharCountRing length={text.length} max={textMax} />
               </div>
             </div>
 
             <div className="mt-1 flex justify-center">
               <Button
                 onClick={handlePost}
-                disabled={!text.trim() || remaining < 0 || posting}
+                disabled={
+                  !text.trim() ||
+                  remaining < 0 ||
+                  posting ||
+                  (showPoll && (validPollOptions.length < LIMITS.pollMinOptions || hasEmptyPollOption))
+                }
                 loading={posting}
                 fullWidth={false}
                 className="w-80 px-10"

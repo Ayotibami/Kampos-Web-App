@@ -15,6 +15,7 @@ import {
   MuteIconFill,
 } from "@/components/ui/icons";
 import type { GistMedia as GistMediaType } from "@/types";
+import { useVideoSoundStore } from "@/stores/videoSoundStore";
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
@@ -76,8 +77,17 @@ export function GistMediaOverlay({
   // changes (adjusting state during render, the documented React pattern,
   // rather than in an effect) since switching items means a different video
   // entirely, not a continuation of the last one's progress.
+  //
+  // Sound is the one shared flag every video in the app now reads from
+  // (see useVideoSoundStore's own doc) rather than this overlay's own local
+  // state — opening this view is a deliberate action (tapping "expand" on
+  // something already playing, or the bigger gist-context view), the same
+  // kind of real gesture that already justified starting unmuted here, so
+  // that preference now carries back out to the rest of the feed once this
+  // closes too, instead of being forgotten the moment this view goes away.
+  const muted = useVideoSoundStore((s) => s.muted);
+  const setMuted = useVideoSoundStore((s) => s.setMuted);
   const [playing, setPlaying] = useState(true);
-  const [muted, setMuted] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [prevIndex, setPrevIndex] = useState(index);
@@ -88,6 +98,17 @@ export function GistMediaOverlay({
     setCurrentTime(0);
     setDuration(0);
   }
+
+  // The index-change reset above only ever fires on a SUBSEQUENT switch
+  // between the overlay's two items — on the very first open, `index`
+  // already equals `prevIndex` from the start, so nothing there runs. This
+  // is what actually forces the shared sound flag unmuted the first time
+  // this view opens at all, matching what it always did locally before
+  // sound became a shared flag instead of this component's own state.
+  useEffect(() => {
+    setMuted(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Clamped, not wrapped — with only ever 2 items, "wrapping" from the last
   // back to the first (or vice versa) isn't a real "next", it's a no-op that
@@ -295,7 +316,7 @@ export function GistMediaOverlay({
           <button
             type="button"
             aria-label={muted ? "Unmute" : "Mute"}
-            onClick={() => setMuted((m) => !m)}
+            onClick={() => setMuted(!muted)}
             className={`${chromeButton} h-9 w-9 shrink-0 bg-white/15`}
           >
             {muted ? (

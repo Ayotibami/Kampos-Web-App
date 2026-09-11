@@ -7,6 +7,7 @@ import { MediaImage } from "@/components/ui/MediaFrame";
 import { Button } from "@/components/ui/Button";
 import { ConfirmReasonModal } from "@/components/ui/FeedbackModal";
 import { FlagIconFill } from "@/components/ui/icons";
+import { AdminPollPreview } from "@/components/villagepeople/AdminPollPreview";
 import { apiErrorMessage } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { useModerationStore } from "@/stores/moderationStore";
@@ -191,6 +192,7 @@ export function PendingPostsTab({
                   <span className="shrink-0 font-nunito text-xs text-faint">{timeAgo(gist.created_at)}</span>
                 </div>
                 <p className="mt-1 whitespace-pre-wrap break-words font-nunito text-sm text-muted">{gist.gist_text}</p>
+                {gist.poll && <AdminPollPreview poll={gist.poll} />}
                 {media && (
                   <MediaImage
                     src={media.thumbnail_url ?? media.media_url}

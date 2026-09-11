@@ -5,6 +5,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { MediaImage } from "@/components/ui/MediaFrame";
 import { Button } from "@/components/ui/Button";
 import { ConfirmReasonModal } from "@/components/ui/FeedbackModal";
+import { AdminPollPreview } from "@/components/villagepeople/AdminPollPreview";
 import { apiErrorMessage } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { useModerationStore } from "@/stores/moderationStore";
@@ -148,6 +149,7 @@ export function ReportsTab({
                   <p className="mt-0.5 whitespace-pre-wrap break-words font-nunito text-sm text-muted">
                     {report.gist_text}
                   </p>
+                  {report.poll && <AdminPollPreview poll={report.poll} />}
                   {media && (
                     <MediaImage
                       src={media.thumbnail_url ?? media.media_url}

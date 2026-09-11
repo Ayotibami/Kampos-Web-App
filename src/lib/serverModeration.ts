@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { env } from "./env";
-import type { GistMedia, ProfileType } from "@/types";
+import type { GistMedia, GistPoll, ProfileType } from "@/types";
 
 /**
  * Types + server-side list-fetchers for the /villagepeople/moderation
@@ -31,6 +31,10 @@ export interface PendingGist {
   profile_type?: string;
   media?: GistMedia[];
   reports_count?: number;
+  /** Null for the vast majority of gists. No `my_vote_option_id` — an
+   * admin reviewing this queue isn't voting (see KamposBackend's
+   * ADMIN_POLL_JOIN_SQL for the full reasoning). */
+  poll?: Omit<GistPoll, "my_vote_option_id"> | null;
   [key: string]: unknown;
 }
 
@@ -68,6 +72,10 @@ export interface PendingReport {
   display_name?: string | null;
   image_url?: string | null;
   media?: GistMedia[];
+  /** Same flat-not-nested convention as the rest of this row — see the
+   * doc comment above. No `my_vote_option_id`, same reasoning as
+   * PendingGist's own `poll` field. */
+  poll?: Omit<GistPoll, "my_vote_option_id"> | null;
   [key: string]: unknown;
 }
 

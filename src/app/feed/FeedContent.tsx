@@ -5,8 +5,8 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
-import { GistStack } from "@/components/gist/GistStack";
-import { GistCardSkeleton } from "@/components/gist/GistCardSkeleton";
+import { FeedGistCard } from "@/components/gist/FeedGistCard";
+import { FeedGistCardSkeleton } from "@/components/gist/FeedGistCardSkeleton";
 import { CommentPanel } from "@/components/comment/CommentPanel";
 
 // Both are controlled dialogs (an `open` boolean, never actually gone from
@@ -28,14 +28,15 @@ const CommentSheet = dynamic(
 import { Illustration } from "@/components/brand/illustrations";
 import { Avatar } from "@/components/ui/Avatar";
 import { Wordmark } from "@/components/brand/Wordmark";
-import { Plus, RefreshCw, CommentIconFill } from "@/components/ui/icons";
+import { Plus, RefreshCw, X } from "@/components/ui/icons";
 import { NewGistsPill } from "@/components/gist/NewGistsPill";
 import { PullIndicator, usePullToRefresh } from "@/components/ui/PullToRefresh";
 import { AnimatePresence } from "framer-motion";
 import { useGistStore, getFreshFeedSnapshot } from "@/stores/gistStore";
 import { useCommentStore } from "@/stores/commentStore";
 import { useAuthStore } from "@/stores/authStore";
-import { compactNumber } from "@/lib/format";
+import { useIsMobile } from "@/lib/useIsMobile";
+import { timeAgo } from "@/lib/format";
 import type { Gist } from "@/types";
 
 // "Gist" | "Amebo" | a campus_tag (one of the trending-school pills) — a
@@ -79,6 +80,58 @@ function pickRandomPrompt(): string {
   return PROMPTS[idx];
 }
 
+const SKELETON_VARIANTS = ["media", "text", "hero", "text"] as const;
+
+/** `CommentPanel` itself only ever shows a bare "X Comments" count — fine on
+ * the gist page, where the gist it's about is the whole screen right next to
+ * it, but not enough here, where the panel stays put while several different
+ * gists scroll past on the left. Sits above it with just enough of the
+ * active gist to make it obvious what's being commented on. Same component
+ * ProfileView already has (not exported from there, so duplicated here
+ * rather than touching that file). */
+function ActiveGistStrip({
+  gist,
+  onClose,
+}: {
+  gist: Gist | undefined;
+  onClose: () => void;
+}) {
+  if (!gist) return null;
+  const text = gist.gist_text?.trim();
+  const preview = text
+    ? text.length > 90
+      ? `${text.slice(0, 90).trimEnd()}…`
+      : text
+    : gist.media?.[0]?.media_type?.toLowerCase().includes("video")
+      ? "Video"
+      : gist.media?.length
+        ? "Photo"
+        : "";
+  return (
+    <div className="flex shrink-0 items-start justify-between gap-3 border-b border-line bg-brand/[0.06] px-5 py-3 dark:border-white/10 dark:bg-brand-ink/60">
+      <div className="min-w-0">
+        <p className="font-nunito text-[10px] font-bold uppercase tracking-wide text-brand">
+          Commenting on
+        </p>
+        <p className="mt-0.5 line-clamp-2 font-nunito text-xs text-ink dark:text-white/90">
+          {preview}
+        </p>
+        <p className="mt-0.5 font-nunito text-[11px] text-faint">
+          {timeAgo(gist.created_at)}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close comments"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/10"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   const listGists = useGistStore((s) => s.list);
   const primeFromServer = useGistStore((s) => s.primeFromServer);
@@ -90,6 +143,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
         | string
         | undefined) ?? null,
   );
+  const isMobile = useIsMobile();
 
   // Captured once, at mount, from whatever gistStore.feedSnapshot holds —
   // see that field's own docstring for why this exists at all (surviving a
@@ -134,35 +188,12 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   // only makes sense once the live API actually returned something.
   // Once the backend's cursor pagination genuinely runs out (an empty page
   // back), stop asking — otherwise sitting near the end of the feed would
-  // keep re-firing the same exhausted request indefinitely (loadMore's own
-  // identity changes each time loadingMore toggles, which re-triggers
-  // GistStack's near-end effect even though nothing about the list moved).
+  // keep re-firing the same exhausted request indefinitely.
   const [exhausted, setExhausted] = useState(false);
   // See load()'s own comment for the full race this guards against —
   // bumped at the start of every load(), read (not bumped) by loadMore().
   const requestGenRef = useRef(0);
-  const [current, setCurrent] = useState<Gist>();
-  // Where GistStack should open — the restored gist's position in the
-  // restored list, not always the front. Computed once, at mount, same as
-  // everything else derived from restoredSnapshot; GistStack itself only
-  // ever reads its own initialIndex prop once (see its own docstring), so
-  // this never needs to be reactive after the first render.
-  const [initialGistIndex] = useState(() => {
-    if (!restoredSnapshot) return 0;
-    const idx = restoredSnapshot.gists.findIndex((g) => g.gist_id === restoredSnapshot.currentGistId);
-    return idx >= 0 ? idx : 0;
-  });
-  // Bumped whenever a pull-to-refresh completes — GistStack watches this and
-  // snaps back to the first card (see its own docstring for why a plain
-  // list swap isn't enough on its own).
-  const [resetToTopSignal, setResetToTopSignal] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
-  const [showCommentSheet, setShowCommentSheet] = useState(false);
-  // The icon+count trigger just opens the sheet to look — it shouldn't pop
-  // the keyboard open. The pill trigger is the one meant for typing, so
-  // that one still autofocuses. Tracked per-open rather than hardcoded on
-  // CommentSheet since the same sheet now has two different doors in.
-  const [commentSheetAutoFocus, setCommentSheetAutoFocus] = useState(true);
   // A fresh random prompt, picked the moment the compose button is
   // clicked (see pickRandomPrompt) — CreateGistSheet does its own typing
   // animation with it now, not this component.
@@ -244,6 +275,12 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trendingSchools]);
 
+  // The actual scrollable element — tabs/header above it stay fixed in
+  // place, everything below scrolls inside this div. Pull-to-refresh's
+  // touch handlers bind here too (see atTop below), and the "load more"
+  // sentinel sits at its bottom.
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   const load = useCallback(async (opts?: { resetToTop?: boolean }) => {
     // Bumped synchronously (before the first await) every time a fresh
     // fetch starts — tab switch, pull-to-refresh, retry, initial load, all
@@ -252,13 +289,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     // the time it resolves. Without this, a loadMore() from a tab you've
     // since switched away from could resolve after the new tab's own load()
     // and append its stale results onto the new feed via setGists's
-    // functional updater — invisible with a large feed (near-end rarely
-    // fires early enough to race a tab switch), but a 3-gist school feed
-    // trips onNearEnd (GistStack, NEAR_END_THRESHOLD=5) on literally the
-    // first card, making the race trivial to hit by switching tabs quickly.
-    // A gist visible on more than one tab (e.g. also shows on Amebo) would
-    // then land twice in the same array — the exact "two children with the
-    // same key" this was caught from.
+    // functional updater.
     const gen = ++requestGenRef.current;
     // Only show loading skeleton if the feed is actually empty — list()
     // always asks the server directly when online now, no cache in the way.
@@ -272,7 +303,10 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
       setExhausted(false);
       setLoadError(false);
       void prefetchComments(data.map((g) => g.gist_id));
-      if (opts?.resetToTop) setResetToTopSignal((n) => n + 1);
+      // A vertical scroll back to the top, not GistStack's old index
+      // reconciliation — there's no "position" concept left to restore
+      // here, just the literal scroll offset.
+      if (opts?.resetToTop) scrollRef.current?.scrollTo({ top: 0 });
     } catch {
       // Backend unreachable/request failed — leave whatever gists were
       // already loaded in place (don't wipe a working feed over a single
@@ -289,15 +323,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   // new tab's data loads would flash the wrong content under the newly
   // active pill. Skipped when `tab` hasn't actually changed from what it
   // was the last time this effect ran (covers both the genuine first mount
-  // AND React Strict Mode's dev-only mount→cleanup→remount replay, which
-  // re-runs this effect a second time with the exact same `tab` — an
-  // invocation-COUNT guard (a plain "have I run once yet" ref) can't tell
-  // that replay apart from a real tab change, since the ref's mutated value
-  // survives the simulated remount; comparing the actual VALUE can, since
-  // nothing about `tab` differs between the two passes). Firing this
-  // spuriously would mean fetching the base feed twice on every page load —
-  // and, worse, discarding a freshly-restored feedSnapshot position (see
-  // that field's own docstring) for a pointless reset back to the top.
+  // AND React Strict Mode's dev-only mount→cleanup→remount replay).
   const prevTabRef = useRef(tab);
   useEffect(() => {
     if (prevTabRef.current === tab) return;
@@ -310,43 +336,31 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // Only the very first card is a safe place to arm this gesture — on any
-  // other card, a downward drag already means "go to the previous gist"
-  // (useOverscrollNav, attached per-card). Native touch events bubble past
-  // that handler's own preventDefault() up to this one regardless of which
-  // gesture "claimed" it first, so without this gate, a longer/slower
-  // swipe-to-previous could fire a full feed reload at the same time it
-  // navigates — two unrelated things happening on one motion. Index 0 is
-  // the one place "go to previous" is already a no-op, so nothing is lost
-  // by letting pull-to-refresh live there instead.
-  //
-  // `current` is undefined in two completely different situations, and
-  // only one of them means "first gist": before the stack's very first
-  // onCurrentChange has fired (mount always starts at index 0, so this IS
-  // the first gist, just not confirmed yet), and once you've swiped past
-  // the last loaded gist onto the end-of-feed card (GistStack's own
-  // atEndCard — nothing there to report as "current" either, but that's
-  // the LAST position, not the first). A bare `!current` can't tell these
-  // apart, so it used to also arm pull-to-refresh on the end-of-feed card
-  // — exactly the swipe-down-triggers-a-reload conflict this whole gate
-  // exists to avoid, just at the other end of the list. Falling back to
-  // "the feed is genuinely empty" instead of "current happens to be
-  // unset" fixes that without losing the original mount-window case (an
-  // empty feed IS index 0, there's just nothing loaded into it yet).
-  const atFirstGist = gists.length === 0 || (!!current && current.gist_id === gists[0]?.gist_id);
+  // Pull-to-refresh is only armed while actually scrolled to the top of the
+  // list — the real equivalent of the old swipe-stack's "only at the first
+  // card" gate, now expressed as a real scroll position instead of an
+  // index. Below the top, a downward drag is just normal scroll-up, not a
+  // refresh gesture.
+  const [atTop, setAtTop] = useState(true);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const top = el.scrollTop <= 2;
+      setAtTop((prev) => (prev === top ? prev : top));
+    };
+    onScroll();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
   const { pull, state, onTouchStart, onTouchMove, onTouchEnd } = usePullToRefresh(
     () => load({ resetToTop: true }),
-    atFirstGist,
+    atTop,
   );
 
   // Prefetch comments for whichever gists are actually on screen at mount,
   // and — only when there was nothing fresh enough to restore — seed the
-  // store from SSR data the same way this always has. A restoredSnapshot
-  // already fully seeded local `gists`/`tab` state above; running
-  // primeFromServer(initialGists) on top of that would just overwrite the
-  // store's cache with the wrong (top-of-feed, not-where-you-were) data
-  // for no benefit, and prefetching comments for initialGists instead of
-  // the gists actually being shown would warm the wrong cache entries.
+  // store from SSR data the same way this always has.
   useEffect(() => {
     if (restoredSnapshot) {
       void prefetchComments(restoredSnapshot.gists.map((g) => g.gist_id));
@@ -354,61 +368,117 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     }
     if (initialGists.length > 0) {
       void prefetchComments(initialGists.map((g) => g.gist_id));
-      // Seed the store + cache directly from what SSR already fetched — no
-      // network round trip (we already have the freshest possible data),
-      // and no comparison against a stale cache entry from a previous
-      // visit. That comparison used to run through list() here and could
-      // flag "new gists" moments after a reload that had already shown
-      // them from the very first paint — it was comparing the real fresh
-      // data against a stale leftover snapshot, not against what was
-      // actually on screen.
       primeFromServer(initialGists, { limit: 30 });
     } else {
       // SSR delivered nothing — either the backend was unreachable during
       // SSR, or the feed is genuinely empty. Either way, fall back to a
       // real client-side fetch so the skeleton actually resolves instead
-      // of hanging forever (load() is the only path that ever flips the
-      // local `loading`/`gists` state — the cache-warm call above never
-      // touches them).
+      // of hanging forever.
       void load();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Which gist a card's own comment button last targeted — desktop's
+  // CommentPanel shows whichever one this is; on mobile it's just who
+  // CommentSheet opens for. Same pattern ProfileView already uses for its
+  // own gist list, not tied to "whichever card happens to be on screen"
+  // the way the old swipe-stack's `current` was, since every card in a
+  // scrolling list can be on screen at once.
+  const [activeGistId, setActiveGistId] = useState<string | null>(null);
+  const cardRefs = useRef<Map<string, HTMLLIElement>>(new Map());
+
+  // Defaults to the first gist once the list loads, so the panel isn't
+  // referring to nothing before anyone's tapped a comment button — derived
+  // during render (the documented pattern for this), not an effect; the
+  // guard makes it safe to call unconditionally since it only ever fires
+  // once, before the very first gist has loaded.
+  if (activeGistId === null && gists.length > 0) {
+    setActiveGistId(gists[0].gist_id);
+  }
+  const activeGist = gists.find((g) => g.gist_id === activeGistId);
+
+  // Desktop-only scrollspy — keeps activeGistId (and so the comment panel)
+  // in sync with whichever card is actually centered on screen as the list
+  // scrolls, not just whichever one a comment button was last tapped on.
+  // Same pattern ProfileView already uses for its own gist list (this was
+  // meant to be ported over when the feed became a scrolling list, and
+  // wasn't — a real gap, not a deliberate omission). `rootMargin: "-50%
+  // 0px -50% 0px"` is the standard scrollspy trick: it shrinks the
+  // observer's root down to a single line across the exact middle of the
+  // viewport, so `isIntersecting` only flips true for whichever card is
+  // currently crossing that line. Mobile skips this entirely — comments
+  // open in a modal sheet there, not a side panel, so there's nothing for
+  // scroll position to keep in sync with.
+  useEffect(() => {
+    if (isMobile) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const id = entry.target.getAttribute("data-gist-id");
+            if (id) setActiveGistId(id);
+          }
+        }
+      },
+      { rootMargin: "-50% 0px -50% 0px" },
+    );
+    cardRefs.current.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [gists, isMobile]);
+
+  // Closed by default — a card's own comment button is what opens it; the
+  // feed list reclaims the full center column width the moment it's closed.
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [showCommentSheet, setShowCommentSheet] = useState(false);
+  const handleToggleComments = (gistId: string) => {
+    setActiveGistId(gistId);
+    if (isMobile) {
+      setShowCommentSheet(true);
+      return;
+    }
+    if (commentsOpen && activeGistId === gistId) {
+      setCommentsOpen(false);
+    } else {
+      setCommentsOpen(true);
+    }
+  };
+
+  // Restores the exact scroll position a fresh-enough snapshot remembered —
+  // once, on mount, not smoothly (this is a restore, not a user-initiated
+  // scroll). Falls through to nothing (stays at the top) if the remembered
+  // gist isn't in the restored list for some reason.
+  const didRestoreScrollRef = useRef(false);
+  useEffect(() => {
+    if (didRestoreScrollRef.current) return;
+    didRestoreScrollRef.current = true;
+    if (!restoredSnapshot?.currentGistId) return;
+    const el = cardRefs.current.get(restoredSnapshot.currentGistId);
+    el?.scrollIntoView({ block: "start" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Keeps gistStore's feedSnapshot current so the NEXT mount (e.g. tapping
   // back after checking a profile) can restore straight to this exact spot
   // instead of resetting to the top — see that field's own docstring for
-  // the full reasoning. Fires whenever the front-and-center gist changes
-  // (swiping) or the list itself does (pagination, a refresh) — cheap, and
-  // correctness matters more than the extra writes: missing one just means
-  // the next restore is one swipe behind, not visibly broken.
+  // the full reasoning. `activeGistId` is the closest equivalent the new
+  // vertical list has to the old swipe-stack's `current` — it only updates
+  // when a comment button is actually tapped rather than continuously as
+  // you scroll, same granularity ProfileView's own identical snapshot-free
+  // use of activeGistId already accepts.
   useEffect(() => {
-    if (!current) return;
+    if (!activeGistId) return;
     useGistStore.getState().saveFeedSnapshot({
       gists,
-      currentGistId: current.gist_id,
+      currentGistId: activeGistId,
       feedMode,
       schoolTag: isSchoolTab ? tab : null,
     });
-  }, [current, gists, feedMode, isSchoolTab, tab]);
+  }, [activeGistId, gists, feedMode, isSchoolTab, tab]);
 
   // A background offline-queue flush (see OfflineSync, mounted globally)
   // just landed one or more real gists on the server — patch them into the
   // visible feed so they stop showing as local-only optimistic entries.
-  // Patches in place (swap the offline- placeholder's gist_id for the real
-  // one at the SAME array slot, drop anything that got deleted) rather than
-  // calling load() for a full re-fetch — a full re-fetch replaces the whole
-  // array with a freshly re-sorted page one, which used to cause two
-  // separate visible bugs: the front-and-center card would jump to whatever
-  // unrelated gist now landed at the same numeric index (this component's
-  // own `current` is just gists[index] under the hood — see GistStack's own
-  // reconciliation, which handles the "index now points somewhere new"
-  // half of this, but only an in-place patch avoids the reorder that causes
-  // it in the first place), and the fresh fetch could overlap with this
-  // feed's own separate pagination cursor once loadMore continued past it,
-  // showing the same gist twice. gistStore only ever dispatches this event
-  // when something list-shaped actually changed (see its own comment), so
-  // no debouncing/no-op guard is needed here.
   useEffect(() => {
     const onSynced = (e: Event) => {
       const detail = (
@@ -417,19 +487,8 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
         >
       ).detail;
       if (!detail || (!detail.syncedCreates?.length && !detail.deletedGistIds?.length)) {
-        // No usable detail (e.g. only an edit synced, which already applied
-        // its content locally at edit time — see gistStore's update()) —
-        // nothing for this feed to patch.
         return;
       }
-      // Prefer the fully-hydrated real gist when it came back (real
-      // Cloudinary media URLs) — swapping in just the new id and leaving
-      // the placeholder's old `media` behind would keep pointing at its
-      // local blob: preview URLs, which gistStore has already revoked by
-      // the time this fires (see its own comment on why that URL doesn't
-      // survive the sync). Falls back to an id-only patch on the rare
-      // chance the re-fetch itself failed — better than leaving it stuck
-      // on "offline-" forever.
       const byOldId = new Map((detail.syncedCreates ?? []).map((c) => [c.oldId, c]));
       const deleted = new Set(detail.deletedGistIds ?? []);
       setGists((prev) =>
@@ -448,11 +507,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   }, []);
 
   // Live counts (reactions/comments/views ticking up from other people's
-  // activity, not just your own) and live moderation removal — both fired
-  // by gistStore's own module-level WS subscriptions, which patch the
-  // store's `items` for anything that reads from there but can't reach
-  // this component's own local `gists` array directly (see primeFromServer
-  // for why that split exists in the first place).
+  // activity, not just your own) and live moderation removal.
   useEffect(() => {
     const onCounts = (e: Event) => {
       const { gist_id, counts } = (e as CustomEvent<{ gist_id: string; counts: Partial<Gist["counts"]> }>).detail;
@@ -464,11 +519,26 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
       const { gist_id } = (e as CustomEvent<{ gist_id: string }>).detail;
       setGists((prev) => prev.filter((g) => g.gist_id !== gist_id));
     };
+    // Someone ELSE voting on a poll gist already on screen — see
+    // gistStore's own poll:voted WS subscription for the full reasoning.
+    // Only patches `options` (live counts), never `my_vote_option_id` —
+    // a broadcast has no single "viewer" to compute that for, so this
+    // viewer's own vote (if any) stays exactly as PollBlock already has it.
+    const onPoll = (e: Event) => {
+      const { gist_id, options } = (
+        e as CustomEvent<{ gist_id: string; options: NonNullable<Gist["poll"]>["options"] }>
+      ).detail;
+      setGists((prev) =>
+        prev.map((g) => (g.gist_id === gist_id && g.poll ? { ...g, poll: { ...g.poll, options } } : g)),
+      );
+    };
     window.addEventListener("kampos:gist-counts-updated", onCounts);
     window.addEventListener("kampos:gist-rejected", onRejected);
+    window.addEventListener("kampos:gist-poll-updated", onPoll);
     return () => {
       window.removeEventListener("kampos:gist-counts-updated", onCounts);
       window.removeEventListener("kampos:gist-rejected", onRejected);
+      window.removeEventListener("kampos:gist-poll-updated", onPoll);
     };
   }, []);
 
@@ -476,17 +546,9 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     if (loadingMore || exhausted || gists.length === 0) return;
     // The feed is ranked, not sorted by created_at alone, so the last
     // gist's own id isn't enough to resume from — _feed_cursor is the
-    // opaque token that actually encodes its position in that ranking
-    // (see gist.repo.ts's listRecent for what's really inside it). Treated
-    // as a black box here, same as a plain gist_id used to be before
-    // ranking existed.
+    // opaque token that actually encodes its position in that ranking.
     const cursor = gists[gists.length - 1]?._feed_cursor;
     if (!cursor) return;
-    // Captured, not bumped — this call is a continuation of whatever load()
-    // most recently started, not a fresh one of its own. If a tab switch
-    // (or pull-to-refresh/retry) starts a newer load() before this resolves,
-    // requestGenRef will have moved on and the results below are discarded
-    // instead of appending stale gists onto the now-current feed.
     const gen = requestGenRef.current;
     setLoadingMore(true);
     try {
@@ -494,29 +556,12 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
       if (isSchoolTab) params.school = tab;
       const more = await listGists(params);
       if (gen !== requestGenRef.current) return; // superseded — discard
-      // Dedup against what's already loaded before appending — a ranked
-      // (not plain chronological) cursor is inherently less stable than a
-      // simple id/timestamp one: on a small feed, GistStack's near-end
-      // trigger fires on nearly every swipe (see its own
-      // NEAR_END_THRESHOLD math), and if the ranking shifts even slightly
-      // between two of those closely-spaced calls, "everything after this
-      // cursor" can legitimately overlap with what a moments-ago call
-      // already returned. Blindly appending turned that into duplicate
-      // gist_ids in the list — the exact "two children with the same key"
-      // bug this file already fixed once for the base fetch (see load()'s
-      // own comment above) — surfacing here on the append path instead,
-      // for the same underlying reason: repeated calls on a tiny feed.
       const seen = new Set(gists.map((g) => g.gist_id));
       const fresh = more.filter((g) => !seen.has(g.gist_id));
       if (fresh.length) {
         setGists((prev) => [...prev, ...fresh]);
         void prefetchComments(fresh.map((g) => g.gist_id));
       } else {
-        // Either the cursor genuinely ran out (more.length === 0), or
-        // every gist this page returned was already in the list — a
-        // dead-end cursor, not a real failure, but treated the same way:
-        // stop asking. Without this, sitting near the end of a small feed
-        // re-fires this exact wasted round-trip on every single swipe.
         setExhausted(true);
       }
     } catch {
@@ -525,6 +570,23 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
       setLoadingMore(false);
     }
   }, [exhausted, gists, listGists, loadingMore, prefetchComments, feedMode, isSchoolTab, tab]);
+
+  // Auto-fetches the next page as the list scrolls near its end — same
+  // IntersectionObserver-on-a-sentinel pattern ProfileView already uses,
+  // replacing the old swipe-stack's proximity-based onNearEnd.
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMore();
+      },
+      { rootMargin: "600px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMore]);
 
   // YouTube-style chip row: each filter is its own independent pill (not a
   // shared sliding-indicator track), so adding a 3rd, 6th, or 10th tab later
@@ -572,15 +634,6 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
               feed tabs get their own row underneath (X-style: "which feed am
               I looking at" reads as content, not global nav), left-aligned
               so it has room to grow rightward as more filters get added. */}
-          {/* z-20, not z-10: the gist stack below sits in its own z-10
-              wrapper (see the "relative z-10" container around GistStack),
-              which caps every card inside it — even the exiting one at
-              zIndex 60 — to that z-10 slot when compared against siblings.
-              A pulled/dragged card's visual position can reach up into this
-              header's screen area even though its layout box never left the
-              feed body, so the header needs to be numerically above that
-              z-10 sibling slot, not above the individual card z-indices
-              (which never matter here — they're internal to that slot). */}
           <header className="sticky top-0 z-20 w-full shrink-0 border-b border-line bg-surface/85 backdrop-blur-md">
             <div className="mx-auto grid max-w-[740px] grid-cols-[1fr_auto_1fr] items-center px-4 py-2 sm:px-6 md:py-2.5">
               {/* Profile avatar — the account entry point, anchored at the
@@ -650,19 +703,15 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
             </div>
           </header>
 
-          {/* Feed body — doodle tiled across the whole area behind the compose
-              trigger + card (never in the header/navbar). Tiled rather than
-              stretched: the source art is a tall 360×800 scattered doodle, not
-              a seamless single-image cover, so tiling is what lets it genuinely
-              fill a wide area without cropping most of it away. */}
-          <div className="relative flex min-h-0 flex-1 flex-col items-center pb-2 pt-3 sm:pt-4 md:pb-6">
+          {/* Feed body — a real vertical scroll container (same shape the
+              profile page's own gist list already uses), doodle tiled
+              across the whole area behind it. Tiled rather than stretched:
+              the source art is a tall 360×800 scattered doodle, not a
+              seamless single-image cover, so tiling is what lets it
+              genuinely fill a wide area without cropping most of it away. */}
+          <div className="relative flex min-h-0 flex-1 flex-col">
             <div
               aria-hidden
-              // The SVG bakes in its own 8% fill-opacity per path (subtle by design),
-              // so the wrapper needs full opacity, not another multiplier on top of
-              // that — otherwise the two compound into near-invisible. In dark mode
-              // the doodle's dark-gray ink would vanish against a dark canvas, so we
-              // invert it to light strokes instead.
               className="pointer-events-none absolute inset-0 z-0 opacity-100 dark:opacity-90 dark:invert"
               style={{
                 backgroundImage: "url('/brand/doodles.svg')",
@@ -672,27 +721,17 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
             />
 
             {loading ? (
-              <div className="relative z-10 flex min-h-0 flex-1 w-full flex-col">
-                <div className="flex min-h-0 w-full flex-1 justify-center px-4">
-                  <div className="h-full w-full max-w-[620px] md:max-w-[740px]">
-                    <GistCardSkeleton />
-                  </div>
-                </div>
-                {/* Same shape as the real mobile comment bar below (pill +
-                    circular button) — without this, that bar simply didn't
-                    exist yet during loading, so it popped into existence
-                    the instant the gists arrived instead of already being
-                    part of what the skeleton previewed. */}
-                <div className="flex w-full shrink-0 animate-pulse items-center gap-3 bg-surface px-4 py-3 dark:bg-brand-ink md:hidden">
-                  <div className="flex-1 rounded-3xl bg-[#A9C9F85C]/50 px-4 py-4">
-                    <div className="h-4 w-24 rounded-full bg-white/30 dark:bg-white/15" />
-                  </div>
-                  <div className="h-11 w-11 shrink-0 rounded-full bg-line/50" />
+              <div className="relative z-10 flex min-h-0 flex-1 justify-center overflow-y-auto px-4 pb-8 pt-3 sm:pt-4">
+                <div className="w-full max-w-[740px] space-y-3">
+                  {SKELETON_VARIANTS.map((variant, i) => (
+                    <FeedGistCardSkeleton key={i} variant={variant} />
+                  ))}
                 </div>
               </div>
             ) : gists.length ? (
               <div
-                className="relative z-10 flex min-h-0 flex-1 w-full flex-col"
+                ref={scrollRef}
+                className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto"
                 onTouchStart={onTouchStart}
                 onTouchMove={onTouchMove}
                 onTouchEnd={onTouchEnd}
@@ -715,90 +754,45 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                     }
                   }}
                 />
-                {/* On mobile the card no longer fills the whole remaining
-                    height — a compact comment input sits below it, flush,
-                    with zero forced gap either side. The input takes only
-                    its own natural height (shrink-0, not a fixed 20% flex
-                    share — a forced band left dead space around the actual
-                    pill-shaped input, exactly the "margins" that shouldn't
-                    be there); the card (flex-1) fills whatever's left,
-                    which lands close to that ~80% anyway. Desktop reverts
-                    both to their original behavior: the card back to
-                    filling the whole area, the mobile composer hidden
-                    entirely (the real CommentPanel already covers that in
-                    its own side pane there). */}
-                <div className="flex min-h-0 w-full flex-1">
-                  <GistStack
-                    gists={gists}
-                    initialIndex={initialGistIndex}
-                    resetToTopSignal={resetToTopSignal}
-                    showCampusTag={feedMode === "amebo"}
-                    onCurrentChange={setCurrent}
-                    onGistDeleted={(gistId) =>
-                      setGists((prev) =>
-                        prev.filter((g) => g.gist_id !== gistId),
-                      )
-                    }
-                    onGistEdited={(fresh) =>
-                      setGists((prev) =>
-                        prev.map((g) =>
-                          g.gist_id === fresh.gist_id ? fresh : g,
-                        ),
-                      )
-                    }
-                    onNearEnd={loadMore}
-                    mediaPaused={showCreate || showCommentSheet}
-                    exhausted={exhausted}
-                    loadingMore={loadingMore}
-                  />
-                </div>
-                {/* Natural height only (shrink-0) — sits immediately below
-                    the card with zero gap, with a small breathing gap (see
-                    the outer container's pb-2 above) between its own bottom
-                    edge and the screen — enough that it doesn't read as
-                    resting directly on the viewport edge, without bringing
-                    back the old dead-space band around the pill.
-
-                    This is NOT a real input — tapping it never focuses
-                    anything in place, it just opens CommentSheet (the real
-                    comment surface, autofocused input and all) — a button
-                    styled to look like one, same "tap to open the real
-                    thing" pattern the gist compose-trigger up top uses. */}
-                {/* Solid fill both themes — needed so the doodle pattern
-                    tiled behind the whole feed column doesn't show through
-                    this area — but no border/shadow/ring of its own, so it
-                    reads as part of the page rather than a second, separately
-                    boxed card sitting on top of the pill. */}
-                <div className="flex w-full shrink-0 items-center gap-3 bg-surface px-4 py-3 dark:bg-brand-ink md:hidden">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCommentSheetAutoFocus(true);
-                      setShowCommentSheet(true);
-                    }}
-                    className="block flex-1 rounded-3xl border-0 bg-[#A9C9F85C] px-4 py-4 text-left font-nunito text-sm text-ink/50"
-                  >
-                    Talk your own...
-                  </button>
-                  {/* Icon + live count, both inside the circle, for whichever
-                      gist is currently in view (current, not gists[0] —
-                      updates as the stack is swiped). Just opens the sheet
-                      to look, so it does not autofocus the composer the way
-                      the pill does. */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCommentSheetAutoFocus(false);
-                      setShowCommentSheet(true);
-                    }}
-                    aria-label="View comments"
-                    className="flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full bg-brand text-white shadow-sm shadow-brand/30"
-                  >
-                    <CommentIconFill className="h-4 w-4" weight="fill" />
-                    <span className="font-nunito text-[9px] font-medium leading-none tabular-nums">
-                      {compactNumber(current?.counts?.comments_count)}
-                    </span>
-                  </button>
+                <div className="flex flex-1 justify-center px-4 pb-8 pt-3 sm:pt-4">
+                  <div className="w-full max-w-[740px]">
+                    <ul className="flex flex-col gap-3">
+                      {gists.map((g) => (
+                        <li
+                          key={g.gist_id}
+                          data-gist-id={g.gist_id}
+                          ref={(el) => {
+                            if (el) cardRefs.current.set(g.gist_id, el);
+                            else cardRefs.current.delete(g.gist_id);
+                          }}
+                        >
+                          <FeedGistCard
+                            gist={g}
+                            showCampusTag={feedMode === "amebo"}
+                            active={commentsOpen && g.gist_id === activeGistId}
+                            onToggleComments={() => handleToggleComments(g.gist_id)}
+                            onDeleted={(gistId) =>
+                              setGists((prev) => prev.filter((gg) => gg.gist_id !== gistId))
+                            }
+                            onEdited={(fresh) =>
+                              setGists((prev) =>
+                                prev.map((gg) => (gg.gist_id === fresh.gist_id ? fresh : gg)),
+                              )
+                            }
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                    {/* Invisible trigger for the next page — see the
+                        IntersectionObserver effect above. Not shown once
+                        exhausted, so there's nothing left to ever re-trigger it. */}
+                    {!exhausted && <div ref={sentinelRef} aria-hidden className="h-1 w-full" />}
+                    {loadingMore && (
+                      <div className="mt-3 space-y-3">
+                        <FeedGistCardSkeleton variant="text" />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             ) : loadError ? (
@@ -829,14 +823,21 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
           </div>
         </div>
 
-        {/* Right pane — comments, fixed width. Desktop-only (hidden below
-            md): at a fixed 360px it would otherwise crush the whole feed
-            column on a phone-width viewport. GistMediaOverlay's own
-            `md:right-[360px]` already assumed this panel was desktop-only —
-            this is what actually makes that assumption true. */}
-        <div className="hidden h-full w-[360px] shrink-0 md:block">
-          <CommentPanel gist={current} />
-        </div>
+        {/* Right pane — comments. Closed by default; a card's own comment
+            button opens it (see handleToggleComments), same as the profile
+            page. Desktop-only (hidden below md) and only rendered while
+            actually open, so the center column reclaims the full width the
+            moment it's closed instead of permanently giving up 360px. */}
+        {commentsOpen && !loading && !loadError && gists.length > 0 && (
+          <div className="hidden h-full w-[360px] shrink-0 md:block">
+            <div className="flex h-full flex-col bg-surface">
+              <ActiveGistStrip gist={activeGist} onClose={() => setCommentsOpen(false)} />
+              <div className="min-h-0 flex-1">
+                <CommentPanel gist={activeGist} />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <CreateGistSheet
@@ -844,14 +845,12 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
         onClose={() => setShowCreate(false)}
         onPosted={(fresh) =>
           setGists((prev) => {
-            // Land right after whatever gist is currently in view — not
-            // the end of a list that could be hundreds deep — so the very
-            // next swipe shows the gist just posted, purely a local
-            // insertion position (the backend's own ordering/pagination is
-            // untouched). Falls back to the front of the list on the rare
-            // chance nothing's currently in view (e.g. an empty feed).
-            const idx = current
-              ? prev.findIndex((g) => g.gist_id === current.gist_id)
+            // Land right after whichever gist the comment panel/sheet is
+            // currently pointed at, not always the end of a list that could
+            // be hundreds deep. Falls back to the front of the list on the
+            // rare chance nothing's active yet (e.g. an empty feed).
+            const idx = activeGistId
+              ? prev.findIndex((g) => g.gist_id === activeGistId)
               : -1;
             if (idx === -1) return [fresh, ...prev];
             return [...prev.slice(0, idx + 1), fresh, ...prev.slice(idx + 1)];
@@ -862,8 +861,8 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
       <CommentSheet
         open={showCommentSheet}
         onClose={() => setShowCommentSheet(false)}
-        gist={current}
-        autoFocusInput={commentSheetAutoFocus}
+        gist={activeGist}
+        autoFocusInput={false}
       />
     </AppShell>
   );

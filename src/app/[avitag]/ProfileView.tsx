@@ -385,11 +385,23 @@ export function ProfileView({
       setGists((prev) => prev.filter((g) => g.gist_id !== gist_id));
       if (wasPresent) setGistTotal((t) => Math.max(0, t - 1));
     };
+    // Same signal FeedContent listens for — see its own comment (gistStore's
+    // poll:voted WS subscription) for the full reasoning.
+    const onPoll = (e: Event) => {
+      const { gist_id, options } = (
+        e as CustomEvent<{ gist_id: string; options: NonNullable<Gist["poll"]>["options"] }>
+      ).detail;
+      setGists((prev) =>
+        prev.map((g) => (g.gist_id === gist_id && g.poll ? { ...g, poll: { ...g.poll, options } } : g)),
+      );
+    };
     window.addEventListener("kampos:gist-counts-updated", onCounts);
     window.addEventListener("kampos:gist-rejected", onRejected);
+    window.addEventListener("kampos:gist-poll-updated", onPoll);
     return () => {
       window.removeEventListener("kampos:gist-counts-updated", onCounts);
       window.removeEventListener("kampos:gist-rejected", onRejected);
+      window.removeEventListener("kampos:gist-poll-updated", onPoll);
     };
   }, []);
 

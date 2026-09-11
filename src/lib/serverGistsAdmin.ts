@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { env } from "./env";
 import { buildAdminGistQuery } from "./adminGistQuery";
-import type { GistMedia } from "@/types";
+import type { GistMedia, GistPoll } from "@/types";
 
 export { buildAdminGistQuery };
 
@@ -61,6 +61,11 @@ export interface AdminGist {
    * KamposBackend's gists.repo.ts, same jsonb_object_agg pattern the
    * consumer feed's own findWithCounts/listByUser already use. */
   reactions_by_type?: Record<string, number>;
+  /** Null for the vast majority of gists. No `my_vote_option_id` on this
+   * shape (unlike the consumer-facing GistPoll) — the backend's admin-side
+   * poll join deliberately never computes one, since an admin browsing this
+   * screen isn't voting (see KamposBackend's ADMIN_POLL_JOIN_SQL). */
+  poll?: Omit<GistPoll, "my_vote_option_id"> | null;
   [key: string]: unknown;
 }
 

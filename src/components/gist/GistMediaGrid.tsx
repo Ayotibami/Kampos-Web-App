@@ -10,14 +10,23 @@ import {
   MuteIconFill,
 } from "@/components/ui/icons";
 import type { GistMedia } from "@/types";
-import { cloudinarySmartCrop, cloudinarySrcSet, cloudinaryFit, cloudinaryFitSrcSet, cloudinaryVideo } from "@/lib/cloudinary";
+import { cloudinaryFit, cloudinaryFitSrcSet, cloudinaryVideo } from "@/lib/cloudinary";
+import { useVideoSoundStore } from "@/stores/videoSoundStore";
 
 // Lives here (not in GistCard.tsx, which used to define it) specifically to
 // avoid a circular import — GistCard.tsx needs ExpandableText/MediaBlock
 // from this file, so this file can't import anything back from GistCard.tsx.
 export const SHORT_TEXT = 200;
 
-export const EXTREME_ASPECT_RATIO = 0.45;
+/** How much of the viewport height a single piece of media (or a justified
+ * row of two) is ever allowed to claim — the one ceiling standing in for
+ * the old fixed 420px cap. Viewport-relative rather than a flat pixel
+ * number so "reasonable" scales with the actual screen, not a desktop-sized
+ * guess that's way too generous on a phone and way too tight on a monitor.
+ * Expressed as a literal Tailwind class (`max-h-[75vh]`) wherever it's
+ * used, not interpolated from this constant — Tailwind only generates CSS
+ * for arbitrary values it can see as a literal string at build time. */
+const MEDIA_HEIGHT_CEILING = "75vh";
 
 /** width/height are only ever present on media uploaded through Cloudinary
  * (see the backend's finalize/upload/create handlers) — null for anything
@@ -128,6 +137,29 @@ export function MediaBlock({
 }) {
   const items = media.slice(0, 2);
   const isDuo = items.length === 2;
+  // Justified-row sizing for a plain (non-stackDuo) duo — see the render
+  // branch below. Each tile's width ends up proportional to its own real
+  // aspect ratio at one shared row height, instead of forcing both into
+  // equal cropped halves. Defaults to a plain guess (1, i.e. square) for
+  // whichever item has no stored width/height (a GIF/sticker attached by
+  // URL, or an older pre-migration upload) — the vast majority of uploads
+  // do have one. That guess self-corrects the moment the real element
+  // loads and reports back via a tile's own onMeasuredRatio, same "known
+  // decides immediately, unknown measures and corrects after" pattern this
+  // file already uses elsewhere. Reset (not just initialized) whenever
+  // `media` itself changes identity — an edit can swap in a whole new
+  // media array, and a stale ratio from the PREVIOUS gist's photos would
+  // otherwise size this one's row wrong until something happened to
+  // re-trigger a measurement.
+  const [duoRatios, setDuoRatios] = useState<[number, number]>(() => [
+    knownRatio(items[0]) ?? 1,
+    isDuo ? knownRatio(items[1]) ?? 1 : 1,
+  ]);
+  const [prevMedia, setPrevMedia] = useState(media);
+  if (media !== prevMedia) {
+    setPrevMedia(media);
+    setDuoRatios([knownRatio(items[0]) ?? 1, isDuo ? knownRatio(items[1]) ?? 1 : 1]);
+  }
   // Which of the two tiles (by index) is the one currently allowed to
   // play — only meaningful when both are videos. Owned here, not inside
   // either VideoTile, because the two tiles are siblings with no other
@@ -160,11 +192,7 @@ export function MediaBlock({
   return (
     <div
       data-media-block
-      className={
-        isDuo && stackDuo
-          ? "mt-2.5 flex flex-col gap-1.5"
-          : `mt-2.5 ${isDuo ? "flex aspect-[4/3] w-full gap-1" : ""}`
-      }
+      className={`mt-2.5 ${isDuo && stackDuo ? "flex flex-col gap-1.5" : ""}`}
     >
       {isDuo && stackDuo ? (
         items.map((item, idx) => (
@@ -197,14 +225,43 @@ export function MediaBlock({
           />
         ))
       ) : isDuo ? (
-        items.map((item, idx) => (
-          <div
-            key={item.media_id}
-            className="relative h-full flex-1 overflow-hidden rounded-2xl"
-          >
+        // Justified row: one shared height (the row's own aspect-ratio,
+        // derived from BOTH items' combined ratio, capped the same way a
+        // single item is) with each tile's width left to flex-grow in
+        // proportion to its own ratio — see MediaTile's own `cropped`
+        // branch for the actual split. Neither tile forces the other into
+        // an unrelated shape the way the old flat 4:3-split crop did.
+        <div
+          // Mobile: forced w-full, exactly like before — always fills the
+          // card, never shrinks. md+ (desktop) only: max-w-full (a ceiling,
+          // not a mandate) lets the row's width shrink back down together
+          // with a maxHeight-clamped height, so a tall duo's row keeps its
+          // two real photos' combined shape instead of object-cover
+          // cropping the mismatch away. Desktop-only because a forced
+          // width is what's needed for this row to reliably fill the card
+          // at all on mobile — see MediaTile's own doc on the same
+          // md:w-auto/md:max-w-full split. mx-auto centers it for when it
+          // actually does shrink narrower than the column.
+          className="flex w-full gap-1 md:mx-auto md:w-auto md:max-w-full"
+          style={{ aspectRatio: duoRatios[0] + duoRatios[1], maxHeight: MEDIA_HEIGHT_CEILING }}
+        >
+          {items.map((item, idx) => (
             <MediaTile
+              key={item.media_id}
               item={item}
               cropped
+              flexGrow={duoRatios[idx]}
+              onMeasuredRatio={
+                knownRatio(item) === null
+                  ? (ratio) =>
+                      setDuoRatios((prev) => {
+                        if (prev[idx] === ratio) return prev;
+                        const next: [number, number] = [...prev];
+                        next[idx] = ratio;
+                        return next;
+                      })
+                  : undefined
+              }
               onOpenOverlay={() => onOpenOverlay(idx)}
               overlayOpen={overlayOpen}
               videoSyncRef={videoSyncRef}
@@ -213,8 +270,8 @@ export function MediaBlock({
               forcePause={activePlayIdx !== null && activePlayIdx !== idx}
               onRequestPlay={idx === 0 ? handleRequestPlay0 : handleRequestPlay1}
             />
-          </div>
-        ))
+          ))}
+        </div>
       ) : (
         <MediaTile
           item={items[0]}
@@ -239,6 +296,8 @@ function MediaTile({
   active,
   fitHeightPx,
   contain = false,
+  flexGrow,
+  onMeasuredRatio,
   autoplay = true,
   forcePause = false,
   onRequestPlay,
@@ -251,9 +310,10 @@ function MediaTile({
   active?: boolean;
   /** See MediaBlock's own doc — a real measured pixel budget this tile is
    * guaranteed to fit fully inside, no cropping, no scroll required to see
-   * the rest of it. Takes over sizing entirely when set; the known/extreme
-   * cap logic below is what runs when it isn't (Profile's calls, and a
-   * duo's second/peek tile, which deliberately keeps the old behavior). */
+   * the rest of it. Takes over sizing entirely when set; the cap logic
+   * below is what runs when it isn't (Profile/feed's own single-media and
+   * justified-duo calls, and a stackDuo second/peek tile, which
+   * deliberately keeps the old behavior). */
   fitHeightPx?: number;
   /** Only meaningful when fitHeightPx is undefined (fitHeightPx already
    * always implies contain) — shows the real, uncropped shape within the
@@ -262,6 +322,17 @@ function MediaTile({
    * Feed-only (see MediaBlock's stackDuo second-tile call), never set for
    * the profile grid's own tiles. */
   contain?: boolean;
+  /** Justified-row duo only (see MediaBlock's own `cropped` branch) — this
+   * tile's share of the row's width, proportional to its own real aspect
+   * ratio (or a plain guess until `onMeasuredRatio` corrects it). Ignored
+   * everywhere else. */
+  flexGrow?: number;
+  /** Justified-row duo only — fires once, the moment this tile's real
+   * dimensions are known (immediately from stored width/height, or after
+   * the element itself loads when there's nothing stored), so MediaBlock
+   * can correct both this tile's own flexGrow and the row's shared
+   * aspect-ratio away from the plain square guess they started with. */
+  onMeasuredRatio?: (ratio: number) => void;
   /** Video-only (see VideoTile's own doc) — whether THIS tile is allowed
    * to auto-start when its card becomes active. Defaults true (single-item
    * gists, profile grid); MediaBlock explicitly sets this false on a duo's
@@ -280,13 +351,6 @@ function MediaTile({
 }) {
   const isVideo = item.media_type?.toLowerCase().includes("video");
   const known = knownRatio(item);
-  const [measuredExtreme, setMeasuredExtreme] = useState(false);
-  // A known ratio decides this immediately, synchronously, correctly —
-  // nothing to measure. Only media missing it (see knownRatio) falls back
-  // to reading the loaded element itself, which can only ever catch up
-  // AFTER the first paint already guessed wrong.
-  const extreme =
-    known !== null ? known < EXTREME_ASPECT_RATIO : measuredExtreme;
 
   if (isVideo) {
     return (
@@ -302,6 +366,8 @@ function MediaTile({
         onRequestPlay={onRequestPlay}
         fitHeightPx={fitHeightPx}
         contain={contain}
+        flexGrow={flexGrow}
+        onMeasuredRatio={onMeasuredRatio}
       />
     );
   }
@@ -332,61 +398,98 @@ function MediaTile({
     );
   }
 
+  if (cropped) {
+    // Justified-row duo tile — the row (see MediaBlock) already fixes this
+    // tile's HEIGHT at 100%; flexGrow (proportional to this tile's own
+    // ratio) is what splits the row's WIDTH between it and its sibling, so
+    // neither one gets forced into a shape that isn't its own. No
+    // aspect-ratio style needed here — width falls out of flexGrow, not a
+    // fixed box this image has to match. cloudinaryFit (not
+    // cloudinarySmartCrop) delivers the real, uncropped photo, same
+    // reasoning as the `contain`/fitHeightPx branches below — the CSS
+    // crop here (object-cover, only actually cropping in the rare case the
+    // row's own height got capped, see the MEDIA_HEIGHT_CEILING doc) needs
+    // the real photo to crop from, not one the server already cropped to a
+    // DIFFERENT box. object-center, not object-top — any crop here is
+    // left/right (the row ran out of width at its capped height), not
+    // top/bottom, so there's no "keep the top" reasoning to preserve.
+    return (
+      <MediaImage
+        src={cloudinaryFit(item.media_url)}
+        srcSet={cloudinaryFitSrcSet(item.media_url)}
+        sizes="(min-width: 768px) 740px, 100vw"
+        alt=""
+        onClick={onOpenOverlay}
+        onLoad={
+          onMeasuredRatio
+            ? (e) => {
+                const img = e.currentTarget;
+                if (img.naturalHeight > 0) onMeasuredRatio(img.naturalWidth / img.naturalHeight);
+              }
+            : undefined
+        }
+        draggable={false}
+        style={{ WebkitUserDrag: "none", flexGrow: flexGrow ?? 1, flexBasis: 0 } as React.CSSProperties}
+        className="h-full min-w-0 cursor-pointer rounded-2xl object-cover object-center"
+      />
+    );
+  }
+
   // contain (only reachable when fitHeightPx is undefined — that path
   // above already always shows the real shape) swaps in the same
   // non-cropping source transform and letterbox fill as the fitHeightPx
-  // branch. Unlike the cropped/cover branches below, it has no forced
-  // extreme-ratio box and only a generous max-h-screen ceiling (not the
-  // tight 420px the cover branches use) — it renders at its own real size
-  // for any normal photo, height following naturally, only actually
-  // capping the rare pathological case (a stitched screenshot, an
-  // unusually extreme crop) instead of letting THAT run arbitrarily long.
-  // On a shorter screen a normal photo can still genuinely run past the
-  // card's own visible edge, same as long text already can — that
-  // overflow is exactly the "there's a second one here" peek, revealed in
-  // full by scrolling rather than artificially shrunk to fit inside a
-  // fixed box. See MediaTile's own doc on `contain`.
+  // branch. It renders at its own real size for any normal photo, height
+  // following naturally, only actually capping the rare case that would
+  // otherwise run arbitrarily long. On a shorter screen a normal photo can
+  // still genuinely run past the card's own visible edge, same as long
+  // text already can — that overflow is exactly the "there's a second one
+  // here" peek, revealed in full by scrolling rather than artificially
+  // shrunk to fit inside a fixed box. See MediaTile's own doc on `contain`.
+  //
+  // The default (single-media) branch below is the same idea minus the
+  // letterbox: real size, capped the same generous way, but object-cover
+  // rather than object-contain — since the box is sized to the photo's own
+  // ratio via `aspectRatio` below, there's normally nothing left over to
+  // crop either way; object-cover only actually does anything once the
+  // cap itself kicks in (see MEDIA_HEIGHT_CEILING's own doc), same
+  // reasoning and same rare-edge-case tradeoff as the justified duo above.
+  // object-top (not object-center, unlike the duo above) — any crop here
+  // is top/bottom, and the subject of a photo is more often framed near
+  // the top than dead center. cloudinaryFit here too, same reasoning as
+  // `contain`/the duo above — cloudinarySmartCrop's server-side c_fill
+  // would force every photo into a flat 4:3 box before any of this box
+  // sizing ever got a say, the exact thing this whole change exists to
+  // stop doing.
   return (
     <MediaImage
-      src={contain ? cloudinaryFit(item.media_url) : cloudinarySmartCrop(item.media_url)}
-      srcSet={contain ? cloudinaryFitSrcSet(item.media_url) : cloudinarySrcSet(item.media_url)}
+      src={cloudinaryFit(item.media_url)}
+      srcSet={cloudinaryFitSrcSet(item.media_url)}
       // Same real-width cap this tile's column renders at everywhere in the
       // app: max-w-[740px] from md (768px) up, full viewport width below.
       sizes="(min-width: 768px) 740px, 100vw"
       alt=""
       onClick={onOpenOverlay}
-      onLoad={
-        cropped || contain || known !== null
-          ? undefined
-          : (e) => {
-              const img = e.currentTarget;
-              if (img.naturalWidth / img.naturalHeight < EXTREME_ASPECT_RATIO)
-                setMeasuredExtreme(true);
-            }
-      }
       draggable={false}
-      // When the real ratio is already known, it drives sizing directly via
-      // CSS `aspect-ratio` instead of waiting on the browser to decode the
-      // image itself — for a photo that's rarely a visible difference, but
-      // using the exact same mechanism VideoTile relies on (see its own
-      // note) means one code path, not two subtly different ones. Applied
-      // for `contain` regardless of `extreme` — that flag only exists to
-      // cap the cropped/cover branches, irrelevant once nothing here is
-      // capping anything.
       style={
         {
           WebkitUserDrag: "none",
-          ...(known !== null && (contain || !extreme) ? { aspectRatio: known } : {}),
+          ...(known !== null ? { aspectRatio: known } : {}),
         } as React.CSSProperties
       }
+      // Mobile: forced w-full, exactly like before — always fills the
+      // card, never shrinks. md+ (desktop) only: md:w-auto/md:max-w-full
+      // lets the box shrink back down together with a maxHeight-clamped
+      // height, so it keeps the photo's real shape instead of object-cover
+      // cropping the mismatch away. Desktop-only specifically because a
+      // forced width is what's needed for this to reliably fill the card
+      // at all on mobile — an unforced width doesn't reliably do that for
+      // a plain <img>/<video>, which is exactly what broke mobile the
+      // first time this was tried unscoped. md:mx-auto centers it for the
+      // rare case it actually does end up narrower than the column.
       className={
-        cropped
-          ? "h-full w-full cursor-pointer rounded-2xl object-cover object-top"
-          : contain
-            ? "block w-full max-h-screen cursor-pointer rounded-2xl bg-brand-ink object-contain object-top"
-            : extreme
-              ? "aspect-[3/4] max-h-[420px] w-full cursor-pointer rounded-2xl object-cover object-top"
-              : "block w-full max-h-[420px] cursor-pointer rounded-2xl object-cover object-top"
+        contain
+          ? "block w-full max-h-screen cursor-pointer rounded-2xl bg-brand-ink object-contain object-top md:mx-auto md:w-auto md:max-w-full"
+          : "block w-full max-h-[75vh] cursor-pointer rounded-2xl object-cover object-top md:mx-auto md:w-auto md:max-w-full"
       }
     />
   );
@@ -414,6 +517,8 @@ function VideoTile({
   active,
   fitHeightPx,
   contain = false,
+  flexGrow,
+  onMeasuredRatio,
   autoplay = true,
   forcePause = false,
   onRequestPlay,
@@ -431,6 +536,10 @@ function VideoTile({
   /** See MediaTile's own doc — only meaningful when fitHeightPx is
    * undefined. */
   contain?: boolean;
+  /** See MediaTile's own doc. */
+  flexGrow?: number;
+  /** See MediaTile's own doc. */
+  onMeasuredRatio?: (ratio: number) => void;
   /** Whether THIS tile is allowed to auto-start when `active` becomes
    * true — see MediaTile's own doc. Purely gates the two automatic-start
    * spots below (initial mount, becoming active later); manual tap-to-
@@ -455,19 +564,14 @@ function VideoTile({
   // time a card BECOMES active later (swiping to it), not just this
   // initial-mount case.
   const [playing, setPlaying] = useState(() => autoplay && active === true);
-  // Muted by default only for a tile that can actually autoplay — that's
-  // the ONLY reason anything here is ever muted to begin with (browsers
-  // require it for playback with no user gesture). A tile with
-  // autoplay=false (a duo's second video) can only ever start via an
-  // explicit tap, which already IS a real user gesture — nothing stops it
-  // from playing with sound immediately, so there's no reason to make
-  // someone tap twice (once to play, once to unmute) just because it
-  // happens to share a gist with a video that autoplays.
-  const [muted, setMuted] = useState(autoplay);
+  // One shared sound switch for every video, not a per-tile setting — see
+  // useVideoSoundStore's own doc. Unmuting any video (anywhere — this gist,
+  // a different one, the duo sibling next to it) unmutes this one too the
+  // next time it plays, and muting any one mutes all of them back — no
+  // separate unmute tap needed per video as you keep scrolling.
+  const muted = useVideoSoundStore((s) => s.muted);
+  const setMuted = useVideoSoundStore((s) => s.setMuted);
   const known = knownRatio(item);
-  const [measuredExtreme, setMeasuredExtreme] = useState(false);
-  const extreme =
-    known !== null ? known < EXTREME_ASPECT_RATIO : measuredExtreme;
 
   const stackDriven = active !== undefined;
   const shouldPlay = (stackDriven ? active && playing : playing) && !forcePause;
@@ -591,20 +695,28 @@ function VideoTile({
       style={
         fitHeightPx !== undefined
           ? { height: fitHeightPx }
-          : known !== null && !cropped && (contain || !extreme)
-            ? { aspectRatio: known }
-            : undefined
+          : cropped
+            ? { flexGrow: flexGrow ?? 1, flexBasis: 0 }
+            : known !== null
+              ? { aspectRatio: known }
+              : undefined
       }
+      // Mobile: forced w-full on every branch, exactly like before — always
+      // fills the card, never shrinks. md+ (desktop) only, on the contain/
+      // default branches: md:w-auto/md:max-w-full lets the box shrink back
+      // down together with a maxHeight-clamped height, so a tall portrait
+      // video keeps its real shape instead of object-cover cropping the
+      // mismatch away — same reasoning and same desktop-only scoping as
+      // the image tiles above. md:mx-auto centers it for the rare case it
+      // actually ends up narrower than the column.
       className={
         fitHeightPx !== undefined
           ? "relative w-full"
           : contain
-            ? "relative w-full max-h-screen"
+            ? "relative w-full max-h-screen md:mx-auto md:w-auto md:max-w-full"
             : cropped
-              ? "relative h-full w-full"
-              : extreme
-                ? "relative aspect-[3/4] max-h-[420px] w-full"
-                : "relative w-full max-h-[420px]"
+              ? "relative h-full min-w-0"
+              : "relative w-full max-h-[75vh] md:mx-auto md:w-auto md:max-w-full"
       }
       onClick={canControl ? () => setPlaying((p) => !p) : undefined}
     >
@@ -624,18 +736,19 @@ function VideoTile({
         // visibly resize the moment someone hit play.
         preload="metadata"
         onLoadedMetadata={
-          fitHeightPx !== undefined || cropped || contain || known !== null
-            ? undefined
-            : (e) => {
+          onMeasuredRatio
+            ? (e) => {
                 const video = e.currentTarget;
-                if (video.videoWidth / video.videoHeight < EXTREME_ASPECT_RATIO)
-                  setMeasuredExtreme(true);
+                if (video.videoHeight > 0) onMeasuredRatio(video.videoWidth / video.videoHeight);
               }
+            : undefined
         }
         className={
           fitHeightPx !== undefined || contain
             ? "h-full w-full rounded-2xl bg-brand-ink object-contain"
-            : "h-full w-full rounded-2xl object-cover object-top"
+            : cropped
+              ? "h-full w-full rounded-2xl object-cover object-center"
+              : "h-full w-full rounded-2xl object-cover object-top"
         }
       />
       {canControl && (
@@ -663,7 +776,7 @@ function VideoTile({
               onPointerDownCapture={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                setMuted((m) => !m);
+                setMuted(!muted);
               }}
               className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm"
             >

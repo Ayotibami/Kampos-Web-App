@@ -69,6 +69,16 @@ export const LIMITS = {
   otp: 6,
   avitagMax: 15,
   maxMediaPerGist: 2, // matches GistMediaOverlay, which only ever shows the first 2
+  // Mirrors the backend's own gist.constants.ts (POLL_OPTION_MAX_LEN/
+  // POLL_MIN_OPTIONS/POLL_MAX_OPTIONS/POLL_GIST_TEXT_MAX_LEN) — kept in
+  // sync by hand, same as GIST_COLOR_KEYS below already is.
+  pollOptionMax: 25,
+  pollMinOptions: 2,
+  pollMaxOptions: 4,
+  // A poll's question is framing for the options, not the post's real
+  // content the way it is for a text/media gist — shorter than the
+  // general `gist` cap above on purpose.
+  pollGistTextMax: 150,
 } as const;
 
 // Onboarding carousel content — Kappy the mascot, verbatim voice from mobile.

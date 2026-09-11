@@ -11,6 +11,7 @@ import { AuthToast } from "@/components/auth/AuthToast";
 import { AdminNotificationToast } from "@/components/villagepeople/AdminNotificationToast";
 import { ThemeRouteSync } from "@/components/theme/ThemeRouteSync";
 import { FeedScrollLock } from "@/components/layout/FeedScrollLock";
+import { InputModalitySync } from "@/components/layout/InputModalitySync";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
 import { SplashScreen } from "@/components/brand/SplashScreen";
 import { env } from "@/lib/env";
@@ -158,6 +159,7 @@ export default function RootLayout({
         <SessionWatcher />
         <ThemeRouteSync />
         <FeedScrollLock />
+        <InputModalitySync />
         <OfflineSync />
         <ConnectivityPill />
         <GistActionToast />

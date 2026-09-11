@@ -1,14 +1,17 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import Lottie from "lottie-react";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
+import { Avatar } from "@/components/ui/Avatar";
 import { GistMediaOverlay } from "./GistMediaOverlay";
 import { ShortGist, PopActionButton } from "./GistCard";
 import { ExpandableText, MediaBlock, SHORT_TEXT } from "./GistMediaGrid";
 import { PollBlock } from "./PollBlock";
+import { CampusTag, MajorTag, LevelTag } from "./GistTags";
 import { ReactionButton } from "./ReactionButton";
 import { ReportModal } from "./ReportModal";
 import { ShareModal } from "./ShareModal";
@@ -29,44 +32,14 @@ import {
   DeleteIconFill,
 } from "@/components/ui/icons";
 import type { Gist, ReactionType } from "@/types";
-import { friendlyDateTime, compactNumber } from "@/lib/format";
+import { timeAgo, compactNumber } from "@/lib/format";
 
-// A single photo/video keeps its own real proportions instead of being
-// force-cropped — max-h-[420px] below (on both the image and video tiles)
-// is the one number stopping an extreme panorama or a very tall portrait
-// from taking over the list; everything under it just renders at its
-// natural size. Written as a literal class, not interpolated from a
-// constant — Tailwind resolves arbitrary values at build time by scanning
-// for literal strings, so a template-literal class name here would
-// silently never generate the CSS.
-
-// Width:height below this, even after the 420px height cap, renders as an
-// uncomfortably thin sliver with a lot of bare card beside it — a mild crop
-// down to a normal 3:4 portrait reads better than an accurate but oddly
-// narrow rectangle. Deliberately looser than it might seem: 9:16 (0.5625)
-// is one of the single most common shapes for phone-shot video/photos
-// today (Reels/Stories-style), not an outlier — the threshold sits just
-// under it so that completely normal ratio still renders fully natural,
-// and only genuinely unusual content (a scrolling screenshot, a receipt,
-// anything narrower than roughly 9:20) gets cropped. There's no way to
-// know this ahead of time from the gist payload alone (no stored
-// width/height), so MediaTile/VideoTile measure the real element once it
-// loads and only switch to the cropped layout past this point.
-// Controlled dialog, same reasoning as FeedContent.tsx's own dynamic()
-// calls — pulls the compose/edit sheet (+ its nested GiphyPicker/
-// WebcamCapture) out of the profile page's main chunk. Lottie stays eager
-// here on purpose — unlike GistCard.tsx's single, always-gated burst
-// usage, this file also has always-visible resting-state Lottie icons
-// (the mobile satellite cluster, the reaction hero icon) that render as
-// part of every card's default paint; lazy-loading those would show a
-// blank gap on first load instead of the icon.
+// Same controlled-dialog reasoning as ProfileGistCard/FeedContent's own
+// dynamic() calls.
 const CreateGistSheet = dynamic(() => import("./CreateGistSheet").then((m) => m.CreateGistSheet), {
   ssr: false,
 });
 
-// Mobile's own reaction set — same 5 as everywhere else, just listed here
-// once since the mobile picker below needs to loop over them itself
-// (ReactionButton, used on desktop, already has its own copy of this).
 const MOBILE_REACTIONS: ReactionType[] = [
   "LIKE",
   "LOVE",
@@ -75,11 +48,6 @@ const MOBILE_REACTIONS: ReactionType[] = [
   "LAUGH",
 ];
 
-// The trigger's resting look is a direct copy of MobileReactionBadge's own
-// hero+orbit — same sizes, same math — since it's meant to read as the
-// same mobile reaction identity as the feed, just opening a different
-// picker (centered on this card, not a tray) when tapped. See
-// MobileReactionBadge.tsx for the original numbers/reasoning.
 const MOBILE_HERO_SIZE = 34;
 const MOBILE_SATELLITE_SIZE = 20;
 const MOBILE_ORBIT_RADIUS = 17;
@@ -95,46 +63,42 @@ function mobileOrbitPositions(count: number, startDeg = 45) {
 }
 
 /**
- * A gist, adapted for the profile page's vertical scrolling list — same
- * data, same actions (react/edit/delete/report/share), same GistMediaOverlay
- * for the bigger view, but laid out for "sits in a list among other rows"
- * instead of GistCard's "fills one fixed-height swipe-stack slot":
+ * A gist, laid out for the main feed's vertical scrolling list — same body/
+ * footer as ProfileGistCard (react/edit/delete/report/share, the same
+ * GistMediaOverlay, media sized to its own real proportions rather than
+ * force-fit into a fixed swipe-stack slot), but WITH a real author header
+ * (avatar/name/avitag/campus-major-level tags), since unlike the profile
+ * page — where the poster's identity is already shown once, up top — the
+ * feed mixes posters from many different people in the same list.
  *
- *  - Header is just the timestamp + menu — the poster's own profile already
- *    shows their avatar/name/tags once, up top, so repeating it per gist
- *    here would just be noise.
- *  - Text-only short gists still get the feed's colored "hero" treatment
- *    (see ShortGist) — same component, sized to its own content here
- *    instead of a fixed viewport slot.
- *  - Longer text clamps with a "…more" that expands in place and stays
- *    open — no navigating away to read the rest.
- *  - Media sits BELOW the text (Twitter-style), not behind it — the
- *    feed's WhatsApp-style caption-burned-on-photo look is built for a
- *    full-bleed slot this card doesn't have.
- *  - No tap-to-open-the-full-gist-view: a plain tap does nothing here on
- *    purpose, everything (reading, reacting, watching) happens right in the
- *    list. Double-tap-to-react still works, same as the feed, just scoped
- *    off the media block (which already has its own tap meanings) the same
- *    way the feed already scopes it off media gists entirely.
+ * Deliberately a new file rather than an edit to GistCard or ProfileGistCard:
+ * neither the swipe-stack nor the profile page change at all. This is pure
+ * addition, built by recombining pieces both of them already have —
+ * GistCard's own author-header markup (richer than the admin panel's
+ * equivalent — it already carries the campus/major/level tags and the "You"
+ * badge) on top of ProfileGistCard's list-friendly body/footer/media-sizing.
  */
-export const ProfileGistCard = memo(function ProfileGistCard({
+export const FeedGistCard = memo(function FeedGistCard({
   gist,
+  showCampusTag = true,
   active,
   onToggleComments,
   onDeleted,
   onEdited,
 }: {
   gist: Gist;
+  /** Suppresses just the campus chip — the feed passes false on the Gist/
+   * School tabs (already scoped to one campus, the chip would be redundant)
+   * and true on Amebo (mixed campuses, the chip is real information). Same
+   * prop GistCard already has. */
+  showCampusTag?: boolean;
   /** True while the desktop comment panel is open AND currently showing
-   * this gist — lights up the comment button's own ring (see the footer)
-   * so it's obvious which card the panel refers to. */
+   * this gist — lights up the comment button's own ring. */
   active?: boolean;
-  /** Fires when the comment button (see the footer) is tapped — the
-   * profile page owns whether the panel is open at all and which gist
-   * it's showing, this card doesn't track that itself. */
+  /** Fires when the comment button is tapped — the feed owns whether the
+   * panel is open at all and which gist it's showing, this card doesn't
+   * track that itself. */
   onToggleComments?: () => void;
-  /** The profile page owns the gist list, not this card — same reasoning
-   * as GistCard's own onDeleted/onEdited. */
   onDeleted?: (gistId: string) => void;
   onEdited?: (gist: Gist) => void;
 }) {
@@ -171,23 +135,15 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   const hasPoll = !!gist.poll;
   const isOwn = gist.avitag === avitag;
   // A poll always gets the plain text treatment, never the colored hero
-  // box — see FeedGistCard's own identical rule for the same reasoning.
+  // box — the question needs to read as a normal caption sitting above the
+  // poll, not a big centered graphic competing with it for attention.
   const short = (gist.gist_text?.length ?? 0) < SHORT_TEXT && !hasMedia && !hasPoll;
-  // Still sitting in the offline queue, not a real gist on the server yet
-  // — same reasoning as GistCard's own isPending (see its comment there).
-  // Missing here until now was a real gap: byUser() overlays a pending
-  // gist onto your own profile the exact same way list() overlays it onto
-  // the feed, but nothing here was guarding react/share against it, so
-  // tapping either would have hit the backend with an id that doesn't
-  // exist — a confusing raw error instead of GistCard's friendly one.
+  // Still sitting in the offline queue, not a real gist on the server yet.
   const isPending = gist.gist_id.startsWith("offline-");
 
-  // Double-tap-to-react — same 300ms window as the feed. Excludes buttons/
-  // links AND anything inside the media block (`[data-media-block]`), which
-  // already has its own tap meanings (open bigger / play-pause) — same
-  // reasoning GistCard uses to keep double-tap off media gists entirely,
-  // just scoped to the media itself here instead of the whole card, since
-  // media no longer covers the whole body.
+  // Double-tap-to-react — same 300ms window as the feed's swipe-stack card.
+  // Excludes buttons/links AND anything inside the media block, which
+  // already has its own tap meanings (open bigger / play-pause).
   const lastTapRef = useRef(0);
   const [reactTrigger, setReactTrigger] = useState<{
     type: ReactionType;
@@ -215,12 +171,6 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     }
   };
 
-  // Left-hand metrics row's reactions_count, same fix as GistCard's own
-  // version — see its comment for the full reasoning. `localReaction`
-  // tracks "have I reacted" independent of which UI actually triggered it
-  // (desktop's ReactionButton or the mobile picker below both call
-  // handleReact/handleUnreact), and the delta reset happens during render
-  // (not in a useEffect) specifically to avoid the "1 → 2 → 1" flicker.
   const [localReaction, setLocalReaction] = useState<ReactionType | null>(
     gist.my_reaction ?? null,
   );
@@ -269,16 +219,6 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     }
   };
 
-  // Mobile's own reaction picker — desktop keeps the row (ReactionButton,
-  // self-contained, unchanged below). A row of 5 emoji-with-counts is wide;
-  // fine next to nothing else, too wide next to the comment button this
-  // footer also needs on the narrowest phones. Instead: a small trigger in
-  // the footer, and on tap the 5 reactions pop out centered over the
-  // card's own body — never off-screen, never overlapping a neighboring
-  // card the way a tray rising off the trigger itself could on a short
-  // card. State lives here (not in a separate component) because the
-  // trigger (footer) and the picker overlay (over the body) render in two
-  // different places in the tree and need to share it.
   const isMobile = useIsMobile();
   const [mobilePickerOpen, setMobilePickerOpen] = useState(false);
   const [mobileActive, setMobileActive] = useState<ReactionType | null>(
@@ -287,19 +227,6 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   const [mobileDelta, setMobileDelta] = useState<
     Partial<Record<ReactionType, number>>
   >({});
-  // Same fix as MobileReactionBadge/ReactionButton — gist.counts.reactions_by_type
-  // gets a new object reference on EVERY counts:updated broadcast for this
-  // gist, including ones about a view/share/comment that have nothing to
-  // do with reactions (the backend always includes the full breakdown
-  // regardless of what changed). Clearing on any reference change would
-  // wipe a still-pending optimistic bump early if one of those unrelated
-  // broadcasts landed first, so this clears per-type — only for whichever
-  // type's real number actually moved, which also correctly handles a
-  // same-total type switch (both halves move, both clear) without
-  // touching an untouched type. During render, not in a useEffect: an
-  // effect would still commit one visible frame with the fresh prop AND
-  // the stale delta added together first (the "1 → 2 → 1" flicker) before
-  // fixing itself a tick later.
   const prevReactionsByTypeRef = useRef(gist.counts?.reactions_by_type);
   if (prevReactionsByTypeRef.current !== gist.counts?.reactions_by_type) {
     const prevByType = prevReactionsByTypeRef.current;
@@ -323,8 +250,6 @@ export const ProfileGistCard = memo(function ProfileGistCard({
       0,
       (gist.counts?.reactions_by_type?.[type] ?? 0) + (mobileDelta[type] ?? 0),
     );
-  // The trigger's satellites are whichever reactions AREN'T the active one
-  // (already shown as the hero) — same exclusion MobileReactionBadge uses.
   const mobileRestReactions = MOBILE_REACTIONS.filter(
     (t) => t !== mobileActive,
   );
@@ -337,10 +262,6 @@ export const ProfileGistCard = memo(function ProfileGistCard({
       setMobileActive(null);
       handleUnreact();
     } else {
-      // Date.now() here is just a unique key for the burst animation (see
-      // GistCard's own identical use for the same purpose) — genuinely
-      // fine to call from an event handler, the compiler's purity check is
-      // just conservative about it regardless of call site.
       // eslint-disable-next-line react-hooks/purity
       const burstId = Date.now();
       setMobileDelta((p) => ({
@@ -355,12 +276,6 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     setMobilePickerOpen(false);
   };
 
-  // Double-tap (see handleDoubleTapReact above) only ever drives
-  // ReactionButton's externalTrigger prop on desktop — that component
-  // isn't mounted on mobile at all, so this mirrors the same sync for the
-  // picker's own local state here. Guarded to mobile only: without that,
-  // this would ALSO fire alongside ReactionButton's own identical
-  // externalTrigger effect on desktop, double-submitting the same react.
   useEffect(() => {
     if (!isMobile || !reactTrigger) return;
     if (mobileActive === reactTrigger.type) return;
@@ -387,8 +302,6 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   const shareText = `${shareCaption}\n\n${shareUrl}`;
 
   const handleShare = async () => {
-    // The shareUrl above points at /gist/<offline-id>, which doesn't exist
-    // server-side yet — nothing to share until this post has actually synced.
     if (isPending) {
       setReactError("Still saving — you can share this once it's back online and synced.");
       return;
@@ -445,12 +358,6 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     return () => document.removeEventListener("mousedown", onClick);
   }, [showActions]);
 
-  // Same "click outside closes it" pattern as the actions menu above — the
-  // reaction picker's own backdrop already closes it for a tap anywhere
-  // WITHIN this card, but with many of these cards in a list, tapping a
-  // DIFFERENT card's trigger is a click entirely outside this one's own
-  // DOM, which the backdrop alone never sees. Without this, opening a
-  // second card's picker left the first one's still open underneath.
   useEffect(() => {
     if (!mobilePickerOpen) return;
     const onClick = (e: MouseEvent) => {
@@ -462,10 +369,8 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     return () => document.removeEventListener("mousedown", onClick);
   }, [mobilePickerOpen]);
 
-  // Same reachable-only-via-a-shared-link exception as GistCard — see its
-  // own comment. Kept here too since this card can render a REJECTED gist
-  // the exact same way if this list is ever reused somewhere that exception
-  // applies.
+  // Same reachable-only-via-a-shared-link exception GistCard/ProfileGistCard
+  // both already carry — see either's own comment.
   if (gist.gist_status === "REJECTED") {
     return (
       <div className="flex flex-col items-center justify-center gap-3 rounded-[26px] border border-line bg-surface-2 p-8 text-center shadow-sm">
@@ -483,30 +388,61 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   }
 
   return (
-    // border + shadow (not just the feed card's own faint inset highlight)
-    // — surface-2 (#fff) sits only a hair off surface (#fcfcff) in light
-    // mode, invisible on its own with nothing else on the page to break it
-    // up the way the feed's full-bleed stack card has. Dark mode's two
-    // tokens are already far enough apart that this isn't an issue there,
-    // but the border/shadow read fine either way, so no dark: override.
     <div
       ref={cardRef}
       className="relative rounded-[26px] border border-line bg-surface-2 shadow-sm"
     >
-      {/* Header — just the timestamp + menu, not the poster's identity
-          again (see the component doc comment above). */}
-      <div className="flex items-center justify-between px-4 pt-3.5">
-        <span className="font-nunito text-xs font-semibold text-faint md:text-[13px]">
-          {friendlyDateTime(gist.created_at)}
-        </span>
+      {/* Header — the feed's own author identity (GistCard's header, not
+          ProfileGistCard's bare timestamp): avatar/name/avitag/You-badge/
+          timestamp, then campus/major/level tags on their own row, since
+          this list mixes posters instead of sitting on one person's own
+          profile. */}
+      <div className="relative z-20 flex items-start gap-3 px-4 pt-3.5">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <Link
+            href={`/${gist.avitag}`}
+            className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line"
+          >
+            <Avatar src={gist.image_url} />
+          </Link>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <Link
+                href={`/${gist.avitag}`}
+                className="min-w-0 shrink truncate font-nunito text-sm font-bold text-ink md:text-[15px]"
+              >
+                {gist.first_name || gist.name || gist.avitag}
+              </Link>
+              {isOwn && (
+                <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-brand md:text-[11px]">
+                  You
+                </span>
+              )}
+              <Link
+                href={`/${gist.avitag}`}
+                className="min-w-0 shrink truncate font-nunito text-xs text-faint md:text-[13px]"
+              >
+                {gist.avitag}
+              </Link>
+              <span className="shrink-0 font-nunito text-xs text-faint md:text-[13px]">
+                · {timeAgo(gist.created_at)}
+              </span>
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+              {showCampusTag && gist.campus_tag && <CampusTag>{gist.campus_tag}</CampusTag>}
+              {gist.major_tag && <MajorTag>{gist.major_tag}</MajorTag>}
+              {gist.level && <LevelTag>{gist.level}</LevelTag>}
+            </div>
+          </div>
+        </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          {isPending && (
-            <span className="shrink-0 rounded-full bg-warning/15 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-warning md:text-[11px]">
-              Pending
-            </span>
-          )}
-          <div ref={actionsRef} className="relative z-20 shrink-0">
+        {isPending && (
+          <span className="mt-1.5 shrink-0 rounded-full bg-warning/15 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-warning md:text-[11px]">
+            Pending
+          </span>
+        )}
+
+        <div ref={actionsRef} className="relative z-20 shrink-0">
           <motion.button
             type="button"
             aria-label={showActions ? "Close actions" : "More actions"}
@@ -569,12 +505,13 @@ export const ProfileGistCard = memo(function ProfileGistCard({
               </motion.div>
             )}
           </AnimatePresence>
-          </div>
         </div>
       </div>
 
       {/* Body — a plain tap does nothing (no navigation), double-tap
-          reacts. Text first, media (if any) below it. */}
+          reacts. Text first, media (if any) below it, at its own real
+          proportions (see MediaBlock's own callers for the difference —
+          no fitHeightPx/stackDuo/active passed here). */}
       <div onClick={handleDoubleTapReact} className="relative px-4 pt-2.5">
         {short ? (
           <ShortGist
@@ -626,15 +563,8 @@ export const ProfileGistCard = memo(function ProfileGistCard({
         </AnimatePresence>
       </div>
 
-      {/* Footer — date/reactions/views/shares on the left (flex-nowrap +
-          this cluster's own overflow-x-auto mirrors GistCard's own footer:
-          on the narrowest phones, letting stats scroll keeps the row on the
-          right from ever being squeezed or wrapped onto its own line), the
-          reaction row plus the comment toggle on the right. Comments moved
-          OUT of this stats cluster into their own button — it's not just a
-          count here, it's what opens/closes the desktop comment panel (see
-          ProfileView), so it needs to be a real tappable target, not a
-          plain stat. */}
+      {/* Footer — stats on the left, reaction control + comment toggle on
+          the right. Same layout ProfileGistCard already uses. */}
       <div className="relative mt-2 flex flex-nowrap items-center justify-between gap-x-3 gap-y-1 border-t border-line/40 px-4 pb-3.5 pt-2.5">
         <div className="no-scrollbar flex min-w-0 items-center gap-3 overflow-x-auto text-faint">
           <span className="flex shrink-0 items-center gap-1 font-nunito text-xs md:text-[13px]">
@@ -652,10 +582,6 @@ export const ProfileGistCard = memo(function ProfileGistCard({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {isMobile ? (
-            // Exact copy of MobileReactionBadge's resting look (hero +
-            // orbiting satellites) — see the MOBILE_HERO_SIZE/etc constants
-            // above. Only what tapping the hero opens differs (the
-            // centered-on-card picker above, not an upward tray).
             <div
               className="relative shrink-0"
               style={{
@@ -730,15 +656,6 @@ export const ProfileGistCard = memo(function ProfileGistCard({
               guardClick={() => requireAuth("react to gists")}
             />
           )}
-          {/* Same solid brand-filled look as the feed's own mobile
-              icon+count comment trigger (FeedContent.tsx) — icon and count
-              side by side here instead of stacked, since this sits in a
-              row next to the reactions rather than alone in a bottom bar.
-              The extra ring when `active` is the only cue that this
-              specific gist is the one currently showing in the panel — the
-              button itself looks the same whether the panel is open on a
-              DIFFERENT gist or closed entirely, on purpose: what matters
-              here is "is it open for THIS one," not "is it open at all". */}
           <button
             type="button"
             onClick={onToggleComments}
@@ -803,15 +720,6 @@ export const ProfileGistCard = memo(function ProfileGistCard({
         message={reactError}
       />
 
-      {/* Mobile reaction picker — a sibling of the header/body/footer here
-          (not nested inside the body, where it used to live) specifically
-          so `absolute inset-0` resolves against the CARD's own bounds, not
-          just the body's — the dimmed backdrop needs to cover the whole
-          card (header + footer included), not leave the timestamp/menu row
-          and the footer itself sitting uncovered above and below it. Not
-          pointer-events-none like centerBurst — this one's interactive.
-          Tapping the dimmed backdrop (not one of the 5 buttons) closes it
-          without reacting. */}
       <AnimatePresence>
         {mobilePickerOpen && (
           <motion.div
