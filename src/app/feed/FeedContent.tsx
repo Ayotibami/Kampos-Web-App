@@ -789,7 +789,9 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                     {!exhausted && <div ref={sentinelRef} aria-hidden className="h-1 w-full" />}
                     {loadingMore && (
                       <div className="mt-3 space-y-3">
-                        <FeedGistCardSkeleton variant="text" />
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <FeedGistCardSkeleton key={i} variant="text" />
+                        ))}
                       </div>
                     )}
                   </div>

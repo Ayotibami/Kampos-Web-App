@@ -73,7 +73,7 @@ const BOUNCE_INTERVAL_MS = 5_000;
 // list actually has (short hero, plain long text, media) instead of
 // reading as one block repeated.
 const SKELETON_VARIANTS = ["media", "text", "hero", "text"] as const;
-const LOAD_MORE_SKELETON_VARIANTS = ["text", "hero"] as const;
+const LOAD_MORE_SKELETON_VARIANTS = ["text", "hero", "text", "media", "text"] as const;
 
 /** The short tag chip next to the display name (e.g. "UNILAG", "COMP-SCI") —
  * profile-page-only, deliberately simpler than GistCard's own CampusTag/
