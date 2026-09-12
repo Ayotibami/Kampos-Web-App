@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SettingsPageShell } from "@/components/settings/SettingsPageShell";
 import { SettingsRow } from "@/components/settings/SettingsRow";
@@ -62,9 +62,25 @@ export function SettingsHub() {
   const avitag = useAuthStore((s) => s.avitag);
   const backHref = avitag ? `/${avitag}` : "/feed";
 
+  // useIsMobile() always starts `false`, even on an actual phone — real
+  // mobile only corrects to `true` a beat later, once its own layout effect
+  // runs (see that hook's own doc for why). That's invisible for anything
+  // that just re-renders, but this effect makes a one-way router.replace()
+  // call — if it reads that still-not-yet-corrected `false` on a genuine
+  // phone, it navigates away before the correction ever has a chance to
+  // matter, and there's no undoing a navigation that already fired.
+  // `checked` is what actually tells "haven't looked yet" apart from
+  // "looked, and it's really desktop" — both read as `isMobile === false`
+  // on their own, but only one of them should ever trigger the redirect.
+  const [checked, setChecked] = useState(false);
+  useLayoutEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setChecked(true);
+  }, []);
+
   useEffect(() => {
-    if (!isMobile) router.replace("/settings/profile");
-  }, [isMobile, router]);
+    if (checked && !isMobile) router.replace("/settings/profile");
+  }, [checked, isMobile, router]);
 
   return (
     <div className="flex flex-1 flex-col md:hidden">
