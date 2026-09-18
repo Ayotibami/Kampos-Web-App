@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence, type MotionValue } from "framer-motion";
@@ -8,6 +8,7 @@ import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
 import { Avatar } from "@/components/ui/Avatar";
 import { SHORT_TEXT, ExpandableText, MediaBlock } from "./GistMediaGrid";
 import { GistMediaOverlay } from "./GistMediaOverlay";
+import { PollBlock } from "./PollBlock";
 import { CampusTag, MajorTag, LevelTag } from "./GistTags";
 import { ReactionButton } from "./ReactionButton";
 import { MobileReactionBadge } from "./MobileReactionBadge";
@@ -28,6 +29,8 @@ import {
   ViewIconFill,
   EditIconFill,
   DeleteIconFill,
+  AnonymousIconFill,
+  AlertCircle,
 } from "@/components/ui/icons";
 import type { Gist, ReactionType } from "@/types";
 import { gistColorForGist } from "@/lib/brand";
@@ -483,39 +486,57 @@ export const GistCard = memo(function GistCard({
             button — nesting a button inside an anchor is invalid. Same
             /avitag route whether it's your own profile or someone else's. */}
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <Link
-            href={`/${gist.avitag}`}
-            className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line"
-          >
-            <Avatar src={gist.image_url} />
-          </Link>
+          {/* Anonymous: mask avatar, not a Link — see FeedGistCard's own
+              doc on why (the real avitag never reaches this component's
+              props for anyone but the poster themselves; the backend
+              already redacted it, see gist.repo.ts's redactIfAnonymous). */}
+          {gist.is_anonymous ? (
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-ink ring-1 ring-line">
+              <AnonymousIconFill className="h-5 w-5 text-white" />
+            </div>
+          ) : (
+            <Link
+              href={`/${gist.avitag}`}
+              className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line"
+            >
+              <Avatar src={gist.image_url} />
+            </Link>
+          )}
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1.5">
-              <Link
-                href={`/${gist.avitag}`}
-                className="min-w-0 shrink truncate font-nunito text-sm font-bold text-ink md:text-[15px]"
-              >
-                {gist.first_name || gist.name || gist.avitag}
-              </Link>
+              {gist.is_anonymous ? (
+                <span className="min-w-0 shrink truncate font-nunito text-sm font-bold text-ink md:text-[15px]">
+                  Anonymous
+                </span>
+              ) : (
+                <Link
+                  href={`/${gist.avitag}`}
+                  className="min-w-0 shrink truncate font-nunito text-sm font-bold text-ink md:text-[15px]"
+                >
+                  {gist.first_name || gist.name || gist.avitag}
+                </Link>
+              )}
               {isOwn && (
                 <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-brand md:text-[11px]">
                   You
                 </span>
               )}
-              <Link
-                href={`/${gist.avitag}`}
-                className="min-w-0 shrink truncate font-nunito text-xs text-faint md:text-[13px]"
-              >
-                {gist.avitag}
-              </Link>
+              {!gist.is_anonymous && (
+                <Link
+                  href={`/${gist.avitag}`}
+                  className="min-w-0 shrink truncate font-nunito text-xs text-faint md:text-[13px]"
+                >
+                  {gist.avitag}
+                </Link>
+              )}
               <span className="shrink-0 font-nunito text-xs text-faint md:text-[13px]">
                 · {timeAgo(gist.created_at)}
               </span>
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
               {showCampusTag && gist.campus_tag && <CampusTag>{gist.campus_tag}</CampusTag>}
-              {gist.major_tag && <MajorTag>{gist.major_tag}</MajorTag>}
-              {gist.level && <LevelTag>{gist.level}</LevelTag>}
+              {!gist.is_anonymous && gist.major_tag && <MajorTag>{gist.major_tag}</MajorTag>}
+              {!gist.is_anonymous && gist.level && <LevelTag>{gist.level}</LevelTag>}
             </div>
           </div>
         </div>
@@ -937,6 +958,212 @@ export function ShortGist({
       >
         {text}
       </p>
+    </div>
+  );
+}
+
+/** The quoted gist's own body — text, its own real poll (PollBlock, the
+ * same interactive component any gist's poll renders with — voting on
+ * it from inside the quote genuinely votes on the ORIGINAL gist, same
+ * gist_id either way, not a separate read-only copy), and its own real
+ * media rendered the same way any gist's media renders (MediaBlock + a
+ * real full-screen GistMediaOverlay on tap, up to 2 items, not a shrunk
+ * preview thumbnail). Its own local overlayIndex state, independent of
+ * whatever overlay state the OUTER (reposting) card's own media might
+ * have — these are two unrelated gists, each gets its own overlay. */
+function QuotedGistBody({ gist }: { gist: Gist }) {
+  const [overlayIndex, setOverlayIndex] = useState<number | null>(null);
+  const hasMedia = !!gist.media?.length;
+  const hasPoll = !!gist.poll;
+  const short = (gist.gist_text?.length ?? 0) < SHORT_TEXT && !hasMedia && !hasPoll;
+
+  if (short) {
+    return <ShortGist text={gist.gist_text} colorKey={gist.color_key} fallbackSeed={gist.gist_id} />;
+  }
+
+  return (
+    <>
+      {gist.gist_text && (
+        <p className="line-clamp-6 font-nunito text-[13px] leading-snug text-ink/80">
+          {gist.gist_text}
+        </p>
+      )}
+      {hasPoll && <PollBlock gistId={gist.gist_id} poll={gist.poll!} />}
+      {hasMedia && (
+        <div className={gist.gist_text ? "mt-2" : undefined}>
+          <MediaBlock
+            media={gist.media!}
+            onOpenOverlay={(i) => setOverlayIndex(i)}
+            overlayOpen={overlayIndex !== null}
+          />
+        </div>
+      )}
+      {hasMedia && overlayIndex !== null && (
+        <GistMediaOverlay
+          media={gist.media!}
+          startIndex={overlayIndex}
+          startTime={0}
+          onClose={() => setOverlayIndex(null)}
+        />
+      )}
+    </>
+  );
+}
+
+/** A Yarn back's nested original — rendered exactly as it was actually
+ * posted (its own color_key/hero status, its own real media), never
+ * touched by the reposter's own color pick above it. Full poster
+ * identity — avatar, name, avitag, campus/major/level tags, all
+ * linking to their real profile — same bar the real card header holds
+ * itself to. Bordered/tinted box, poster row on top, body below — the
+ * composer's own quote preview, and anywhere else the quote needs to
+ * read as one distinct block sitting loose in a column (FeedGistCard/
+ * ProfileGistCard use RepostThreadLine's own quoted row instead — see
+ * below — since a thread reads better than a second nested box once
+ * there's already a header avatar to connect a line to). */
+export function QuotedGistPreview({ gist }: { gist: Gist }) {
+  return (
+    <div className="mt-2.5 shrink-0 overflow-hidden rounded-3xl ring-1 ring-black/5 dark:ring-white/10">
+      <div className="flex items-center gap-2 bg-black/[0.03] px-3 py-2.5 dark:bg-white/5">
+        <QuotedGistPosterAvatarOnly gist={gist} size="h-7 w-7" />
+        <QuotedGistPosterDetailsOnly gist={gist} />
+      </div>
+      <div className="bg-black/[0.015] px-3 pb-3 dark:bg-white/[0.02]">
+        <QuotedGistBody gist={gist} />
+      </div>
+    </div>
+  );
+}
+
+/** The reply-thread layout — a connecting line running from the header
+ * avatar right above this (rendered by the caller, not here) down to
+ * the quoted poster's own avatar, which this component renders itself
+ * rather than taking it as a child. That's deliberate: the line and
+ * the quoted avatar both live in the exact same `left-4 w-11
+ * justify-center` column, defined once, right here — so they're
+ * pixel-aligned by construction (same column, same classes) instead of
+ * by two separately-authored elements happening to compute the same
+ * offset. The reposter's own content (children) sits in the indented
+ * column beside the line; the quoted poster's row sits below it, in
+ * that same aligned column; the quoted BODY (text/media) renders last,
+ * indented to match but without the line running beside it — same as
+ * any reply-thread UI, the line joins the two avatars and stops there,
+ * it doesn't keep going alongside whatever the second message says.
+ *
+ * The line itself is an absolutely-positioned `inset-y-0` div, not a
+ * CSS Grid `items-stretch` column — grid/flex stretch was the first
+ * attempt, but stretching the content column gives it a DEFINITE
+ * height, and ShortGist's own `h-full` (meant for a totally different,
+ * already-height-constrained context) then resolves against that and
+ * blows up to fill it, shoving everything below down past the footer
+ * and into the next card. `top-0 bottom-0` on an absolutely positioned
+ * element doesn't have that problem — it reads the already-laid-out
+ * height of this wrapper (set purely by the in-flow content, nothing
+ * stretching it), so the line always reaches exactly from the header
+ * avatar down to the quoted poster's row, regardless of how tall the
+ * stuff between them is, with no circular sizing. Only ever mounted
+ * when there's a quoted gist — the normal (non-repost) card layout
+ * never touches this. */
+export function RepostThreadLine({
+  children,
+  quotedGist,
+}: {
+  children: ReactNode;
+  /** Null specifically means "this WAS a repost, but the original has
+   * since been deleted" (quoted_gist_id survives deletion now — see
+   * KamposBackend migration 0044 — so the caller can still tell that
+   * apart from "never was a repost," which never renders this component
+   * at all). Shows a "no longer available" placeholder instead of the
+   * usual avatar/details/body. */
+  quotedGist: Gist | null;
+}) {
+  return (
+    <div className="px-4">
+      {/* The line's height is bound to THIS wrapper alone, and this
+          wrapper holds nothing but `children` (the reposter's own
+          content) — not the quoted avatar row, not the quoted body.
+          That's deliberate: a row's rendered height depends on how much
+          text is in it (a long name, three tags that wrap to a second
+          line), which varies per gist — bounding the line to that row
+          made the line's length depend on content it has no business
+          depending on, so it undershot or overshot depending on what
+          the quoted poster's name/tags happened to be. Stopping at the
+          top of the quoted row instead removes that dependency
+          entirely: the line's length is always exactly `children`'s
+          height, full stop, regardless of anything about the quoted
+          gist. It arrives right where the second avatar begins rather
+          than reaching into its center, which is the tradeoff for
+          being correct by construction instead of by matching a
+          height that can change out from under it. */}
+      <div className="relative">
+        <div className="pointer-events-none absolute inset-y-0 left-0 flex w-11 justify-center">
+          <div className="absolute inset-y-0 w-0.5 rounded-full bg-line" />
+        </div>
+        <div className="min-w-0 pl-[56px]">{children}</div>
+      </div>
+      {quotedGist ? (
+        <>
+          <div className="mt-3.5 flex items-center gap-2">
+            <div className="flex w-11 shrink-0 justify-center">
+              <QuotedGistPosterAvatarOnly gist={quotedGist} />
+            </div>
+            <QuotedGistPosterDetailsOnly gist={quotedGist} />
+          </div>
+          <div className="mt-2 pl-[56px]">
+            <QuotedGistBody gist={quotedGist} />
+          </div>
+        </>
+      ) : (
+        <div className="mt-3.5 flex items-center gap-1.5 pl-[56px]">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 text-faint" />
+          <p className="font-nunito text-[13px] italic text-faint">This gist is no longer available</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QuotedGistPosterAvatarOnly({
+  gist,
+  size = "h-8 w-8",
+}: {
+  gist: Gist;
+  size?: "h-7 w-7" | "h-8 w-8";
+}) {
+  const avatar = (
+    <div className={`shrink-0 overflow-hidden rounded-full bg-brand-light ${size}`}>
+      <Avatar src={gist.image_url ?? undefined} />
+    </div>
+  );
+  return gist.is_anonymous ? avatar : <Link href={`/${gist.avitag}`}>{avatar}</Link>;
+}
+
+function QuotedGistPosterDetailsOnly({ gist }: { gist: Gist }) {
+  const nameEl = (
+    <span className="min-w-0 shrink truncate font-nunito text-xs font-bold text-ink">
+      {gist.is_anonymous ? "Anonymous" : gist.first_name || gist.name || gist.avitag}
+    </span>
+  );
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 items-baseline gap-1.5">
+        {gist.is_anonymous ? nameEl : <Link href={`/${gist.avitag}`}>{nameEl}</Link>}
+        {!gist.is_anonymous && (
+          <Link
+            href={`/${gist.avitag}`}
+            className="min-w-0 shrink truncate font-nunito text-[11px] text-faint"
+          >
+            {gist.avitag}
+          </Link>
+        )}
+      </div>
+      {!gist.is_anonymous && (gist.campus_tag || gist.major_tag || gist.level) && (
+        <div className="mt-0.5 flex flex-wrap items-center gap-1">
+          {gist.campus_tag && <CampusTag>{gist.campus_tag}</CampusTag>}
+          {gist.major_tag && <MajorTag>{gist.major_tag}</MajorTag>}
+          {gist.level && <LevelTag>{gist.level}</LevelTag>}
+        </div>
+      )}
     </div>
   );
 }

@@ -8,7 +8,7 @@ import Lottie from "lottie-react";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
 import { Avatar } from "@/components/ui/Avatar";
 import { GistMediaOverlay } from "./GistMediaOverlay";
-import { ShortGist, PopActionButton } from "./GistCard";
+import { ShortGist, PopActionButton, RepostThreadLine } from "./GistCard";
 import { ExpandableText, MediaBlock, SHORT_TEXT } from "./GistMediaGrid";
 import { PollBlock } from "./PollBlock";
 import { CampusTag, MajorTag, LevelTag } from "./GistTags";
@@ -30,6 +30,8 @@ import {
   CommentIconFill,
   EditIconFill,
   DeleteIconFill,
+  AnonymousIconFill,
+  RepostIconFill,
 } from "@/components/ui/icons";
 import type { Gist, ReactionType } from "@/types";
 import { timeAgo, compactNumber } from "@/lib/format";
@@ -85,6 +87,7 @@ export const FeedGistCard = memo(function FeedGistCard({
   onToggleComments,
   onDeleted,
   onEdited,
+  onReposted,
 }: {
   gist: Gist;
   /** Suppresses just the campus chip — the feed passes false on the Gist/
@@ -101,6 +104,11 @@ export const FeedGistCard = memo(function FeedGistCard({
   onToggleComments?: () => void;
   onDeleted?: (gistId: string) => void;
   onEdited?: (gist: Gist) => void;
+  /** Fires with the fresh Yarn back gist once it's actually posted — the
+   * feed owns prepending it to what's visible, same reasoning as onEdited
+   * splicing an edit in place rather than this card tracking its own
+   * copy of the list. */
+  onReposted?: (gist: Gist) => void;
 }) {
   const reactGist = useGistStore((s) => s.react);
   const unreactGist = useGistStore((s) => s.unreact);
@@ -114,6 +122,7 @@ export const FeedGistCard = memo(function FeedGistCard({
   const [reporting, setReporting] = useState(false);
   const [reported, setReported] = useState(!!gist.my_report);
   const [showEdit, setShowEdit] = useState(false);
+  const [showYarnBack, setShowYarnBack] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -399,39 +408,68 @@ export const FeedGistCard = memo(function FeedGistCard({
           profile. */}
       <div className="relative z-20 flex items-start gap-3 px-4 pt-3.5">
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <Link
-            href={`/${gist.avitag}`}
-            className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line"
-          >
-            <Avatar src={gist.image_url} />
-          </Link>
+          {/* Anonymous: mask avatar, not a Link — the real avitag never
+              reaches this component's props for anyone but the poster
+              themselves (the backend already redacted it, see
+              gist.repo.ts's redactIfAnonymous), so there's genuinely
+              nothing here to link to for anyone else. Even for the poster's
+              own view, a Link would be pointless (their own profile), so
+              it's dropped unconditionally rather than only for other
+              viewers. */}
+          {gist.is_anonymous ? (
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-ink ring-1 ring-line">
+              <AnonymousIconFill className="h-5 w-5 text-white" />
+            </div>
+          ) : (
+            <Link
+              href={`/${gist.avitag}`}
+              className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line"
+            >
+              <Avatar src={gist.image_url} />
+            </Link>
+          )}
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1.5">
-              <Link
-                href={`/${gist.avitag}`}
-                className="min-w-0 shrink truncate font-nunito text-sm font-bold text-ink md:text-[15px]"
-              >
-                {gist.first_name || gist.name || gist.avitag}
-              </Link>
+              {gist.is_anonymous ? (
+                <span className="min-w-0 shrink truncate font-nunito text-sm font-bold text-ink md:text-[15px]">
+                  Anonymous
+                </span>
+              ) : (
+                <Link
+                  href={`/${gist.avitag}`}
+                  className="min-w-0 shrink truncate font-nunito text-sm font-bold text-ink md:text-[15px]"
+                >
+                  {gist.first_name || gist.name || gist.avitag}
+                </Link>
+              )}
               {isOwn && (
                 <span className="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-brand md:text-[11px]">
                   You
                 </span>
               )}
-              <Link
-                href={`/${gist.avitag}`}
-                className="min-w-0 shrink truncate font-nunito text-xs text-faint md:text-[13px]"
-              >
-                {gist.avitag}
-              </Link>
+              {/* No @avitag row for an anonymous post — there's no handle
+                  to show, and one sitting next to "Anonymous" would be
+                  self-defeating. */}
+              {!gist.is_anonymous && (
+                <Link
+                  href={`/${gist.avitag}`}
+                  className="min-w-0 shrink truncate font-nunito text-xs text-faint md:text-[13px]"
+                >
+                  {gist.avitag}
+                </Link>
+              )}
               <span className="shrink-0 font-nunito text-xs text-faint md:text-[13px]">
                 · {timeAgo(gist.created_at)}
               </span>
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
               {showCampusTag && gist.campus_tag && <CampusTag>{gist.campus_tag}</CampusTag>}
-              {gist.major_tag && <MajorTag>{gist.major_tag}</MajorTag>}
-              {gist.level && <LevelTag>{gist.level}</LevelTag>}
+              {/* Major/level dropped for an anonymous post — a campus is a
+                  whole school, not identifying on its own, but "300L EEE"
+                  narrows a small department down to a handful of real
+                  people. */}
+              {!gist.is_anonymous && gist.major_tag && <MajorTag>{gist.major_tag}</MajorTag>}
+              {!gist.is_anonymous && gist.level && <LevelTag>{gist.level}</LevelTag>}
             </div>
           </div>
         </div>
@@ -512,30 +550,49 @@ export const FeedGistCard = memo(function FeedGistCard({
           reacts. Text first, media (if any) below it, at its own real
           proportions (see MediaBlock's own callers for the difference —
           no fitHeightPx/stackDuo/active passed here). */}
-      <div onClick={handleDoubleTapReact} className="relative px-4 pt-2.5">
-        {short ? (
-          <ShortGist
-            text={gist.gist_text}
-            colorKey={gist.color_key}
-            fallbackSeed={gist.gist_id}
-          />
-        ) : (
-          gist.gist_text && <ExpandableText text={gist.gist_text} />
-        )}
+      <div
+        onClick={handleDoubleTapReact}
+        className={gist.quoted_gist_id ? "relative pt-2.5" : "relative px-4 pt-2.5"}
+      >
+        {(() => {
+          const content = (
+            <>
+              {short ? (
+                <ShortGist
+                  text={gist.gist_text}
+                  colorKey={gist.color_key}
+                  fallbackSeed={gist.gist_id}
+                />
+              ) : (
+                gist.gist_text && <ExpandableText text={gist.gist_text} />
+              )}
 
-        {hasPoll && <PollBlock gistId={gist.gist_id} poll={gist.poll!} />}
+              {hasPoll && <PollBlock gistId={gist.gist_id} poll={gist.poll!} />}
 
-        {hasMedia && (
-          <MediaBlock
-            media={gist.media!}
-            onOpenOverlay={(index) => {
-              setOverlayStartTime(videoSyncRef.current?.getCurrentTime() ?? 0);
-              setOverlayIndex(index);
-            }}
-            overlayOpen={overlayIndex !== null}
-            videoSyncRef={videoSyncRef}
-          />
-        )}
+              {hasMedia && (
+                <MediaBlock
+                  media={gist.media!}
+                  onOpenOverlay={(index) => {
+                    setOverlayStartTime(videoSyncRef.current?.getCurrentTime() ?? 0);
+                    setOverlayIndex(index);
+                  }}
+                  overlayOpen={overlayIndex !== null}
+                  videoSyncRef={videoSyncRef}
+                />
+              )}
+            </>
+          );
+          // Reposts get the reply-thread treatment — a line continuing
+          // down from the header avatar to the quoted poster's own
+          // avatar (see RepostThreadLine's own doc for why it renders
+          // that row itself instead of taking it as a child). A plain
+          // gist skips this entirely, unchanged.
+          return gist.quoted_gist_id ? (
+            <RepostThreadLine quotedGist={gist.quoted_gist ?? null}>{content}</RepostThreadLine>
+          ) : (
+            content
+          );
+        })()}
 
         <AnimatePresence>
           {centerBurst && (
@@ -581,6 +638,22 @@ export const FeedGistCard = memo(function FeedGistCard({
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (!requireAuth("yarn back gists")) return;
+              setShowYarnBack(true);
+            }}
+            aria-label="Yarn back this gist"
+            className="flex shrink-0 items-center gap-1 rounded-full bg-brand px-2.5 py-1.5 text-white shadow-sm shadow-brand/30 transition"
+          >
+            <RepostIconFill className="h-3.5 w-3.5" weight="fill" />
+            {!!gist.counts?.reposts_count && (
+              <span className="font-nunito text-[11px] font-bold leading-none tabular-nums">
+                {compactNumber(gist.counts.reposts_count)}
+              </span>
+            )}
+          </button>
           {isMobile ? (
             <div
               className="relative shrink-0"
@@ -666,9 +739,11 @@ export const FeedGistCard = memo(function FeedGistCard({
             }`}
           >
             <CommentIconFill className="h-3.5 w-3.5" weight="fill" />
-            <span className="font-nunito text-[11px] font-bold leading-none tabular-nums">
-              {compactNumber(gist.counts?.comments_count)}
-            </span>
+            {!!gist.counts?.comments_count && (
+              <span className="font-nunito text-[11px] font-bold leading-none tabular-nums">
+                {compactNumber(gist.counts.comments_count)}
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -678,6 +753,13 @@ export const FeedGistCard = memo(function FeedGistCard({
         onClose={() => setShowEdit(false)}
         editGist={gist}
         onPosted={(fresh) => onEdited?.(fresh)}
+      />
+
+      <CreateGistSheet
+        open={showYarnBack}
+        onClose={() => setShowYarnBack(false)}
+        quoteGist={gist}
+        onPosted={(fresh) => onReposted?.(fresh)}
       />
 
       <ConfirmModal

@@ -93,6 +93,9 @@ export interface GistCounts {
   views_count: number;
   reports_count: number;
   shares_count?: number;
+  /** Yarn back (quote-repost) count — absent/0 hides the count in the UI,
+   * the icon alone is shown instead. */
+  reposts_count?: number;
   /** Per-emoji reaction breakdown, mirrors the backend's reaction-count-by-type. */
   reactions_by_type?: Partial<Record<ReactionType, number>>;
 }
@@ -144,6 +147,29 @@ export interface Gist {
    * chose "poll" instead of media in the composer. Mutually exclusive with
    * `media`; a gist never has both (see CreateGistSheet's own poll mode). */
   poll?: GistPoll | null;
+  /** Pseudonymous, not truly anonymous — create-only, locked at posting
+   * time. When true and the viewer isn't the poster, the backend has
+   * already redacted avitag/first_name/image_url/major_tag/level to
+   * null/a placeholder before this ever reaches the client (see
+   * gist.repo.ts's redactIfAnonymous) — the frontend never does its own
+   * hiding of real data that already arrived in the response. */
+  is_anonymous?: boolean;
+  /** Which gist this one is Yarning back — absent entirely on a plain
+   * (non-repost) gist, present forever once set (create-only, survives
+   * the original being deleted — see KamposBackend migration 0044).
+   * Check THIS, not `quoted_gist` below, to decide whether to render the
+   * repost UI at all: `quoted_gist_id` set + `quoted_gist` null means the
+   * original has been deleted (render a "no longer available" state —
+   * RepostThreadLine's own null-quotedGist branch does this already),
+   * NOT "not a repost." */
+  quoted_gist_id?: string | null;
+  /** The original gist's actual content, joined server-side — null when
+   * quoted_gist_id points at a gist that's since been deleted (the join
+   * just comes back empty), absent entirely on a plain (non-repost)
+   * gist. Already redacted server-side if the quoted poster is anonymous
+   * (gist.repo.ts's redactIfAnonymous recurses into this), same as
+   * is_anonymous's own doc above — nothing extra to hide here. */
+  quoted_gist?: Gist | null;
   [key: string]: unknown;
 }
 

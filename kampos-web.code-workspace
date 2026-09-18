@@ -1,17 +1,20 @@
 {
   "folders": [
-	{
-		"path": "."
-	},
-	{
-		"path": "../KamposBackend"
-	},
-	{
-		"path": "../kornerfrontend"
-	},
-	{
-		"path": "../KornerBackend"
-	}
-],
-  "settings": {}
+    {
+      "path": ".",
+    },
+    {
+      "path": "../KamposBackend",
+    },
+    {
+      "path": "../kornerfrontend",
+    },
+    {
+      "path": "../KornerBackend",
+    },
+    {
+      "path": "../smartbucket-admin",
+    },
+  ],
+  "settings": {},
 }

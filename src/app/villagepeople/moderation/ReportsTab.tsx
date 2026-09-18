@@ -6,6 +6,7 @@ import { MediaImage } from "@/components/ui/MediaFrame";
 import { Button } from "@/components/ui/Button";
 import { ConfirmReasonModal } from "@/components/ui/FeedbackModal";
 import { AdminPollPreview } from "@/components/villagepeople/AdminPollPreview";
+import { AdminQuotedGistPreview } from "@/components/villagepeople/AdminQuotedGistPreview";
 import { apiErrorMessage } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { useModerationStore } from "@/stores/moderationStore";
@@ -143,9 +144,20 @@ export function ReportsTab({
                   <Avatar src={report.image_url} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-nunito text-xs font-semibold text-ink">
-                    {report.display_name || `@${report.gist_avitag}`}
-                  </p>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <p className="min-w-0 shrink truncate font-nunito text-xs font-semibold text-ink">
+                      {report.display_name || `@${report.gist_avitag}`}
+                    </p>
+                    {/* Same reasoning as PendingPostsTab's own badge —
+                        never redacted here, the badge tells a reviewer
+                        this identity is hidden from everyone else, not
+                        from this queue too. */}
+                    {report.is_anonymous && (
+                      <span className="shrink-0 rounded-full bg-[#2a1854]/10 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-[#6c3fd6]">
+                        Anonymous
+                      </span>
+                    )}
+                  </div>
                   <p className="mt-0.5 whitespace-pre-wrap break-words font-nunito text-sm text-muted">
                     {report.gist_text}
                   </p>
@@ -156,6 +168,7 @@ export function ReportsTab({
                       className="mt-2 h-16 w-16 rounded-xl object-cover"
                     />
                   )}
+                  {report.quoted_gist_id && <AdminQuotedGistPreview quotedGist={report.quoted_gist ?? null} />}
                 </div>
               </div>
 

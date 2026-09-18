@@ -34,6 +34,7 @@ export {
   AlertCircle,
   AlertTriangle,
   CheckCircle,
+  Ghost as AnonymousIconFill,
 } from "lucide-react";
 
 // Phosphor, fill-weight — bolder/playfuller than lucide's thin stroke. This
@@ -83,6 +84,7 @@ export {
   BookOpen as MajorIconFill,
   TrendUp as LevelIconFill,
   ChartBar as PollIconFill,
+  Repeat as RepostIconFill,
   // The actual iOS share-sheet glyph (box, arrow pointing up out of it) —
   // deliberately not ShareIconFill (a paper plane) for the install-prompt
   // instructions, since that icon needs to visually match what someone

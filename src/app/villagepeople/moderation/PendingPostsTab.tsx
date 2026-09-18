@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmReasonModal } from "@/components/ui/FeedbackModal";
 import { FlagIconFill } from "@/components/ui/icons";
 import { AdminPollPreview } from "@/components/villagepeople/AdminPollPreview";
+import { AdminQuotedGistPreview } from "@/components/villagepeople/AdminQuotedGistPreview";
 import { apiErrorMessage } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { useModerationStore } from "@/stores/moderationStore";
@@ -181,14 +182,26 @@ export function PendingPostsTab({
               </button>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={goToProfile}
-                    disabled={!normalizedType}
-                    className="truncate text-left font-nunito text-sm font-semibold text-ink enabled:hover:underline"
-                  >
-                    {gist.display_name || `@${gist.avitag}`}
-                  </button>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={goToProfile}
+                      disabled={!normalizedType}
+                      className="min-w-0 shrink truncate text-left font-nunito text-sm font-semibold text-ink enabled:hover:underline"
+                    >
+                      {gist.display_name || `@${gist.avitag}`}
+                    </button>
+                    {/* The real identity above is always the poster's own
+                        here — this admin queue is never redacted, unlike
+                        the consumer app's own cards for this same gist.
+                        The badge tells a reviewer that's specifically
+                        BECAUSE the post hides it from everyone else. */}
+                    {gist.is_anonymous && (
+                      <span className="shrink-0 rounded-full bg-[#2a1854]/10 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-[#6c3fd6]">
+                        Anonymous
+                      </span>
+                    )}
+                  </div>
                   <span className="shrink-0 font-nunito text-xs text-faint">{timeAgo(gist.created_at)}</span>
                 </div>
                 <p className="mt-1 whitespace-pre-wrap break-words font-nunito text-sm text-muted">{gist.gist_text}</p>
@@ -199,6 +212,7 @@ export function PendingPostsTab({
                     className="mt-2 h-20 w-20 rounded-xl object-cover"
                   />
                 )}
+                {gist.quoted_gist_id && <AdminQuotedGistPreview quotedGist={gist.quoted_gist ?? null} />}
                 {typeof gist.reports_count === "number" && gist.reports_count > 0 && (
                   <p className="mt-2 flex items-center gap-1.5 font-nunito text-xs font-medium text-danger">
                     <FlagIconFill className="h-3.5 w-3.5" weight="fill" />

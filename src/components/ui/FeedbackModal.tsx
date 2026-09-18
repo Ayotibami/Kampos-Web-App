@@ -3,7 +3,8 @@
 import { useState, type ReactNode } from "react";
 import { Modal } from "./Modal";
 import { Button } from "./Button";
-import { AlertCircle, AlertTriangle, CheckCircle } from "./icons";
+import { AlertCircle, AlertTriangle, CheckCircle, AnonymousIconFill } from "./icons";
+import { env } from "@/lib/env";
 
 /**
  * ErrorModal — mirrors the mobile Errormodal: a single message or a list of
@@ -255,6 +256,54 @@ export function SuccessModal({
         <p className="mb-5 font-nunito text-sm text-[#e3fbec]">{message}</p>
         <Button onClick={onConfirm ?? onClose} className="!bg-white !text-[#0e5c31] !shadow-none">
           {confirmLabel}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * AnonymousModeModal — shown every time CreateGistSheet's "post
+ * anonymously" badge switches ON (not just the first time ever): forgetting
+ * what anonymous actually means right before an anonymous post is worse
+ * than the mild repetition of seeing this again. Deliberately its own
+ * violet tone rather than reusing one of the three above — anonymity isn't
+ * an error, a destructive action, or a success state, so borrowing danger
+ * red or success green here would send the wrong signal about what's
+ * actually happening.
+ */
+export function AnonymousModeModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Modal open={open} onClose={onClose}>
+      <div className="rounded-3xl bg-[#2a1854] p-6 text-center shadow-2xl">
+        <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center text-[#c9b6ff]">
+          <AnonymousIconFill size={28} strokeWidth={2} />
+        </div>
+        <p className="mb-3 font-nunito text-sm font-semibold text-white">
+          You&apos;re posting anonymously
+        </p>
+        <p className="mb-5 font-nunito text-sm leading-relaxed text-white/80">
+          No one else will see this as your post.
+          We can still see who posted what on our end, so our{" "}
+          <a
+            href={env.COMMUNITY_GUIDELINES_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-white underline underline-offset-2"
+          >
+            community guidelines
+          </a>{" "}
+          still apply here. Anything that crosses the line can still be taken down, and repeated offenses
+          can even get your account suspended. Just keep it respectful.
+        </p>
+        <Button onClick={onClose} className="!bg-white !text-[#2a1854] !shadow-none">
+          Got it
         </Button>
       </div>
     </Modal>

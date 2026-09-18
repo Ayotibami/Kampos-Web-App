@@ -66,6 +66,41 @@ export interface AdminGist {
    * poll join deliberately never computes one, since an admin browsing this
    * screen isn't voting (see KamposBackend's ADMIN_POLL_JOIN_SQL). */
   poll?: Omit<GistPoll, "my_vote_option_id"> | null;
+  /** Never redacted for this admin-facing shape (unlike the consumer app's
+   * own Gist type) — avitag/display_name/image_url above are always the
+   * real ones regardless of this flag. Only used to show a "posted
+   * anonymously" badge so a reviewer knows this identity is hidden from
+   * everyone else, not that it's hidden here too. */
+  is_anonymous?: boolean;
+  /** The quoted gist on a Yarn back — real, unredacted identity, same as
+   * this row's own avitag/display_name/image_url above (no
+   * redactIfAnonymous call anywhere on the admin side — a moderator needs
+   * the real poster behind a quoted gist too, not just the top-level
+   * one). `first_name`, not `display_name` — this nested shape mirrors
+   * KamposBackend's consumer-facing QuotedGistPreviewRow verbatim
+   * (gist.repo.ts's QUOTED_GIST_COLUMN, shared by every admin query too),
+   * not this file's own top-level AdminGist naming. Absent entirely on a
+   * plain (non-repost) gist; present-but-null (`quoted_gist_id` set,
+   * `quoted_gist` itself null) means the original has since been
+   * deleted — KamposBackend migration 0044 lets quoted_gist_id survive
+   * that instead of losing the "this was a repost" signal. `poll` here
+   * uses the same no-`my_vote_option_id` shape as this row's own top-level
+   * `poll` above — AdminQuotedGistPreview renders it via AdminPollPreview. */
+  quoted_gist_id?: string | null;
+  quoted_gist?: {
+    gist_id: string;
+    avitag: string;
+    gist_text: string;
+    color_key?: string | null;
+    is_anonymous?: boolean;
+    campus_tag?: string | null;
+    major_tag?: string | null;
+    level?: string | null;
+    first_name?: string | null;
+    image_url?: string | null;
+    media?: GistMedia[];
+    poll?: Omit<GistPoll, "my_vote_option_id"> | null;
+  } | null;
   [key: string]: unknown;
 }
 

@@ -44,6 +44,36 @@ function normalizeGists(raw: Gist[]): Gist[] {
 }
 
 /**
+ * A poll update (vote — optimistic, server-confirmed, or a live "someone
+ * else voted" broadcast) is keyed by the gist_id the poll actually lives
+ * on — which, for a poll being voted on from INSIDE a Yarn back's nested
+ * quote (QuotedGistBody's own PollBlock — see GistCard.tsx), is the
+ * ORIGINAL gist's id, not the repost's own gist_id. A plain `items.map`
+ * keyed off `g.gist_id` alone (the shape every one of this store's other
+ * per-gist patches uses) only ever matches a gist that's quoting nothing,
+ * or matches the original if it ALSO happens to sit in this same list as
+ * its own top-level item — it never reaches into `g.quoted_gist.poll`,
+ * the copy every REPOST of that original is actually rendering. Without
+ * this, voting from inside a repost's nested poll either silently patches
+ * nothing (the original isn't separately in this list) or, worse, patches
+ * a different item's copy while the repost's own nested copy sits stale —
+ * exactly the "checkmark shows but the % reverts to 0" glitch this was
+ * written to fix. Checked and used identically by every one of votePoll's
+ * three update sites below, plus FeedContent/ProfileView's own
+ * `kampos:gist-poll-updated` listeners, which patch their own local gists
+ * copy the same way.
+ */
+export function patchGistPoll(g: Gist, gistId: string, updater: (poll: GistPoll) => GistPoll): Gist {
+  if (g.poll && g.gist_id === gistId) {
+    return { ...g, poll: updater(g.poll) };
+  }
+  if (g.quoted_gist?.poll && g.quoted_gist.gist_id === gistId) {
+    return { ...g, quoted_gist: { ...g.quoted_gist, poll: updater(g.quoted_gist.poll) } };
+  }
+  return g;
+}
+
+/**
  * A reaction made while offline lives only in two places: the offline
  * queue (durable, in IndexedDB) and, for as long as the tab stays open,
  * component-local optimistic state in GistCard/MobileReactionBadge/
@@ -1009,23 +1039,28 @@ export const useGistStore = create<GistState>((set, get) => ({
     // meaningless without seeing where it landed relative to everyone
     // else's, so this just fails outright while offline instead of
     // pretending to succeed.
+    // previous is keyed by whichever item's poll actually matched (see
+    // patchGistPoll) — that's the repost's own gist_id when the vote came
+    // from a nested quote, NOT necessarily `gistId` itself (the poll's
+    // own gist_id, which never matches a repost's gist_id at all).
     let previous: Gist | undefined;
     set((s) => ({
       items: s.items.map((g) => {
-        if (g.gist_id !== gistId || !g.poll) return g;
-        previous = g;
-        const priorOptionId = g.poll.my_vote_option_id;
-        if (priorOptionId === optionId) return g;
-        const poll: GistPoll = {
-          ...g.poll,
-          my_vote_option_id: optionId,
-          options: g.poll.options.map((o) => {
-            if (o.option_id === optionId) return { ...o, votes_count: o.votes_count + 1 };
-            if (o.option_id === priorOptionId) return { ...o, votes_count: Math.max(0, o.votes_count - 1) };
-            return o;
-          }),
-        };
-        return { ...g, poll };
+        const patched = patchGistPoll(g, gistId, (poll) => {
+          const priorOptionId = poll.my_vote_option_id;
+          if (priorOptionId === optionId) return poll;
+          return {
+            ...poll,
+            my_vote_option_id: optionId,
+            options: poll.options.map((o) => {
+              if (o.option_id === optionId) return { ...o, votes_count: o.votes_count + 1 };
+              if (o.option_id === priorOptionId) return { ...o, votes_count: Math.max(0, o.votes_count - 1) };
+              return o;
+            }),
+          };
+        });
+        if (patched !== g) previous = g;
+        return patched;
       }),
     }));
     try {
@@ -1040,15 +1075,14 @@ export const useGistStore = create<GistState>((set, get) => ({
       if (fresh) {
         set((s) => ({
           items: s.items.map((g) =>
-            g.gist_id === gistId && g.poll
-              ? { ...g, poll: { ...fresh.poll, my_vote_option_id: fresh.my_vote_option_id } }
-              : g,
+            patchGistPoll(g, gistId, () => ({ ...fresh.poll, my_vote_option_id: fresh.my_vote_option_id })),
           ),
         }));
       }
     } catch (err) {
       if (previous) {
-        set((s) => ({ items: s.items.map((g) => (g.gist_id === gistId ? previous! : g)) }));
+        const revertTo = previous;
+        set((s) => ({ items: s.items.map((g) => (g.gist_id === revertTo.gist_id ? revertTo : g)) }));
       }
       set({ error: apiErrorMessage(err, "Failed to vote") });
       throw err;
@@ -1455,9 +1489,7 @@ if (typeof window !== "undefined") {
     const gistId = p.gist_id;
     const options = p.poll.options;
     useGistStore.setState((s) => ({
-      items: s.items.map((g) =>
-        g.gist_id === gistId && g.poll ? { ...g, poll: { ...g.poll, options } } : g,
-      ),
+      items: s.items.map((g) => patchGistPoll(g, gistId, (poll) => ({ ...poll, options }))),
     }));
     window.dispatchEvent(new CustomEvent("kampos:gist-poll-updated", { detail: { gist_id: gistId, options } }));
   });

@@ -111,12 +111,12 @@ export function ProfileSwitcherStrip({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -4, scale: 0.94 }}
               transition={{ duration: 0.22, ease: "easeOut" }}
-              className="flex items-center gap-1.5 rounded-full bg-[#171a1f] py-1 pl-1 pr-3"
+              className="flex min-w-0 items-center gap-1.5 rounded-full bg-[#171a1f] py-1 pl-1 pr-3"
             >
               <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#6eed94]/20">
                 <Check size={9} strokeWidth={3.2} color="#6eed94" />
               </span>
-              <span className="truncate font-nunito text-[11px] font-bold text-white/95">
+              <span className="min-w-0 truncate font-nunito text-[11px] font-bold text-white/95">
                 Switched to {justSwitchedName}
               </span>
             </motion.div>

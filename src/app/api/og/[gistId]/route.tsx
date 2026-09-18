@@ -44,9 +44,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ gist
   const hasMedia = images.length > 0;
   const cardColor = gistColorFor(target.gist_id);
 
-  const displayName = stripEmoji(target.first_name || target.name || target.avitag || "");
+  // The backend already redacts first_name/avitag to null/"anonymous" for
+  // anyone but the poster on an is_anonymous gist (see gist.repo.ts's
+  // redactIfAnonymous) — this crawler-facing route never carries a viewer
+  // session, so that's always the redacted branch here. "Anonymous" is the
+  // one deliberate override of the real-name fallback chain below; without
+  // it the raw placeholder avitag ("anonymous") would render as the
+  // display name verbatim instead of reading as an intentional label.
+  const displayName = target.is_anonymous
+    ? "Anonymous"
+    : stripEmoji(target.first_name || target.name || target.avitag || "");
   const postedAgo = timeAgo(target.created_at);
-  const tags = [target.campus_tag, target.major_tag, target.level ? `${target.level}L` : null]
+  const tags = [target.campus_tag, target.is_anonymous ? null : target.major_tag, target.is_anonymous ? null : (target.level ? `${target.level}L` : null)]
     .filter(Boolean)
     .map((t) => (t as string).toUpperCase());
 

@@ -10,6 +10,7 @@ import { ShortGist } from "@/components/gist/GistCard";
 import { ExpandableText, MediaBlock, SHORT_TEXT } from "@/components/gist/GistMediaGrid";
 import { GistMediaOverlay } from "@/components/gist/GistMediaOverlay";
 import { AdminPollPreview } from "./AdminPollPreview";
+import { AdminQuotedGistPreview } from "./AdminQuotedGistPreview";
 import { ConfirmModal, ConfirmReasonModal, ErrorModal } from "@/components/ui/FeedbackModal";
 import {
   Check,
@@ -180,13 +181,26 @@ export function AdminGistCard({
             </p>
           </div>
         </button>
-        <span
-          className={`shrink-0 rounded-full px-2.5 py-1 font-nunito text-[11px] font-bold ${
-            STATUS_BADGE[gist.gist_status] ?? "bg-line/20 text-muted"
-          }`}
-        >
-          {STATUS_LABEL[gist.gist_status] ?? gist.gist_status}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <span
+            className={`shrink-0 rounded-full px-2.5 py-1 font-nunito text-[11px] font-bold ${
+              STATUS_BADGE[gist.gist_status] ?? "bg-line/20 text-muted"
+            }`}
+          >
+            {STATUS_LABEL[gist.gist_status] ?? gist.gist_status}
+          </span>
+          {/* This is the one admin-facing view where the real identity
+              above (avatar/display_name/@avitag) is genuinely still the
+              poster's own, unlike the consumer app's own cards for the
+              same gist — this badge is what tells a reviewer that's true
+              specifically BECAUSE the post hides it from everyone else,
+              not that it's hidden here too. */}
+          {gist.is_anonymous && (
+            <span className="flex shrink-0 items-center gap-1 rounded-full bg-[#2a1854]/10 px-2.5 py-1 font-nunito text-[11px] font-bold text-[#6c3fd6]">
+              Posted anonymously
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Body — the real content, including a REJECTED gist's, unlike
@@ -204,6 +218,13 @@ export function AdminGistCard({
         {hasMedia && (
           <MediaBlock media={gist.media!} onOpenOverlay={setOverlayIndex} overlayOpen={overlayIndex !== null} />
         )}
+
+        {/* Yarn back — the quoted original, last, after this gist's own
+            text/poll/media, never splitting them up. See
+            AdminQuotedGistPreview's own doc on quoted_gist_id vs
+            quoted_gist (present-but-null means the original was deleted,
+            absent means this isn't a repost at all). */}
+        {gist.quoted_gist_id && <AdminQuotedGistPreview quotedGist={gist.quoted_gist ?? null} />}
       </div>
 
       {/* Engagement row — reactions get a real per-type breakdown (same

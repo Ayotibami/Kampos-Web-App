@@ -1,0 +1,104 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+import { motion, useAnimationControls, type Transition } from "framer-motion";
+import { Plus } from "@/components/ui/icons";
+
+const REST = { x: 0, y: 0, rotate: 0, scaleX: 1, scaleY: 1 };
+
+/**
+ * Five one-shot, four-second "come play with me" idle animations, cycled
+ * in rotation (never twice in a row) every 30s for as long as this button
+ * is mounted — see FeedContent's own doc on why forever, not just until
+ * first tap. Each is a decaying, overshoot-and-settle keyframe sequence
+ * (not a literal physics spring) so the total duration is exactly 4s and
+ * predictable, while still reading as springy/playful rather than a flat
+ * linear tween — the overshoot-then-settle shape IS what a spring looks
+ * like, we're just authoring it by hand instead of simulating it.
+ */
+const ANIMATIONS: Array<{ keyframes: Record<string, number[]>; transition: Transition }> = [
+  {
+    // Vertical hops with a squash/stretch on each landing, decaying.
+    keyframes: {
+      y: [0, -18, 0, -10, 0, -5, 0],
+      scaleY: [1, 1, 0.88, 1, 0.94, 1, 1],
+      scaleX: [1, 1, 1.08, 1, 1.04, 1, 1],
+    },
+    transition: { duration: 4, times: [0, 0.18, 0.36, 0.56, 0.72, 0.88, 1], ease: "easeOut" },
+  },
+  {
+    // Pendulum rotate, decaying amplitude.
+    keyframes: { rotate: [0, -20, 16, -12, 8, -4, 0] },
+    transition: { duration: 4, times: [0, 0.15, 0.32, 0.5, 0.68, 0.85, 1], ease: "easeInOut" },
+  },
+  {
+    // A full spin that overshoots slightly past 360 then eases back —
+    // 380/360 both read as the same resting orientation, so it lands
+    // visually exactly where it started.
+    keyframes: { rotate: [0, 380, 360] },
+    transition: { duration: 4, times: [0, 0.55, 1], ease: ["easeOut", "easeInOut"] },
+  },
+  {
+    // A little arc hop to the side and back, like a curved leap.
+    keyframes: {
+      x: [0, -8, 10, -4, 0],
+      y: [0, -22, -8, -3, 0],
+      rotate: [0, -8, 6, -2, 0],
+    },
+    transition: { duration: 4, times: [0, 0.3, 0.55, 0.8, 1], ease: "easeInOut" },
+  },
+  {
+    // Jelly squash-and-stretch shimmy.
+    keyframes: {
+      scaleX: [1, 1.15, 0.9, 1.08, 0.96, 1],
+      scaleY: [1, 0.88, 1.1, 0.94, 1.03, 1],
+      rotate: [0, 4, -4, 2, -1, 0],
+    },
+    transition: { duration: 4, times: [0, 0.2, 0.4, 0.6, 0.8, 1], ease: "easeInOut" },
+  },
+];
+
+/**
+ * Mobile-only floating compose trigger — bottom-right FAB, replacing the
+ * header's own "+" button on small screens (see FeedContent, which hides
+ * that one via `hidden md:flex` and renders this one via `md:hidden`
+ * instead; desktop keeps the header button, unanimated, exactly as it
+ * always has). Runs forever, not just until first tap — a FAB sitting
+ * quietly in the corner of a fast-scrolling feed is easy to forget is
+ * there at all, unlike a one-time coach mark's job of teaching something
+ * once, so this keeps nudging every 30s for as long as the feed is open,
+ * tap or no tap.
+ */
+export function FloatingComposeButton({ onClick }: { onClick: () => void }) {
+  const controls = useAnimationControls();
+  const nextIndexRef = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const playNext = async () => {
+      const anim = ANIMATIONS[nextIndexRef.current % ANIMATIONS.length];
+      nextIndexRef.current += 1;
+      await controls.start({ ...anim.keyframes, transition: anim.transition });
+      if (!cancelled) controls.set(REST);
+    };
+    const interval = setInterval(playNext, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [controls]);
+
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      aria-label="Create a gist"
+      initial={REST}
+      animate={controls}
+      whileTap={{ scale: 0.88 }}
+      className="fixed right-4 bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-lg shadow-brand/40 transition hover:bg-brand-dark md:hidden"
+    >
+      <Plus className="h-6 w-6" />
+    </motion.button>
+  );
+}

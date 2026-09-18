@@ -39,7 +39,7 @@ import {
   MajorIconFill,
   LevelIconFill,
 } from "@/components/ui/icons";
-import { useGistStore } from "@/stores/gistStore";
+import { useGistStore, patchGistPoll } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { wasProfileRecentlyUpdated } from "@/lib/profileFreshness";
 import { HOBBY_EMOJI } from "@/lib/hobbies";
@@ -391,9 +391,7 @@ export function ProfileView({
       const { gist_id, options } = (
         e as CustomEvent<{ gist_id: string; options: NonNullable<Gist["poll"]>["options"] }>
       ).detail;
-      setGists((prev) =>
-        prev.map((g) => (g.gist_id === gist_id && g.poll ? { ...g, poll: { ...g.poll, options } } : g)),
-      );
+      setGists((prev) => prev.map((g) => patchGistPoll(g, gist_id, (poll) => ({ ...poll, options }))));
     };
     window.addEventListener("kampos:gist-counts-updated", onCounts);
     window.addEventListener("kampos:gist-rejected", onRejected);
@@ -477,6 +475,16 @@ export function ProfileView({
     setGists((prev) =>
       prev.map((g) => (g.gist_id === fresh.gist_id ? fresh : g)),
     );
+  // The new Yarn back gist is posted as the viewer, not this profile's
+  // owner — only splice it into this list when they're the same person
+  // (viewing your own profile), otherwise it belongs on the viewer's own
+  // profile/feed instead, not here. CreateGistSheet already toasts success
+  // regardless, so nothing silently vanishes from the poster's perspective.
+  const handleGistReposted = (fresh: Gist) => {
+    if (!isOwnProfile) return;
+    setGists((prev) => [fresh, ...prev]);
+    setGistTotal((t) => t + 1);
+  };
 
   // Desktop only: which gist the sticky comment panel (below the gist list)
   // is currently showing — whichever card is nearest the vertical center of
@@ -1168,6 +1176,7 @@ export function ProfileView({
                             }
                             onDeleted={handleGistDeleted}
                             onEdited={handleGistEdited}
+                            onReposted={handleGistReposted}
                           />
                         </li>
                       ))}

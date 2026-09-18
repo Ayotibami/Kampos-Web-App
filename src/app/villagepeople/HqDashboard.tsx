@@ -372,7 +372,7 @@ export function HqDashboard({
                 <span className="order-2 ml-auto shrink-0 font-nunito text-[11px] text-faint sm:order-3 sm:ml-0">
                   {friendlyDateTime(row.created_at)}
                 </span>
-                <div className="order-3 w-full min-w-0 sm:order-2 sm:w-auto sm:flex-1">
+                <div className="order-3 w-full min-w-0 truncate sm:order-2 sm:w-auto sm:flex-1">
                   <TargetCell row={row} />
                 </div>
               </li>

@@ -175,7 +175,7 @@ export function BroadcastsManager({ initialBroadcasts }: { initialBroadcasts: Br
               {broadcasts.map((b) => (
                 <li key={b.broadcast_id} className="flex flex-col gap-2 rounded-2xl border border-line/70 p-4">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="truncate font-nunito text-sm font-semibold text-ink">{b.subject}</p>
+                    <p className="min-w-0 shrink truncate font-nunito text-sm font-semibold text-ink">{b.subject}</p>
                     <span className="shrink-0 font-nunito text-xs text-faint">{timeAgo(b.created_at)}</span>
                   </div>
                   <p className="whitespace-pre-wrap break-words font-nunito text-sm text-muted">{b.message}</p>

@@ -210,11 +210,22 @@ export function GistPreviewMarquee({ className = "" }: { className?: string }) {
         .list({ limit: 10 })
         .then((data) => {
           if (cancelled) return;
-          if (data.length === 0) {
+          // Anonymous gists are filtered out here rather than given their
+          // own "Anonymous" rendering in this component — this marquee's
+          // whole point is showcasing real campus personalities to entice
+          // a guest into signing up, which an anonymous post doesn't serve
+          // either way. Simpler than teaching this decorative, guest-facing
+          // component the same is_anonymous treatment the real cards use,
+          // and the backend has already redacted these gists' identity to
+          // a placeholder by the time they'd arrive here regardless (see
+          // gist.repo.ts's redactIfAnonymous) — this is a display choice,
+          // not a safety net.
+          const real = data.filter((g) => !g.is_anonymous);
+          if (real.length === 0) {
             timer = setTimeout(() => attempt(Math.min(delay * 2, 15_000)), delay);
             return;
           }
-          setPosts(data.map(toPreviewPost));
+          setPosts(real.map(toPreviewPost));
           setIndex(0);
         })
         .catch(() => {

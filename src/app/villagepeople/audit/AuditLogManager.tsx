@@ -363,7 +363,7 @@ export function AuditLogManager({ initialLogs }: { initialLogs: AuditLogRow[] })
                           </p>
                           {row.reason && (
                             <p
-                              className="mt-1.5 rounded-lg bg-surface-2 px-2.5 py-1.5 font-nunito text-xs text-ink"
+                              className="mt-1.5 break-words rounded-lg bg-surface-2 px-2.5 py-1.5 font-nunito text-xs text-ink"
                               title={row.reason}
                             >
                               &ldquo;{row.reason}&rdquo;

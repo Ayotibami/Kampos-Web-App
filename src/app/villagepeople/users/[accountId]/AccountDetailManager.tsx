@@ -372,7 +372,7 @@ export function AccountDetailManager({
           </div>
 
           {account.account_status_reason && (
-            <p className="rounded-xl bg-warning/10 p-3 font-nunito text-xs text-ink">
+            <p className="break-words rounded-xl bg-warning/10 p-3 font-nunito text-xs text-ink">
               <span className="font-semibold">Reason given: </span>
               {account.account_status_reason}
             </p>

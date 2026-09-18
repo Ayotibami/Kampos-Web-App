@@ -6,14 +6,15 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { MediaImage, MediaVideo } from "@/components/ui/MediaFrame";
-import { ErrorModal } from "@/components/ui/FeedbackModal";
-import { CameraIconFill, ImageIconFill, PaletteIconFill, PollIconFill, X, Video, Sticker, Plus as PlusIcon } from "@/components/ui/icons";
+import { ErrorModal, AnonymousModeModal } from "@/components/ui/FeedbackModal";
+import { CameraIconFill, ImageIconFill, PaletteIconFill, PollIconFill, AnonymousIconFill, X, Video, Sticker, Plus as PlusIcon } from "@/components/ui/icons";
 import { useGistStore, MediaUploadError, buildOfflineGistMedia, notifyActionSucceeded } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { apiErrorMessage } from "@/lib/api";
 import { LIMITS, GIST_CARD_PALETTE, GIST_COLOR_KEYS, type GistColorKey } from "@/lib/brand";
 import { fitHeroTextarea, nominalHeroTextRem } from "@/lib/heroText";
 import { stripInvisibleChars, sanitizeForSubmit, sanitizeFileName } from "@/lib/sanitize";
+import { QuotedGistPreview } from "./GistCard";
 import {
   ALLOWED_MEDIA_TYPES,
   maxBytesFor,
@@ -134,6 +135,11 @@ function CharCountRing({ length, max }: { length: number; max: number }) {
 }
 
 const DEFAULT_PLACEHOLDER = "Wetin dey your mind? Gist us na 😌";
+// "What's on your mind" doesn't fit when reacting to something specific
+// someone else already posted — this is the static (no typing-animation)
+// fallback for a Yarn back instead, same reasoning DEFAULT_PLACEHOLDER's
+// own fallback branch already has.
+const YARN_BACK_PLACEHOLDER = "Yarn your own take on this...";
 // Matches the old trigger-button typing speed (PROMPT_TYPE_SPEED_MS) from
 // before that animation lived in FeedContent.
 const PLACEHOLDER_TYPE_SPEED_MS = 50;
@@ -185,6 +191,7 @@ export function CreateGistSheet({
   initialText,
   placeholder,
   editGist,
+  quoteGist,
 }: {
   open: boolean;
   onClose: () => void;
@@ -204,11 +211,19 @@ export function CreateGistSheet({
   /** Editing an existing gist instead of composing a new one — pre-fills
    * the text and media, and swaps the submit action to update-in-place. */
   editGist?: Gist;
+  /** Yarn back — quoting an existing gist. Embeds a compact read-only
+   * preview of it below the textarea and rides its id along as
+   * `quoted_gist_id` in the create payload. Never anonymous (see the
+   * avatar block below), and never a hero-color/poll pick either — those
+   * are for a gist standing on its own, not one that's already carrying
+   * someone else's inside it. */
+  quoteGist?: Gist;
 }) {
   const { create, update, uploadMedia, attachMediaUrl, removeMedia: removeMediaApi, remove: removeGistApi, get: getGist } = useGistStore();
   const myImageUrl = useAuthStore(
     (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null
   );
+  const myAvitag = useAuthStore((s) => s.avitag);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const heroBoxRef = useRef<HTMLDivElement>(null);
@@ -227,14 +242,16 @@ export function CreateGistSheet({
   // prop doc above) into the textarea's own placeholder, once, each time the
   // sheet opens — the "notice me" typing effect that used to run continuously
   // in the background on the trigger button itself now happens here instead,
-  // aimed at whichever single prompt got picked at click time. Editing/quoting
-  // (no `placeholder` passed) just shows the static default, no animation —
-  // there's no freshly-picked prompt behind it to justify one.
+  // aimed at whichever single prompt got picked at click time. Editing (no
+  // `placeholder` passed) just shows the static default, no animation —
+  // there's no freshly-picked prompt behind it to justify one. Yarn back
+  // gets its own static default instead of that one, for the same "no
+  // animation to justify" reason — see YARN_BACK_PLACEHOLDER's own doc.
   const [typedPlaceholder, setTypedPlaceholder] = useState("");
   useEffect(() => {
     if (!open) return;
     if (!placeholder) {
-      setTypedPlaceholder(DEFAULT_PLACEHOLDER);
+      setTypedPlaceholder(quoteGist ? YARN_BACK_PLACEHOLDER : DEFAULT_PLACEHOLDER);
       return;
     }
     setTypedPlaceholder("");
@@ -251,7 +268,7 @@ export function CreateGistSheet({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [open, placeholder]);
+  }, [open, placeholder, quoteGist]);
 
   // Custom scroll-position indicator for the textarea, replacing the native
   // scrollbar (hidden via no-scrollbar) with something that matches the
@@ -282,6 +299,17 @@ export function CreateGistSheet({
   // is hidden entirely while isEditing (see the button below).
   const [showPoll, setShowPoll] = useState(false);
   const [pollOptions, setPollOptions] = useState<string[]>(["", ""]);
+  // Anonymous-post toggle — is_anonymous rides along in the create payload
+  // (see handlePost below) and the backend stores/redacts it (gist.repo.ts
+  // swaps avitag for everyone but the poster). Badge lives on the avatar
+  // itself (see the avatar block below) rather than a separate action-row
+  // icon — same "concept A" reasoning discussed for this: a persistent,
+  // always-visible affordance beats one that only teaches itself once via
+  // a first-use animation.
+  const [isAnonymous, setIsAnonymous] = useState(false);
+  // Shown every time the badge switches isAnonymous ON (never on OFF) —
+  // see AnonymousModeModal's own doc for why this isn't a one-time thing.
+  const [showAnonModal, setShowAnonModal] = useState(false);
   // Same rendering rule GistCard uses to decide "colored hero card vs plain
   // text + media" (SHORT_TEXT there) — a color pick only ever matters while
   // this is true, since otherwise the plain layout never shows it at all.
@@ -289,12 +317,23 @@ export function CreateGistSheet({
   // the backend's PATCH route, so offering the picker mid-edit would look
   // like it works and then silently not save. showPoll excluded too — a
   // poll gist never gets the colored treatment, see this component's own
-  // doc on showPoll above.
+  // doc on showPoll above. quoteGist is allowed through now — a Yarn back
+  // can carry a colored frame around its nested quote (see the posted
+  // card's own RepostHero), same length/media constraints as any other
+  // color pick.
   const colorPickerEligible = !isEditing && !showPoll && text.length < 200 && media.length === 0;
   // Live WYSIWYG preview only kicks in once an actual pick has been made —
   // before that there's no way to know what the eventual gist_id-hash-based
   // fallback color would be (it doesn't exist yet), so showing some
-  // arbitrary placeholder color would be a preview of nothing real.
+  // arbitrary placeholder color would be a preview of nothing real. Applies
+  // the same way whether or not this is a Yarn back — it's MY text getting
+  // colored, same picker, same rules; the quoted gist below (if any) is
+  // rendered on its own, completely unaffected by this (see quoteGist's own
+  // doc above). Only the full-takeover layout bits (avatar hidden, box
+  // filling the whole row) are quoteGist-gated below, at their own two call
+  // sites — a Yarn back still needs room for the avatar and the nested
+  // quote beneath, so it never grows to fill the row the way a standalone
+  // hero gist does.
   const heroPreviewActive = colorPickerEligible && pickedColor !== null;
   const heroPreviewHex = pickedColor ? GIST_CARD_PALETTE[GIST_COLOR_KEYS.indexOf(pickedColor)] : undefined;
 
@@ -382,6 +421,7 @@ export function CreateGistSheet({
     setShowColorPicker(false);
     setShowPoll(false);
     setPollOptions(["", ""]);
+    setIsAnonymous(false);
     setRemovedMediaIds([]);
     setMedia(
       (editGist?.media ?? []).map((m) => ({
@@ -511,6 +551,7 @@ export function CreateGistSheet({
     setUploadProgress({});
     setShowPoll(false);
     setPollOptions(["", ""]);
+    setIsAnonymous(false);
   };
 
   // Helpers for the poll option inputs below — kept close to pollOptions
@@ -688,6 +729,8 @@ export function CreateGistSheet({
           gist_text: clean,
           color_key: colorPickerEligible ? pickedColor : null,
           ...(showPoll ? { poll: { options: validPollOptions } } : {}),
+          ...(isAnonymous ? { is_anonymous: true } : {}),
+          ...(quoteGist ? { quoted_gist_id: quoteGist.gist_id } : {}),
         });
         const gistId = gist!.gist_id;
         if (!showPoll && media.length) {
@@ -722,17 +765,76 @@ export function CreateGistSheet({
 
   return (
     <>
-      <Modal open={open} onClose={onClose} variant="sheet" desktopCenter>
-        <div className="flex h-[80vh] flex-col rounded-t-3xl bg-brand-tint shadow-none md:h-auto md:max-h-[min(88vh,860px)] md:min-h-[min(88vh,700px)] md:rounded-3xl md:shadow-2xl md:shadow-black/20">
+      <Modal
+        open={open}
+        onClose={onClose}
+        variant="sheet"
+        desktopCenter
+        // Yarn back gets the whole viewport, not just a taller sheet —
+        // Modal's own sheet/desktopCenter sizing always caps out at
+        // max-w-[520px] (or ~600px centered on desktop), which still isn't
+        // "full." Passing className here bypasses that default sizing
+        // entirely (see Modal's own doc on the prop), so this is true
+        // full-bleed on every screen size, not just mobile.
+        className={quoteGist ? "h-[100dvh] w-full" : undefined}
+      >
+        <div
+          className={
+            // Same reasoning continues into the actual content box: no
+            // rounded-sheet corners or grab handle on any size — it's a
+            // real full-screen page now, not a sheet that happens to be
+            // tall. Two independently-rendered blocks (mine, then the
+            // nested original, either of which can be its own colored
+            // hero box) need real room, not the compact "one gist" sizing.
+            quoteGist
+              ? "flex h-full w-full flex-col rounded-none bg-brand-tint shadow-none"
+              : "flex h-[80vh] flex-col rounded-t-3xl bg-brand-tint shadow-none md:h-auto md:max-h-[min(88vh,860px)] md:min-h-[min(88vh,700px)] md:rounded-3xl md:shadow-2xl md:shadow-black/20"
+          }
+        >
           {/* Grab handle (mobile bottom-sheet affordance, hidden once this
-              becomes a real centered dialog on desktop) + close */}
-          <div className="relative flex shrink-0 items-center justify-center px-5 pt-3 md:justify-end md:pt-4">
-            <span className="h-1.5 w-12 rounded-full bg-[#414F65] md:hidden" />
+              becomes a real centered dialog on desktop, or for Yarn back's
+              full-screen takeover where it'd be a lie) + close. Yarn back
+              swaps the handle for a heading instead — a bare close button
+              with no label reads as disoriented once this is a full-screen
+              page rather than an obviously-a-compose-sheet. Names whose
+              gist it is, not just "Yarn back" generically — useful since
+              the actual quoted card can be scrolled below the fold once
+              there's real text above it. No @ prefix — this app doesn't
+              use that convention for avitags anywhere else (see
+              QuotedGistPreview/FeedGistCard's own header). */}
+          <div
+            className={
+              quoteGist
+                ? "relative flex shrink-0 items-center justify-between px-5 pt-3 md:pt-4"
+                : "relative flex shrink-0 items-center justify-center px-5 pt-3 md:justify-end md:pt-4"
+            }
+          >
+            {quoteGist ? (
+              <p className="min-w-0 truncate pr-3 font-nunito text-base font-bold text-ink">
+                {quoteGist.avitag === myAvitag ? (
+                  "Yarning back your gist"
+                ) : (
+                  <>
+                    Yarning back{" "}
+                    {quoteGist.is_anonymous
+                      ? "Anonymous"
+                      : quoteGist.first_name || quoteGist.name || quoteGist.avitag}
+                    {" gist"}
+                  </>
+                )}
+              </p>
+            ) : (
+              <span className="h-1.5 w-12 rounded-full bg-[#414F65] md:hidden" />
+            )}
             <button
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="absolute right-4 rounded-full p-1 text-ink md:static md:p-1.5 md:hover:bg-black/5"
+              className={
+                quoteGist
+                  ? "shrink-0 rounded-full p-1 text-ink md:p-1.5 md:hover:bg-black/5"
+                  : "absolute right-4 rounded-full p-1 text-ink md:static md:p-1.5 md:hover:bg-black/5"
+              }
             >
               <X className="h-5 w-5" />
             </button>
@@ -753,23 +855,68 @@ export function CreateGistSheet({
                 squeezed to nothing once poll options pushed in below it. It
                 can still grow a little and scrolls internally past max-h-56
                 for a long caption, same as before, just never below a
-                usable size. Hero-preview mode (colored short-text gists)
-                keeps its own flex-1 fill/centering behavior — untouched,
-                since nothing else ever shares this row while it's active. */}
-            <div
-              className={`flex min-h-0 gap-3 items-stretch md:items-start md:flex-none ${
-                heroPreviewActive ? "flex-1" : "shrink-0"
-              }`}
-            >
-              {/* Who this is posting as — same anchor X/Facebook/LinkedIn's
-                  own compose dialogs use, so it doesn't read as posting into
-                  a void. Hidden in hero-preview mode: the actual posted
-                  colored hero block never has an avatar inside it either
-                  (that lives in the card's header, separately), so keeping
-                  it here would make the preview lie about its own layout. */}
-              {!heroPreviewActive && (
+                usable size. This row itself never takes the full-takeover
+                flex-1 grow, hero preview or not — the avatar sits beside
+                the colored box instead of the box swallowing the whole row
+                (same "who's posting" anchor X/Facebook/LinkedIn's own
+                compose dialogs keep even for a short colorful post), so
+                there's always a sibling here sharing it. */}
+            <div className="flex min-h-0 shrink-0 gap-3 items-start md:flex-none">
+              {/* Who this is posting as. quoteGist gets a plain,
+                  non-toggleable avatar (Yarn back is never anonymous — see
+                  its own doc above); a standalone gist keeps the anonymous
+                  toggle, visible in hero mode same as any other mode now. */}
+              {quoteGist && (
+                // Yarn back is never anonymous (see quoteGist's own doc
+                // above) — plain, non-toggleable avatar, no badge.
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-light ring-1 ring-black/5">
                   <Avatar src={myImageUrl} />
+                </div>
+              )}
+              {!quoteGist && (
+                <div className="relative shrink-0">
+                  {/* The whole avatar is the toggle now, not just the badge —
+                      tapping the picture itself switches modes too. The badge
+                      stays as a persistent, always-visible indicator of which
+                      mode is active (deliberately not a first-use-only
+                      animation, since going anonymous is a bigger commitment
+                      than most compose actions and deserves an affordance
+                      that stays obviously discoverable), but it's decorative
+                      now — pointer-events-none — so a tap landing on it still
+                      hits the button underneath instead of needing its own
+                      handler. */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setIsAnonymous((v) => {
+                        const next = !v;
+                        // Only turning it ON needs the explainer — turning
+                        // it back off is just reverting to normal, nothing
+                        // new to tell them about.
+                        if (next) setShowAnonModal(true);
+                        return next;
+                      })
+                    }
+                    aria-label={isAnonymous ? "Post with your name" : "Post anonymously"}
+                    aria-pressed={isAnonymous}
+                    className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-full ring-1 transition-colors ${
+                      isAnonymous ? "bg-brand-ink ring-black/5" : "bg-brand-light ring-black/5"
+                    }`}
+                  >
+                    {isAnonymous ? (
+                      <AnonymousIconFill className="h-5 w-5 text-white" />
+                    ) : (
+                      <Avatar src={myImageUrl} />
+                    )}
+                  </button>
+                  <div
+                    aria-hidden="true"
+                    className={`pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full ring-2 ring-brand-tint transition-colors ${
+                      isAnonymous ? "bg-brand-ink text-white" : "bg-surface-2 text-faint"
+                    }`}
+                  >
+                    <AnonymousIconFill className="h-2.5 w-2.5" />
+                  </div>
                 </div>
               )}
               <div
@@ -812,6 +959,7 @@ export function CreateGistSheet({
                 )}
               </div>
             </div>
+
 
             {/* Poll options — 2 to LIMITS.pollMaxOptions, styled as a live
                 preview of the actual vote pill (see PollBlock's own option
@@ -886,7 +1034,7 @@ export function CreateGistSheet({
             )}
 
             {!showPoll && media.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2 pb-2">
+              <div className="mt-3 flex shrink-0 flex-wrap gap-2 pb-2">
                 {media.map((m) => (
                   <div
                     key={m.id}
@@ -921,6 +1069,19 @@ export function CreateGistSheet({
                 ))}
               </div>
             )}
+
+            {/* Yarn back — the gist being quoted, nested read-only last —
+                after MY text, MY poll, and MY media, never splitting them
+                up. Everything above this point is mine; this is the one
+                thing here that isn't, so it sits on its own below all of
+                it, same grouping any quote-post elsewhere gets right.
+                Shared with FeedGistCard/ProfileGistCard (QuotedGistPreview
+                in GistCard.tsx) rather than a second copy of this markup
+                here — that's what actually renders it exactly as it was
+                originally posted (its own color_key/hero status, media
+                thumbnail, redaction) with one definition to keep in sync,
+                not two that can quietly drift apart. */}
+            {quoteGist && <QuotedGistPreview gist={quoteGist} />}
           </div>
 
           {/* Actions */}
@@ -1072,7 +1233,7 @@ export function CreateGistSheet({
                 fullWidth={false}
                 className="w-80 px-10"
               >
-                {posting ? null : isEditing ? "Save Changes" : "Create Gist"}
+                {posting ? null : isEditing ? "Save Changes" : quoteGist ? "Yarn back" : "Create Gist"}
               </Button>
             </div>
           </div>
@@ -1099,6 +1260,7 @@ export function CreateGistSheet({
       />
 
       <ErrorModal open={showError} onClose={() => setShowError(false)} message={error} />
+      <AnonymousModeModal open={showAnonModal} onClose={() => setShowAnonModal(false)} />
     </>
   );
 }

@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Lottie from "lottie-react";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
 import { GistMediaOverlay } from "./GistMediaOverlay";
-import { ShortGist, PopActionButton } from "./GistCard";
+import { ShortGist, PopActionButton, RepostThreadLine } from "./GistCard";
 import { ExpandableText, MediaBlock, SHORT_TEXT } from "./GistMediaGrid";
 import { PollBlock } from "./PollBlock";
 import { ReactionButton } from "./ReactionButton";
@@ -27,6 +27,8 @@ import {
   CommentIconFill,
   EditIconFill,
   DeleteIconFill,
+  AnonymousIconFill,
+  RepostIconFill,
 } from "@/components/ui/icons";
 import type { Gist, ReactionType } from "@/types";
 import { friendlyDateTime, compactNumber } from "@/lib/format";
@@ -123,6 +125,7 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   onToggleComments,
   onDeleted,
   onEdited,
+  onReposted,
 }: {
   gist: Gist;
   /** True while the desktop comment panel is open AND currently showing
@@ -137,6 +140,9 @@ export const ProfileGistCard = memo(function ProfileGistCard({
    * as GistCard's own onDeleted/onEdited. */
   onDeleted?: (gistId: string) => void;
   onEdited?: (gist: Gist) => void;
+  /** Fires with the fresh Yarn back gist once it's actually posted — same
+   * "the caller owns the list" reasoning as onEdited. */
+  onReposted?: (gist: Gist) => void;
 }) {
   const reactGist = useGistStore((s) => s.react);
   const unreactGist = useGistStore((s) => s.unreact);
@@ -150,6 +156,7 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   const [reporting, setReporting] = useState(false);
   const [reported, setReported] = useState(!!gist.my_report);
   const [showEdit, setShowEdit] = useState(false);
+  const [showYarnBack, setShowYarnBack] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -501,6 +508,19 @@ export const ProfileGistCard = memo(function ProfileGistCard({
         </span>
 
         <div className="flex shrink-0 items-center gap-2">
+          {/* Only ever reachable when isOwn is also true — a non-owner's
+              listByUser request never even receives an anonymous row at
+              all (see gist.repo.ts's listByUser), so this can't leak
+              anything by rendering; isOwn is still checked explicitly so
+              intent stays obvious from this line alone. Same violet tone
+              as the composer's own badge/explainer modal for this feature,
+              distinct from every other feedback color in the app. */}
+          {isOwn && gist.is_anonymous && (
+            <span className="flex shrink-0 items-center gap-1 rounded-full bg-[#2a1854]/10 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-[#6c3fd6] md:text-[11px]">
+              <AnonymousIconFill className="h-2.5 w-2.5" />
+              Anonymous
+            </span>
+          )}
           {isPending && (
             <span className="shrink-0 rounded-full bg-warning/15 px-1.5 py-0.5 font-nunito text-[10px] font-bold leading-none text-warning md:text-[11px]">
               Pending
@@ -575,30 +595,46 @@ export const ProfileGistCard = memo(function ProfileGistCard({
 
       {/* Body — a plain tap does nothing (no navigation), double-tap
           reacts. Text first, media (if any) below it. */}
-      <div onClick={handleDoubleTapReact} className="relative px-4 pt-2.5">
-        {short ? (
-          <ShortGist
-            text={gist.gist_text}
-            colorKey={gist.color_key}
-            fallbackSeed={gist.gist_id}
-          />
-        ) : (
-          gist.gist_text && <ExpandableText text={gist.gist_text} />
-        )}
+      <div
+        onClick={handleDoubleTapReact}
+        className={gist.quoted_gist_id ? "relative pt-2.5" : "relative px-4 pt-2.5"}
+      >
+        {(() => {
+          const content = (
+            <>
+              {short ? (
+                <ShortGist
+                  text={gist.gist_text}
+                  colorKey={gist.color_key}
+                  fallbackSeed={gist.gist_id}
+                />
+              ) : (
+                gist.gist_text && <ExpandableText text={gist.gist_text} />
+              )}
 
-        {hasPoll && <PollBlock gistId={gist.gist_id} poll={gist.poll!} />}
+              {hasPoll && <PollBlock gistId={gist.gist_id} poll={gist.poll!} />}
 
-        {hasMedia && (
-          <MediaBlock
-            media={gist.media!}
-            onOpenOverlay={(index) => {
-              setOverlayStartTime(videoSyncRef.current?.getCurrentTime() ?? 0);
-              setOverlayIndex(index);
-            }}
-            overlayOpen={overlayIndex !== null}
-            videoSyncRef={videoSyncRef}
-          />
-        )}
+              {hasMedia && (
+                <MediaBlock
+                  media={gist.media!}
+                  onOpenOverlay={(index) => {
+                    setOverlayStartTime(videoSyncRef.current?.getCurrentTime() ?? 0);
+                    setOverlayIndex(index);
+                  }}
+                  overlayOpen={overlayIndex !== null}
+                  videoSyncRef={videoSyncRef}
+                />
+              )}
+            </>
+          );
+          // Same reply-thread treatment as FeedGistCard — see
+          // RepostThreadLine's own doc.
+          return gist.quoted_gist_id ? (
+            <RepostThreadLine quotedGist={gist.quoted_gist ?? null}>{content}</RepostThreadLine>
+          ) : (
+            content
+          );
+        })()}
 
         <AnimatePresence>
           {centerBurst && (
@@ -651,6 +687,22 @@ export const ProfileGistCard = memo(function ProfileGistCard({
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (!requireAuth("yarn back gists")) return;
+              setShowYarnBack(true);
+            }}
+            aria-label="Yarn back this gist"
+            className="flex shrink-0 items-center gap-1 rounded-full bg-brand px-2.5 py-1.5 text-white shadow-sm shadow-brand/30 transition"
+          >
+            <RepostIconFill className="h-3.5 w-3.5" weight="fill" />
+            {!!gist.counts?.reposts_count && (
+              <span className="font-nunito text-[11px] font-bold leading-none tabular-nums">
+                {compactNumber(gist.counts.reposts_count)}
+              </span>
+            )}
+          </button>
           {isMobile ? (
             // Exact copy of MobileReactionBadge's resting look (hero +
             // orbiting satellites) — see the MOBILE_HERO_SIZE/etc constants
@@ -749,9 +801,11 @@ export const ProfileGistCard = memo(function ProfileGistCard({
             }`}
           >
             <CommentIconFill className="h-3.5 w-3.5" weight="fill" />
-            <span className="font-nunito text-[11px] font-bold leading-none tabular-nums">
-              {compactNumber(gist.counts?.comments_count)}
-            </span>
+            {!!gist.counts?.comments_count && (
+              <span className="font-nunito text-[11px] font-bold leading-none tabular-nums">
+                {compactNumber(gist.counts.comments_count)}
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -761,6 +815,13 @@ export const ProfileGistCard = memo(function ProfileGistCard({
         onClose={() => setShowEdit(false)}
         editGist={gist}
         onPosted={(fresh) => onEdited?.(fresh)}
+      />
+
+      <CreateGistSheet
+        open={showYarnBack}
+        onClose={() => setShowYarnBack(false)}
+        quoteGist={gist}
+        onPosted={(fresh) => onReposted?.(fresh)}
       />
 
       <ConfirmModal

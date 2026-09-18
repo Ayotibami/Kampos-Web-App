@@ -35,6 +35,27 @@ export interface PendingGist {
    * admin reviewing this queue isn't voting (see KamposBackend's
    * ADMIN_POLL_JOIN_SQL for the full reasoning). */
   poll?: Omit<GistPoll, "my_vote_option_id"> | null;
+  /** Never redacted for this admin-facing shape — see AdminGist's own doc
+   * (serverGistsAdmin.ts) on the same field. */
+  is_anonymous?: boolean;
+  /** The quoted gist on a Yarn back — see AdminGist's own doc
+   * (serverGistsAdmin.ts) on this exact same shape/naming/null-vs-absent
+   * convention. */
+  quoted_gist_id?: string | null;
+  quoted_gist?: {
+    gist_id: string;
+    avitag: string;
+    gist_text: string;
+    color_key?: string | null;
+    is_anonymous?: boolean;
+    campus_tag?: string | null;
+    major_tag?: string | null;
+    level?: string | null;
+    first_name?: string | null;
+    image_url?: string | null;
+    media?: GistMedia[];
+    poll?: Omit<GistPoll, "my_vote_option_id"> | null;
+  } | null;
   [key: string]: unknown;
 }
 
@@ -76,6 +97,29 @@ export interface PendingReport {
    * doc comment above. No `my_vote_option_id`, same reasoning as
    * PendingGist's own `poll` field. */
   poll?: Omit<GistPoll, "my_vote_option_id"> | null;
+  /** Never redacted for this admin-facing shape — see AdminGist's own doc
+   * (serverGistsAdmin.ts) on the same field. */
+  is_anonymous?: boolean;
+  /** The reported gist's own quoted gist, if it's a Yarn back — same flat-
+   * not-nested convention as the rest of this row doesn't apply here
+   * (this one genuinely IS a nested sub-object, per KamposBackend's
+   * report.repo.ts QUOTED_GIST_COLUMN) — see AdminGist's own doc
+   * (serverGistsAdmin.ts) on the shape/naming/null-vs-absent convention. */
+  quoted_gist_id?: string | null;
+  quoted_gist?: {
+    gist_id: string;
+    avitag: string;
+    gist_text: string;
+    color_key?: string | null;
+    is_anonymous?: boolean;
+    campus_tag?: string | null;
+    major_tag?: string | null;
+    level?: string | null;
+    first_name?: string | null;
+    image_url?: string | null;
+    media?: GistMedia[];
+    poll?: Omit<GistPoll, "my_vote_option_id"> | null;
+  } | null;
   [key: string]: unknown;
 }
 

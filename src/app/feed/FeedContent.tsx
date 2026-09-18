@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
@@ -28,13 +28,14 @@ const CommentSheet = dynamic(
 import { Illustration } from "@/components/brand/illustrations";
 import { Avatar } from "@/components/ui/Avatar";
 import { Wordmark } from "@/components/brand/Wordmark";
-import { Plus, RefreshCw, X } from "@/components/ui/icons";
+import { Plus, RefreshCw, X, AdminsIconFill } from "@/components/ui/icons";
 import { NewGistsPill } from "@/components/gist/NewGistsPill";
+import { FloatingComposeButton } from "@/components/gist/FloatingComposeButton";
 import { PullIndicator, usePullToRefresh } from "@/components/ui/PullToRefresh";
 import { AnimatePresence } from "framer-motion";
-import { useGistStore, getFreshFeedSnapshot } from "@/stores/gistStore";
+import { useGistStore, getFreshFeedSnapshot, patchGistPoll } from "@/stores/gistStore";
 import { useCommentStore } from "@/stores/commentStore";
-import { useAuthStore } from "@/stores/authStore";
+import { useAuthStore, useIsAdmin } from "@/stores/authStore";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { timeAgo } from "@/lib/format";
 import type { Gist } from "@/types";
@@ -80,7 +81,11 @@ function pickRandomPrompt(): string {
   return PROMPTS[idx];
 }
 
-const SKELETON_VARIANTS = ["media", "text", "hero", "text"] as const;
+// Exported so loading.tsx (the route-level Suspense fallback shown before
+// this component ever mounts) can render the exact same skeleton stack
+// instead of drifting out of sync with it, the way it did when the feed
+// was still the old single-card swipe stack.
+export const SKELETON_VARIANTS = ["media", "text", "hero", "text"] as const;
 
 /** `CommentPanel` itself only ever shows a bare "X Comments" count — fine on
  * the gist page, where the gist it's about is the whole screen right next to
@@ -144,6 +149,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
         | undefined) ?? null,
   );
   const isMobile = useIsMobile();
+  const isAdmin = useIsAdmin();
 
   // Captured once, at mount, from whatever gistStore.feedSnapshot holds —
   // see that field's own docstring for why this exists at all (surviving a
@@ -427,9 +433,28 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     return () => observer.disconnect();
   }, [gists, isMobile]);
 
-  // Closed by default — a card's own comment button is what opens it; the
-  // feed list reclaims the full center column width the moment it's closed.
+  // Closed by default on mobile (there it's the sheet, a deliberate modal
+  // action, not a passive side panel) — but open by default on desktop,
+  // where the panel just sits there with real screen space to spare, and
+  // making someone click a comment button first before they can even see
+  // that space being used is friction for nothing. Checked directly via
+  // matchMedia in a layout effect (same technique useIsMobile itself uses,
+  // see its own doc) rather than reading the `isMobile` state — that state
+  // always starts false on the very first render, including on an actual
+  // phone, and only self-corrects a moment later; trusting it here would
+  // open the panel on mobile for one frame before snapping shut. The ref
+  // guard is so this only ever runs once, on mount — resizing across the
+  // breakpoint afterward shouldn't override a viewer's own manual
+  // open/close.
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const didSetDefaultCommentsOpenRef = useRef(false);
+  useLayoutEffect(() => {
+    if (didSetDefaultCommentsOpenRef.current) return;
+    didSetDefaultCommentsOpenRef.current = true;
+    if (!window.matchMedia("(max-width: 767px)").matches) {
+      setCommentsOpen(true);
+    }
+  }, []);
   const [showCommentSheet, setShowCommentSheet] = useState(false);
   const handleToggleComments = (gistId: string) => {
     setActiveGistId(gistId);
@@ -528,9 +553,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
       const { gist_id, options } = (
         e as CustomEvent<{ gist_id: string; options: NonNullable<Gist["poll"]>["options"] }>
       ).detail;
-      setGists((prev) =>
-        prev.map((g) => (g.gist_id === gist_id && g.poll ? { ...g, poll: { ...g.poll, options } } : g)),
-      );
+      setGists((prev) => prev.map((g) => patchGistPoll(g, gist_id, (poll) => ({ ...poll, options }))));
     };
     window.addEventListener("kampos:gist-counts-updated", onCounts);
     window.addEventListener("kampos:gist-rejected", onRejected);
@@ -642,25 +665,47 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                   opposite edge instead of the two sharing one side, so the
                   wordmark actually reads as centered between two anchors
                   rather than centered against a dead spacer. */}
-              <Link
-                href={myAvitag ? `/${myAvitag}` : "/feed"}
-                aria-label="Your profile"
-                className="flex h-9 w-9 shrink-0 items-center justify-center justify-self-start overflow-hidden rounded-full ring-1 ring-line transition hover:ring-brand"
-              >
-                <Avatar src={myImageUrl} />
-              </Link>
+              <div className="flex items-center gap-2 justify-self-start">
+                <Link
+                  href={myAvitag ? `/${myAvitag}` : "/feed"}
+                  aria-label="Your profile"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-line transition hover:ring-brand"
+                >
+                  <Avatar src={myImageUrl} />
+                </Link>
+                {/* Village People entry point — only ever rendered for an
+                    idiot/king account (useIsAdmin, same client-side role
+                    check VillagePeopleRail itself already gates its own
+                    "Admins" link on), so this is invisible chrome for
+                    every regular student. Sits right next to the avatar
+                    rather than in Settings — the admin team needs this
+                    often enough through the day that one more tap in a
+                    settings menu would be real friction. */}
+                {isAdmin && (
+                  <Link
+                    href="/villagepeople"
+                    aria-label="Village People admin panel"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95"
+                  >
+                    <AdminsIconFill className="h-4 w-4" />
+                  </Link>
+                )}
+              </div>
 
               <Wordmark
                 accentClassName="text-brand"
                 className="justify-self-center text-lg sm:text-xl"
               />
 
-              {/* Compose trigger — squeezed onto the wordmark's row (which
-                  had height to spare) instead of its own full row below.
-                  One consistent condensed pill style at every breakpoint,
-                  not the old mobile-pill/desktop-underline split, since
-                  this slot is always a short single line now. */}
-              <div className="relative shrink-0 justify-self-end">
+              {/* Compose trigger — desktop only now (`hidden md:flex`); on
+                  mobile this whole slot (button + its one-time coach mark
+                  below) goes away entirely in favor of FloatingComposeButton,
+                  a bottom-right FAB with its own recurring idle animation —
+                  see that component's own doc for why a fixed corner button
+                  needs that and a header button never did. Squeezed onto the
+                  wordmark's row (which had height to spare) rather than its
+                  own row, on desktop where it still renders. */}
+              <div className="relative hidden shrink-0 justify-self-end md:flex">
                 <button
                   type="button"
                   onClick={() => {
@@ -779,6 +824,18 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                                 prev.map((gg) => (gg.gist_id === fresh.gist_id ? fresh : gg)),
                               )
                             }
+                            onReposted={(fresh) =>
+                              setGists((prev) => {
+                                // Same "land after the active gist, not
+                                // always the front" placement as the main
+                                // composer's own onPosted above.
+                                const idx = activeGistId
+                                  ? prev.findIndex((gg) => gg.gist_id === activeGistId)
+                                  : -1;
+                                if (idx === -1) return [fresh, ...prev];
+                                return [...prev.slice(0, idx + 1), fresh, ...prev.slice(idx + 1)];
+                              })
+                            }
                           />
                         </li>
                       ))}
@@ -841,6 +898,14 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
           </div>
         )}
       </div>
+
+      <FloatingComposeButton
+        onClick={() => {
+          setComposePlaceholder(pickRandomPrompt());
+          setShowCreate(true);
+          dismissComposeHint();
+        }}
+      />
 
       <CreateGistSheet
         open={showCreate}
