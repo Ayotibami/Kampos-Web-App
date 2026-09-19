@@ -15,14 +15,20 @@ const REST = { x: 0, y: 0, rotate: 0, scaleX: 1, scaleY: 1 };
  * predictable, while still reading as springy/playful rather than a flat
  * linear tween — the overshoot-then-settle shape IS what a spring looks
  * like, we're just authoring it by hand instead of simulating it.
+ *
+ * These animate the PLUS ICON, not the button itself — see the component
+ * below for why. Amplitudes (the `y`/`x` hops especially) are tuned to the
+ * icon's own small size (24px inside a 56px circle, ~16px of margin on
+ * every side), not the whole button's — a hop that looked right on the
+ * full 56px button would fly the icon well past the circle's edge here.
  */
 const ANIMATIONS: Array<{ keyframes: Record<string, number[]>; transition: Transition }> = [
   {
     // Vertical hops with a squash/stretch on each landing, decaying.
     keyframes: {
-      y: [0, -18, 0, -10, 0, -5, 0],
-      scaleY: [1, 1, 0.88, 1, 0.94, 1, 1],
-      scaleX: [1, 1, 1.08, 1, 1.04, 1, 1],
+      y: [0, -11, 0, -6, 0, -3, 0],
+      scaleY: [1, 1, 0.85, 1, 0.92, 1, 1],
+      scaleX: [1, 1, 1.1, 1, 1.05, 1, 1],
     },
     transition: { duration: 4, times: [0, 0.18, 0.36, 0.56, 0.72, 0.88, 1], ease: "easeOut" },
   },
@@ -41,8 +47,8 @@ const ANIMATIONS: Array<{ keyframes: Record<string, number[]>; transition: Trans
   {
     // A little arc hop to the side and back, like a curved leap.
     keyframes: {
-      x: [0, -8, 10, -4, 0],
-      y: [0, -22, -8, -3, 0],
+      x: [0, -6, 7, -3, 0],
+      y: [0, -13, -5, -2, 0],
       rotate: [0, -8, 6, -2, 0],
     },
     transition: { duration: 4, times: [0, 0.3, 0.55, 0.8, 1], ease: "easeInOut" },
@@ -68,6 +74,15 @@ const ANIMATIONS: Array<{ keyframes: Record<string, number[]>; transition: Trans
  * there at all, unlike a one-time coach mark's job of teaching something
  * once, so this keeps nudging every 30s for as long as the feed is open,
  * tap or no tap.
+ *
+ * The animation lives on the PLUS ICON inside, not the outer button — the
+ * button itself is the actual fixed-position tap target anchored to this
+ * corner, and never moves or transforms at all (aside from the ordinary
+ * whileTap press feedback, which is a direct response to a real tap, not
+ * part of the unprompted idle cycle). That split is what lets the icon
+ * have real hops/arcs/squash freely, the same richer motion a translating
+ * button couldn't use without dragging the actual tap target out of place
+ * with it — the circle stays put; only the glyph inside it plays.
  */
 export function FloatingComposeButton({ onClick }: { onClick: () => void }) {
   const controls = useAnimationControls();
@@ -93,12 +108,12 @@ export function FloatingComposeButton({ onClick }: { onClick: () => void }) {
       type="button"
       onClick={onClick}
       aria-label="Create a gist"
-      initial={REST}
-      animate={controls}
       whileTap={{ scale: 0.88 }}
       className="fixed right-4 bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-lg shadow-brand/40 transition hover:bg-brand-dark md:hidden"
     >
-      <Plus className="h-6 w-6" />
+      <motion.span initial={REST} animate={controls} className="flex items-center justify-center">
+        <Plus className="h-6 w-6" />
+      </motion.span>
     </motion.button>
   );
 }

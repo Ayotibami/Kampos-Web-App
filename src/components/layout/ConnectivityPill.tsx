@@ -2,8 +2,8 @@
 
 /**
  * Global "Internet don vanish" / "Internet don show" status pill. Mounted
- * once in the root layout (not feed-scoped like NewGistsPill) so it's
- * visible no matter which page connectivity changes on.
+ * once in the root layout, not feed-scoped, so it's visible no matter
+ * which page connectivity changes on.
  *
  * Listens to the raw `online`/`offline` events itself rather than reusing
  * useNetworkStatus — that hook fires its reconnect callback immediately on
@@ -70,9 +70,10 @@ export function ConnectivityPill() {
     };
   }, []);
 
-  // Same server/client first-paint mismatch guard as NewGistsPill — portals
-  // don't exist on the server, so gate on a mount effect instead of
-  // `typeof document` during render.
+  // Portals don't exist on the server, so gate on a mount effect instead
+  // of `typeof document` during render — otherwise the very first client
+  // paint would disagree with the server (server renders null, client
+  // already has `document` and would render the portal wrapper for real).
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;

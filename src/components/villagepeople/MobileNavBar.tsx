@@ -5,7 +5,8 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, Menu, SettingsIconFill, X } from "@/components/ui/icons";
+import { ArrowLeft, Menu, SettingsIconFill, X, KornerIconFill } from "@/components/ui/icons";
+import { env } from "@/lib/env";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { AccountInitialAvatar } from "@/components/villagepeople/AccountInitialAvatar";
 import { getNavGroups, isNavItemActive, type NavItem } from "./navGroups";
@@ -215,6 +216,18 @@ export function MobileNavBar({ isKing, email }: { isKing: boolean; email?: strin
                       <SettingsIconFill className="h-5 w-5" weight="regular" />
                     </Link>
                     <ThemeToggle />
+                    {/* Same Korner-admin shortcut as the desktop rail's own
+                        footer, last for the same reason — see
+                        VillagePeopleRail.tsx's own doc comment. */}
+                    <a
+                      href={env.KORNER_ADMIN_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label="Open The Korner's admin panel"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
+                    >
+                      <KornerIconFill className="h-5 w-5" />
+                    </a>
                   </div>
                 </motion.div>
               </div>

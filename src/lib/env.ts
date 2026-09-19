@@ -60,6 +60,22 @@ function readKornerUrl(): string {
   return value.replace(/\/$/, "");
 }
 
+// The Korner's own admin panel — separate destination from KORNER_URL
+// above (that one's the general site, linked from the regular Settings
+// page; this one's specifically Korner's admin home, linked from Kampos's
+// own /villagepeople nav for an admin who also needs to jump over there).
+function readKornerAdminUrl(): string {
+  const raw = process.env.NEXT_PUBLIC_KORNER_ADMIN_URL?.trim();
+  const value = raw && raw.length > 0 ? raw : "https://korner-frontend.vercel.app/admin/home";
+  try {
+    // eslint-disable-next-line no-new
+    new URL(value);
+  } catch {
+    throw new Error(`NEXT_PUBLIC_KORNER_ADMIN_URL is not a valid URL: "${value}"`);
+  }
+  return value.replace(/\/$/, "");
+}
+
 export const env = {
   /** Backend origin, e.g. https://kamposbackend-001.onrender.com */
   API_URL: readApiUrl(),
@@ -99,6 +115,9 @@ export const env = {
   },
   /** The Korner's own site — linked from Settings. */
   KORNER_URL: readKornerUrl(),
+  /** The Korner's own admin panel — linked from the Kampos admin panel's
+   * own nav footer. */
+  KORNER_ADMIN_URL: readKornerAdminUrl(),
   /** GIPHY API key for the GIF/sticker picker — free from
    * https://developers.giphy.com. Empty until set; GiphyPicker shows
    * a "not configured yet" state rather than failing requests with an

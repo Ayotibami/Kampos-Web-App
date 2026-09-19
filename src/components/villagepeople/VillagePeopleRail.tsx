@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, SettingsIconFill } from "@/components/ui/icons";
+import { ArrowLeft, SettingsIconFill, KornerIconFill } from "@/components/ui/icons";
+import { env } from "@/lib/env";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { AccountInitialAvatar } from "@/components/villagepeople/AccountInitialAvatar";
 import { getNavGroups, isNavItemActive, type NavItem } from "./navGroups";
@@ -118,6 +119,22 @@ export function VillagePeopleRail({ isKing, email }: { isKing: boolean; email?: 
             spot for it — same reasoning as putting it here rather than
             repeating it per-page. */}
         <ThemeToggle />
+        {/* Jump to The Korner's own admin panel — a separate product an
+            admin here often also needs to reach. Last in this strip, since
+            it's the one link that actually leaves Kampos entirely rather
+            than staying inside this app. Feather icon (lucide, not this
+            file's own phosphor set below) purely as a plain, recognizable
+            "external tool" glyph — no Korner brand mark is a clean fit at
+            this size, so this doesn't try to be one. */}
+        <a
+          href={env.KORNER_ADMIN_URL}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Open The Korner's admin panel"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
+        >
+          <KornerIconFill className="h-5 w-5" />
+        </a>
       </div>
     </nav>
   );

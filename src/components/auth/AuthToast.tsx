@@ -7,19 +7,18 @@
  * GistActionToast's own bar variant, but top-anchored: these only ever
  * appear once, right as you arrive at a screen, before you've done
  * anything else there — closer to "here's this new screen and why" (what
- * ConnectivityPill/NewGistsPill already announce at the top) than
- * "feedback on my last tap" (what the bottom-anchored gist toasts are
- * for). Doesn't share GistActionToast's plumbing — different events,
- * different screens, the two never need to coexist.
+ * ConnectivityPill already announces at the top) than "feedback on my
+ * last tap" (what the bottom-anchored gist toasts are for). Doesn't share
+ * GistActionToast's plumbing — different events, different screens, the
+ * two never need to coexist.
  *
  * top-8 — level with where the desktop wordmark sits (AuthShell's own
  * `top-8` corner anchor), well above where any screen's heading text
  * lands (AuthShell centers its form content vertically, so the toast
  * needs to live in the dead space above it, not at a fixed distance from
  * the top that a short form's heading can still reach up into). Sits
- * above ConnectivityPill's own band (top-24) rather than below it —
- * opposite of NewGistsPill's fix for the same collision, but the same
- * underlying idea: don't let the two overlap.
+ * above ConnectivityPill's own band (top-24) rather than below it — don't
+ * let the two overlap.
  */
 
 import { useEffect, useRef, useState } from "react";

@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
+import { useModalStore } from "@/stores/modalStore";
 
 interface ModalProps {
   open: boolean;
@@ -45,9 +46,16 @@ export function Modal({
       if (dismissable && e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
+    // Same lifecycle as the body-scroll lock right above — one shared
+    // "something's open" signal every autoplaying video checks (see
+    // modalStore's own doc), not something this component's callers have
+    // to remember to wire up themselves.
+    const { modalOpened, modalClosed } = useModalStore.getState();
+    modalOpened();
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener("keydown", onKey);
+      modalClosed();
     };
   }, [open, dismissable, onClose]);
 

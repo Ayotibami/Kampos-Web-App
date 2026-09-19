@@ -35,6 +35,7 @@ export {
   AlertTriangle,
   CheckCircle,
   Ghost as AnonymousIconFill,
+  Feather as KornerIconFill,
 } from "lucide-react";
 
 // Phosphor, fill-weight — bolder/playfuller than lucide's thin stroke. This

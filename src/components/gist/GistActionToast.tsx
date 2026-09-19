@@ -77,8 +77,8 @@ export function GistActionToast() {
     };
   }, []);
 
-  // Same server/client first-paint mismatch guard as ConnectivityPill/
-  // NewGistsPill — portals don't exist on the server.
+  // Same server/client first-paint mismatch guard as ConnectivityPill —
+  // portals don't exist on the server.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;

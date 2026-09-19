@@ -12,6 +12,7 @@ import {
 import type { GistMedia } from "@/types";
 import { cloudinaryFit, cloudinaryFitSrcSet, cloudinaryVideo } from "@/lib/cloudinary";
 import { useVideoSoundStore } from "@/stores/videoSoundStore";
+import { useAnyModalOpen } from "@/stores/modalStore";
 
 // Lives here (not in GistCard.tsx, which used to define it) specifically to
 // avoid a circular import — GistCard.tsx needs ExpandableText/MediaBlock
@@ -78,6 +79,62 @@ type VideoSyncRef = RefObject<{
   seek: (time: number) => void;
 } | null>;
 
+// How long a single tap on media waits before committing to its own normal
+// action, in case a second tap is about to arrive — same window every
+// double-tap-to-react card already uses (see FeedGistCard/ProfileGistCard/
+// GistCard's own handleDoubleTapReact), just enforced here as an actual
+// delay instead of a look-back check, since media's own single tap (open
+// overlay / toggle play) has to be held off long enough to still be
+// cancellable, not just detected after the fact.
+const MEDIA_TAP_DELAY_MS = 280;
+
+/**
+ * Distinguishes a single tap on a photo/video from the first half of a
+ * double-tap, without a gesture library. The outer cards' own
+ * handleDoubleTapReact deliberately excludes anything inside
+ * `[data-media-block]` (see their own docs) precisely because media has
+ * its own single-tap meaning (open the overlay, toggle play/pause) that a
+ * plain "was the last tap under 300ms ago" check can't coexist with — that
+ * pattern only ever WATCHES taps, it doesn't own deciding whether the
+ * tapped element's normal action should even run.
+ *
+ * So this owns both sides at once: a tap starts a timer for `onSingleTap`;
+ * if nothing else happens, that timer fires and the tile does its normal
+ * thing exactly as before. If a SECOND tap lands before the timer does,
+ * the timer is cancelled — the normal action never runs at all — and
+ * `onDoubleTap` fires instead. That's the real reason a genuine single tap
+ * on media now has a small, deliberate delay before its own effect shows:
+ * without holding it back for the full window, there'd be nothing left to
+ * cancel by the time a second tap confirmed itself.
+ */
+function useDelayedTapAction(onSingleTap: () => void, onDoubleTap?: () => void) {
+  const timerRef = useRef<number | null>(null);
+  const lastTapRef = useRef(0);
+  useEffect(
+    () => () => {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    },
+    [],
+  );
+  return () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < MEDIA_TAP_DELAY_MS) {
+      lastTapRef.current = 0;
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      onDoubleTap?.();
+      return;
+    }
+    lastTapRef.current = now;
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      onSingleTap();
+    }, MEDIA_TAP_DELAY_MS);
+  };
+}
+
 // Feed-only (see fitHeightPx below) — how much of the measured available
 // space a duo's second tile gets reserved as its visible "peek" before the
 // first tile is allowed to use the rest. Enough to clearly read as "there's
@@ -101,11 +158,21 @@ export function MediaBlock({
   active,
   stackDuo,
   fitHeightPx,
+  onDoubleTapReact,
 }: {
   media: GistMedia[];
   onOpenOverlay: (index: number) => void;
   overlayOpen: boolean;
   videoSyncRef?: VideoSyncRef;
+  /** Fires on a double-tap anywhere on a tile's media — the same LOVE
+   * reaction any double-tap elsewhere on the card already triggers (see
+   * FeedGistCard/ProfileGistCard/GistCard's own handleDoubleTapReact),
+   * just reachable from inside the media itself now too. Undefined skips
+   * double-tap detection entirely and restores the old immediate
+   * single-tap behavior — used by QuotedGistBody's read-only preview of a
+   * repost's quoted gist, which was never wired to any card's own
+   * reaction state and shouldn't start being now. */
+  onDoubleTapReact?: () => void;
   /** Undefined (the profile grid's own usage) keeps every video tile's
    * existing autoplay-on-scroll-into-view behavior, driven by its own
    * IntersectionObserver — appropriate for a plain scrolling list. Passed
@@ -135,6 +202,15 @@ export function MediaBlock({
    * "there's more" peek, not something meant to fit). */
   fitHeightPx?: number;
 }) {
+  // Any dialog/sheet built on the shared Modal component (see its own
+  // doc) — a video autoplaying via IntersectionObserver or the stack's
+  // `active` prop has no idea one just opened on top of it, since
+  // neither signal accounts for actual visual occlusion, only geometric
+  // viewport intersection / "is this the front card." OR'd into every
+  // MediaTile's own forcePause below, same prop the duo mutual-exclusion
+  // logic already uses for the identical "something external says stop"
+  // purpose.
+  const anyModalOpen = useAnyModalOpen();
   const items = media.slice(0, 2);
   const isDuo = items.length === 2;
   // Justified-row sizing for a plain (non-stackDuo) duo — see the render
@@ -220,8 +296,9 @@ export function MediaBlock({
             // this only gates the automatic start, not manual play.
             autoplay={idx === 0}
             // Mutual exclusion for a manual tap — see activePlayIdx above.
-            forcePause={activePlayIdx !== null && activePlayIdx !== idx}
+            forcePause={anyModalOpen || (activePlayIdx !== null && activePlayIdx !== idx)}
             onRequestPlay={idx === 0 ? handleRequestPlay0 : handleRequestPlay1}
+            onDoubleTapReact={onDoubleTapReact}
           />
         ))
       ) : isDuo ? (
@@ -267,8 +344,9 @@ export function MediaBlock({
               videoSyncRef={videoSyncRef}
               active={active}
               autoplay={idx === 0}
-              forcePause={activePlayIdx !== null && activePlayIdx !== idx}
+              forcePause={anyModalOpen || (activePlayIdx !== null && activePlayIdx !== idx)}
               onRequestPlay={idx === 0 ? handleRequestPlay0 : handleRequestPlay1}
+              onDoubleTapReact={onDoubleTapReact}
             />
           ))}
         </div>
@@ -281,6 +359,8 @@ export function MediaBlock({
           videoSyncRef={videoSyncRef}
           active={active}
           fitHeightPx={firstFitHeightPx}
+          forcePause={anyModalOpen}
+          onDoubleTapReact={onDoubleTapReact}
         />
       )}
     </div>
@@ -301,6 +381,7 @@ function MediaTile({
   autoplay = true,
   forcePause = false,
   onRequestPlay,
+  onDoubleTapReact,
 }: {
   item: GistMedia;
   cropped: boolean;
@@ -348,9 +429,12 @@ function MediaTile({
    * OR a manual tap), so MediaBlock can record it as the one duo tile
    * allowed to play and force the sibling to pause. */
   onRequestPlay?: () => void;
+  /** See MediaBlock's own doc. */
+  onDoubleTapReact?: () => void;
 }) {
   const isVideo = item.media_type?.toLowerCase().includes("video");
   const known = knownRatio(item);
+  const handleImageTap = useDelayedTapAction(onOpenOverlay, onDoubleTapReact);
 
   if (isVideo) {
     return (
@@ -368,6 +452,7 @@ function MediaTile({
         contain={contain}
         flexGrow={flexGrow}
         onMeasuredRatio={onMeasuredRatio}
+        onDoubleTapReact={onDoubleTapReact}
       />
     );
   }
@@ -390,7 +475,7 @@ function MediaTile({
         srcSet={cloudinaryFitSrcSet(item.media_url)}
         sizes="(min-width: 768px) 740px, 100vw"
         alt=""
-        onClick={onOpenOverlay}
+        onClick={handleImageTap}
         draggable={false}
         style={{ WebkitUserDrag: "none", height: fitHeightPx } as React.CSSProperties}
         className="block w-full cursor-pointer rounded-2xl bg-brand-ink object-contain"
@@ -419,7 +504,7 @@ function MediaTile({
         srcSet={cloudinaryFitSrcSet(item.media_url)}
         sizes="(min-width: 768px) 740px, 100vw"
         alt=""
-        onClick={onOpenOverlay}
+        onClick={handleImageTap}
         onLoad={
           onMeasuredRatio
             ? (e) => {
@@ -468,7 +553,7 @@ function MediaTile({
       // app: max-w-[740px] from md (768px) up, full viewport width below.
       sizes="(min-width: 768px) 740px, 100vw"
       alt=""
-      onClick={onOpenOverlay}
+      onClick={handleImageTap}
       draggable={false}
       style={
         {
@@ -522,6 +607,7 @@ function VideoTile({
   autoplay = true,
   forcePause = false,
   onRequestPlay,
+  onDoubleTapReact,
 }: {
   item: GistMedia;
   cropped: boolean;
@@ -554,8 +640,17 @@ function VideoTile({
   forcePause?: boolean;
   /** See MediaTile's own doc. */
   onRequestPlay?: () => void;
+  /** See MediaBlock's own doc. */
+  onDoubleTapReact?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  // The intersection-observer effect's own last reading — a ref, not
+  // state, purely so the forcePause-clearing branch above can consult
+  // "was this tile in view right now" without retriggering a render of
+  // its own just to track it. See that branch's own doc for why this
+  // exists (the observer itself won't fire again just because forcePause
+  // changed, so there's no other way to answer this after the fact).
+  const isIntersectingRef = useRef(false);
   // Local play/pause intent — combined with `active` (when the caller
   // passes it) to decide real playback below. Starts true when this tile
   // is already the active front card at mount AND allowed to autoplay
@@ -644,7 +739,27 @@ function VideoTile({
   const [prevForcePause, setPrevForcePause] = useState(forcePause);
   if (forcePause !== prevForcePause) {
     setPrevForcePause(forcePause);
-    if (forcePause) setPlaying(false);
+    if (forcePause) {
+      setPlaying(false);
+    } else if (!overlayOpen) {
+      // The other half — forcePause clearing (a modal that was covering
+      // this tile just closed; see modalStore's own doc) doesn't mean
+      // "start playing," it means "stop vetoing whatever this tile's OWN
+      // signal already says." In stack-driven mode that's `active`
+      // (mirrors the becomes-active branch above); otherwise it's the
+      // intersection observer below, which won't fire again on its own
+      // since the video never actually left the viewport — only ITS
+      // visibility changes trigger a new observer callback, and being
+      // covered by a modal was never a visibility change as far as it's
+      // concerned. isIntersectingRef is that observer's own last known
+      // reading, kept for exactly this. Skipped while overlayOpen is
+      // still true — that one's deliberately "stays paused until tapped
+      // again" (see its own doc above), forcePause clearing shouldn't
+      // override that.
+      if (stackDriven ? active && autoplay : autoplay && isIntersectingRef.current) {
+        setPlaying(true);
+      }
+    }
   }
 
   // The other half of the same mechanism: claim this tile as the active
@@ -680,7 +795,9 @@ function VideoTile({
     if (!video) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        setPlaying(!!entries[0]?.isIntersecting);
+        const intersecting = !!entries[0]?.isIntersecting;
+        isIntersectingRef.current = intersecting;
+        setPlaying(intersecting);
       },
       { threshold: 0.5 },
     );
@@ -689,6 +806,7 @@ function VideoTile({
   }, [stackDriven, autoplay]);
 
   const canControl = stackDriven ? !!active && !overlayOpen : !overlayOpen;
+  const handleVideoTap = useDelayedTapAction(() => setPlaying((p) => !p), onDoubleTapReact);
 
   return (
     <div
@@ -718,7 +836,7 @@ function VideoTile({
               ? "relative h-full min-w-0"
               : "relative w-full max-h-[75vh] md:mx-auto md:w-auto md:max-w-full"
       }
-      onClick={canControl ? () => setPlaying((p) => !p) : undefined}
+      onClick={canControl ? handleVideoTap : undefined}
     >
       <MediaVideo
         ref={videoRef}

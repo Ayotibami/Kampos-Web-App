@@ -162,6 +162,18 @@ export const FeedGistCard = memo(function FeedGistCard({
     id: number;
     type: ReactionType;
   } | null>(null);
+  // Shared by handleDoubleTapReact below AND MediaBlock's own
+  // onDoubleTapReact (see GistMediaGrid.tsx's useDelayedTapAction) — the
+  // media block now detects its OWN double-tap internally (it has to, to
+  // cancel its normal single-tap action first), but the actual "trigger a
+  // LOVE" effect is the same either way, so it's factored out once instead
+  // of duplicated.
+  const triggerLoveReact = () => {
+    const now = Date.now();
+    if (!requireAuth("react to gists")) return;
+    setReactTrigger({ type: "LOVE", nonce: now });
+    setCenterBurst({ id: now, type: "LOVE" });
+  };
   const handleDoubleTapReact = (e: React.MouseEvent) => {
     if (
       (e.target as HTMLElement).closest(
@@ -172,9 +184,7 @@ export const FeedGistCard = memo(function FeedGistCard({
     const now = Date.now();
     if (now - lastTapRef.current < 300) {
       lastTapRef.current = 0;
-      if (!requireAuth("react to gists")) return;
-      setReactTrigger({ type: "LOVE", nonce: now });
-      setCenterBurst({ id: now, type: "LOVE" });
+      triggerLoveReact();
     } else {
       lastTapRef.current = now;
     }
@@ -578,6 +588,7 @@ export const FeedGistCard = memo(function FeedGistCard({
                   }}
                   overlayOpen={overlayIndex !== null}
                   videoSyncRef={videoSyncRef}
+                  onDoubleTapReact={triggerLoveReact}
                 />
               )}
             </>

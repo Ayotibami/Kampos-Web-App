@@ -449,51 +449,6 @@ interface GistState {
    * cache so the next feed read includes them. Call this from
    * useNetworkStatus when coming back online. */
   flushOfflineQueue: () => Promise<void>;
-  /** True when a background refresh fetched new gists and they're waiting
-   * to be shown — the UI renders a "Check out new gists" pill. */
-  hasNewGists: boolean;
-  /** Swaps in the fresh gists that arrived via background refresh, and
-   * returns them so a caller keeping its own local copy of the list
-   * (e.g. FeedContent) can mirror the swap instead of only updating this
-   * store's own (largely unread) `items`. */
-  loadNewGists: () => Promise<Gist[] | undefined>;
-  /** Auto-hide path — the pill disappearing on its own after a few seconds
-   * of not being tapped (see NewGistsPill's own timer), not the user acting
-   * on it. Unlike loadNewGists, this never swaps in the fresh list — the
-   * user didn't ask for it, so `items`/whatever's on screen stays exactly
-   * as it was. Uses the longer NEW_GISTS_PILL_IGNORED_COOLDOWN_MS instead
-   * of the tap cooldown: someone who let it disappear unread is a weaker
-   * signal to come back soon than someone who engaged with it. */
-  dismissNewGistsPill: () => void;
-  /** Internal — the cache key from the last list() call, used by
-   * loadNewGists to read the background-refreshed data from cache. */
-  _lastListKey: string;
-  /** Internal — timestamp (ms) before which a fresh pill isn't allowed to
-   * surface, set 15 minutes out every time loadNewGists() runs. Without
-   * this, back-to-back approvals during an active moderation burst meant
-   * tapping the pill just got you a new one seconds later — the user ends
-   * up chasing pills instead of actually reading the feed. New approvals
-   * during the cooldown still refresh the cache in the background (so
-   * whenever the pill does reappear it's current), they just don't surface
-   * it early. 0 means no cooldown is active — the very first pill of a
-   * session (before anyone's tapped one) is never held back by this. */
-  _pillCooldownUntil: number;
-  /** Which of the two main-feed pools is currently on screen — kept in
-   * sync by FeedContent whenever its tab changes. Exists purely so the
-   * module-level feed.global/GIST_APPROVED handler below (which has no
-   * way to see FeedContent's own local `tab` state — it's a plain store
-   * subscription, not a component) knows which `feed_mode` to fetch/cache
-   * under when flagging the "new gists" pill. Without this, that handler
-   * always fetched the unfiltered Amebo pool regardless of which tab was
-   * actually active, so tapping the pill while on Gist could silently
-   * swap in gists from every school instead of just your own. */
-  activeFeedMode: "gist" | "amebo" | "school";
-  /** Only meaningful when activeFeedMode is "school" — which campus's pill
-   * is active. Kept alongside activeFeedMode (not folded into it) so the
-   * module-level pill handler below can rebuild the exact same {feed_mode,
-   * school} params the active tab is actually fetching with. */
-  activeSchoolTag: string | null;
-  setActiveFeedMode: (mode: "gist" | "amebo" | "school", schoolTag?: string | null) => void;
   /** The (up to 3) currently-trending other schools, for the pills beside
    * Amebo — see gist.repo.ts's getTrendingSchools for how "trending" is
    * computed. Empty when nothing qualifies; never padded. */
@@ -528,11 +483,6 @@ interface GistState {
   }) => void;
 }
 
-const NEW_GISTS_PILL_COOLDOWN_MS = 15 * 60 * 1000;
-// Longer than the tap cooldown above — see dismissNewGistsPill's own
-// docstring for why an ignored pill backs off further than a tapped one.
-const NEW_GISTS_PILL_IGNORED_COOLDOWN_MS = 25 * 60 * 1000;
-
 // How old a saved feedSnapshot is still allowed to be before it's treated
 // as if it never existed — matches DEFAULT_CACHE_TTL_MS in dataCache.ts,
 // this app's existing "how stale is a feed allowed to be" convention.
@@ -554,10 +504,6 @@ export function getFreshFeedSnapshot() {
 
 export const useGistStore = create<GistState>((set, get) => ({
   items: [],
-  _pillCooldownUntil: 0,
-  activeFeedMode: "gist",
-  activeSchoolTag: null,
-  setActiveFeedMode: (mode, schoolTag = null) => set({ activeFeedMode: mode, activeSchoolTag: mode === "school" ? schoolTag : null }),
   trendingSchools: [],
   feedSnapshot: null,
   saveFeedSnapshot: (snapshot) => set({ feedSnapshot: { ...snapshot, savedAt: Date.now() } }),
@@ -573,23 +519,10 @@ export const useGistStore = create<GistState>((set, get) => ({
   },
   loading: false,
   error: null,
-  hasNewGists: false,
-  _lastListKey: "",
 
   list: async (params = {}) => {
     set({ loading: true, error: null });
     const key = cacheKey("/gists", params);
-    // The "new gists" pill no longer has anything to do with this function
-    // at all — it's driven entirely by the feed.global WebSocket broadcast
-    // (see the module-level subscription below), which does its own direct
-    // fetch-and-cache the moment something is genuinely new. Comparing
-    // against a background refetch here was a leftover from before that
-    // existed and had already been narrowed down to pure dead weight: SSR
-    // covers the first paint, pull-to-refresh always wants the server
-    // directly, and the pill's own trigger already re-fetches for real —
-    // nothing was left actually reading a "stale-but-fresh-enough" copy of
-    // the base feed.
-    //
     // A paginated loadMore() call has its own, per-cursor cache key —
     // genuinely worth keeping cached (scroll down, back up, back down
     // within a few minutes and it's instant), so that path still goes
@@ -599,7 +532,6 @@ export const useGistStore = create<GistState>((set, get) => ({
     // however old — the one place caching here is still earning its keep
     // is exactly that offline fallback, not freshness optimization.
     const isBaseFeed = !("cursor" in params && params.cursor);
-    if (isBaseFeed) set({ _lastListKey: key });
     try {
       let data: Gist[] | undefined;
       if (isBaseFeed) {
@@ -634,7 +566,7 @@ export const useGistStore = create<GistState>((set, get) => ({
 
   primeFromServer: (gists, params = { limit: 30 }) => {
     const key = cacheKey("/gists", params);
-    set({ items: normalizeGists(gists), _lastListKey: key, hasNewGists: false });
+    set({ items: normalizeGists(gists) });
     // Fire-and-forget — this just needs to land before the next cache read,
     // not before this call returns.
     cacheSet(key, gists).catch(() => {});
@@ -1302,51 +1234,13 @@ export const useGistStore = create<GistState>((set, get) => ({
       );
     }
   },
-
-  /** Swaps in the fresh gists that the background refresh already cached —
-   * no network call, instant. Called when the user taps the pill. Returns
-   * the fresh list so a caller with its own local copy (FeedContent) can
-   * mirror the swap instead of only updating this store's own `items`. */
-  loadNewGists: async () => {
-    const key = get()._lastListKey;
-    set({ hasNewGists: false, _pillCooldownUntil: Date.now() + NEW_GISTS_PILL_COOLDOWN_MS });
-    if (!key) return undefined;
-    try {
-      const fresh = await cacheGet<Gist[]>(key);
-      if (!fresh) return undefined;
-      const normalized = normalizeGists(fresh);
-      set({ items: normalized });
-      return normalized;
-    } catch {
-      return undefined;
-    }
-  },
-
-  dismissNewGistsPill: () => {
-    set({ hasNewGists: false, _pillCooldownUntil: Date.now() + NEW_GISTS_PILL_IGNORED_COOLDOWN_MS });
-  },
 }));
 
-// One shared subscription for the whole app: when an admin approves a
-// gist, warm the base feed's cache with the real current list and flag
-// the "new gists" pill. Module-level (not component-level), same pattern
-// commentStore.ts uses for comment:created, so it keeps working
-// regardless of whether the feed even happens to be the mounted page
-// right now — arriving back on /feed later, primeFromServer's own reset
-// (see FeedContent's mount effect) clears a stale flag if you weren't
-// actually there when it fired.
-//
-// Deliberately does NOT trust the broadcast's own `gist` payload for
-// display — moderation.service.ts's approveGist returns a bare
-// `RETURNING *` row with no poster name/avatar/counts/media joined in,
-// nothing GistCard could render correctly. This is only a signal that
-// something changed; the real list is always re-fetched for real.
-// Pending reveal timer for the "new gists" pill — see the cooldown
-// reasoning on _pillCooldownUntil above. Module-level (one timer for the
-// whole app, matching the module-level WS subscriptions around it), reset
-// on every approval that lands mid-cooldown so it always targets the
-// actual cooldown end regardless of how many approvals arrive before then.
-let pillRevealTimer: ReturnType<typeof setTimeout> | null = null;
+// One shared subscription for the whole app: when an admin rejects a gist,
+// drop it from view wherever it's currently on screen. Module-level (not
+// component-level), same pattern commentStore.ts uses for comment:created,
+// so it keeps working regardless of whether the feed even happens to be
+// the mounted page right now.
 
 // Dev-mode Fast Refresh re-runs this module every time this FILE is
 // edited — wsClient itself is a separate, untouched singleton, so without
@@ -1374,48 +1268,6 @@ wsHandles.__kamposPollUnsub?.();
 if (typeof window !== "undefined") {
   wsHandles.__kamposFeedGlobalUnsub = wsClient.subscribe("feed.global", (payload) => {
     const p = payload as { type?: string; gist_id?: string } | undefined;
-
-    if (p?.type === "GIST_APPROVED") {
-      // Must match whichever tab is actually on screen — the backend
-      // defaults an absent feed_mode to the unfiltered Amebo pool, so
-      // omitting this here (as this used to) meant tapping the pill while
-      // on Gist could silently swap in gists from every school, not just
-      // your own. A school-tab viewer needs the ?school= param too, or
-      // the backend would silently degrade "school" mode to unfiltered.
-      const activeMode = useGistStore.getState().activeFeedMode;
-      const activeSchool = useGistStore.getState().activeSchoolTag;
-      const params: Record<string, unknown> = { limit: 30, feed_mode: activeMode };
-      if (activeMode === "school" && activeSchool) params.school = activeSchool;
-      const key = cacheKey("/gists", params);
-      apiGet<Gist[]>("/gists", { params })
-        .then((fresh) => {
-          if (!fresh) return;
-          cacheSet(key, fresh).catch(() => {});
-          const cooldownUntil = useGistStore.getState()._pillCooldownUntil;
-          const now = Date.now();
-          if (cooldownUntil > now) {
-            // Still cooling down from the last time the user acted on a
-            // pill — keep the cache/key current (so whenever it does
-            // surface it's the real latest list) without popping a new
-            // prompt on top of one they just dismissed. Schedule the
-            // reveal for exactly when the cooldown ends, in case this is
-            // the only approval during the window — without this, a lone
-            // approval mid-cooldown with nothing after it would never
-            // surface at all, since nothing else would be left to "wake"
-            // hasNewGists back on.
-            useGistStore.setState({ _lastListKey: key });
-            if (pillRevealTimer) clearTimeout(pillRevealTimer);
-            pillRevealTimer = setTimeout(() => {
-              pillRevealTimer = null;
-              useGistStore.setState({ hasNewGists: true });
-            }, cooldownUntil - now);
-          } else {
-            useGistStore.setState({ hasNewGists: true, _lastListKey: key });
-          }
-        })
-        .catch(() => {});
-      return;
-    }
 
     if (p?.type === "GIST_REJECTED" && p.gist_id) {
       const gistId = p.gist_id;

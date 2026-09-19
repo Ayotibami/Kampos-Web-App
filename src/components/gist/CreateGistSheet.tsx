@@ -416,8 +416,20 @@ export function CreateGistSheet({
   const currentTarget = editGist?.gist_id ?? "__new__";
   if (open && seededFor !== currentTarget) {
     setSeededFor(currentTarget);
-    setText(editGist?.gist_text ?? initialText ?? "");
-    setPickedColor(null);
+    const seedText = editGist?.gist_text ?? initialText ?? "";
+    setText(seedText);
+    // A color is always on for a fresh, eligible compose session now, not
+    // just once the poster happens to open the picker — see
+    // colorPickerEligible's own doc for why editing/a poll/media/length
+    // rule the picker out entirely (mirrored here: an ineligible fresh
+    // session, or editing, seeds null same as before). Random per session,
+    // not re-rolled on every reopen of the same draft — this whole block
+    // only runs on a genuine target change (see this effect's own doc).
+    setPickedColor(
+      !editGist && seedText.length < 200
+        ? GIST_COLOR_KEYS[Math.floor(Math.random() * GIST_COLOR_KEYS.length)]
+        : null,
+    );
     setShowColorPicker(false);
     setShowPoll(false);
     setPollOptions(["", ""]);
@@ -552,6 +564,16 @@ export function CreateGistSheet({
     setShowPoll(false);
     setPollOptions(["", ""]);
     setIsAnonymous(false);
+    // Every call site here is immediately followed by onClose() — this
+    // doesn't retrigger the seeding block on the spot (that block only
+    // ever runs while `open` is true, and `open` is about to go false in
+    // this same batched update). It just means the NEXT open genuinely
+    // re-seeds instead of reusing whatever `seededFor` already equalled
+    // ("__new__", forever, for every non-edit session) — without this, a
+    // fresh random color (see the seeding block's own doc) only ever
+    // happened once per page load, the very first time the sheet opened,
+    // then silently stuck for every post after that.
+    setSeededFor(null);
   };
 
   // Helpers for the poll option inputs below — kept close to pollOptions
@@ -1112,7 +1134,14 @@ export function CreateGistSheet({
                     // race between the button grabbing it and us taking it
                     // back.
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => setPickedColor((c) => (c === key ? null : key))}
+                    // A color is always on while colorPickerEligible now
+                    // (see the seeding block's own doc) — tapping the
+                    // already-active swatch again just re-confirms it
+                    // rather than clearing back to "no color," since "no
+                    // color" was never a real state the feed itself
+                    // honored anyway (a null color_key still gets a
+                    // hash-based one there — see ShortGist's fallbackSeed).
+                    onClick={() => setPickedColor(key)}
                     aria-label={`${key} background`}
                     aria-pressed={pickedColor === key}
                     className={`h-7 w-7 shrink-0 rounded-full ring-2 ring-offset-2 ring-offset-brand-tint transition active:scale-90 ${
@@ -1165,7 +1194,16 @@ export function CreateGistSheet({
                       const next = !v;
                       if (next) {
                         setShowColorPicker(false);
-                        setPickedColor(null);
+                        // pickedColor is deliberately left alone here — same
+                        // as attaching media never clears it either (see
+                        // colorPickerEligible's own doc): it's already
+                        // excluded from both the hero preview and the POST
+                        // payload the instant showPoll is true, so there's
+                        // nothing to protect by nulling it out too. Leaving
+                        // it be is what lets turning the poll back off
+                        // restore the SAME color rather than rolling a new
+                        // one, exactly like removing an attached image does.
+                        //
                         // Deliberately NOT trimming `text` down to the
                         // poll's shorter cap here. Whatever was already
                         // typed stays exactly as typed — if it's over
@@ -1210,8 +1248,16 @@ export function CreateGistSheet({
                   aria-label="Choose a background color"
                   aria-pressed={showColorPicker}
                   disabled={!colorPickerEligible}
+                  // Shows the actual picked color now that one's always on
+                  // while eligible, rather than a generic brand-blue toggle
+                  // icon that gave no hint a color was even active.
+                  style={heroPreviewHex ? { backgroundColor: heroPreviewHex } : undefined}
                   className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition active:scale-95 disabled:opacity-30 disabled:shadow-none disabled:active:scale-100 ${
-                    showColorPicker ? "bg-brand-dark shadow-brand/40" : "bg-brand shadow-brand/30 hover:bg-brand-dark"
+                    heroPreviewHex
+                      ? "shadow-black/20"
+                      : showColorPicker
+                        ? "bg-brand-dark shadow-brand/40"
+                        : "bg-brand shadow-brand/30 hover:bg-brand-dark"
                   }`}
                 >
                   <PaletteIconFill className="h-4 w-4" weight="fill" />

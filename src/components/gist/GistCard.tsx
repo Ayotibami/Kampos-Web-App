@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { motion, AnimatePresence, type MotionValue } from "framer-motion";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
 import { Avatar } from "@/components/ui/Avatar";
+import { MediaImage } from "@/components/ui/MediaFrame";
 import { SHORT_TEXT, ExpandableText, MediaBlock } from "./GistMediaGrid";
 import { GistMediaOverlay } from "./GistMediaOverlay";
 import { PollBlock } from "./PollBlock";
@@ -253,11 +254,15 @@ export const GistCard = memo(function GistCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMedia, gist.gist_id, gist.gist_text]);
 
-  // Double-tap-to-react (Instagram-style) — anywhere on a text-only card
-  // (gists with media keep their tiles' own established single-tap meanings
-  // — open overlay / toggle mute-play — which a competing double-tap gesture
-  // would conflict with there). "Anywhere" excludes actual buttons/links so
-  // e.g. double-clicking the three-dot menu doesn't also fire a reaction.
+  // Double-tap-to-react (Instagram-style) — anywhere on a text-only card.
+  // A gist WITH media used to be excluded here entirely (its tiles' own
+  // single-tap meanings — open overlay / toggle mute-play — would have
+  // raced a competing double-tap gesture layered on top); that's resolved
+  // now by MediaBlock's own onDoubleTapReact (see GistMediaGrid.tsx's
+  // useDelayedTapAction), which owns detecting a double-tap ON the media
+  // itself and cancelling its normal single-tap action first, rather than
+  // this outer handler trying to. "Anywhere" excludes actual buttons/links
+  // so e.g. double-clicking the three-dot menu doesn't also fire a reaction.
   const lastTapRef = useRef(0);
   const [reactTrigger, setReactTrigger] = useState<{ type: ReactionType; nonce: number } | null>(null);
   // Shared by both double-tap and a row-click selection (via ReactionButton's
@@ -265,18 +270,25 @@ export const GistCard = memo(function GistCard({
   // emoji was actually picked (always LOVE for double-tap, any of the 5 for
   // a row click).
   const [centerBurst, setCenterBurst] = useState<{ id: number; type: ReactionType } | null>(null);
+  // Shared by handleDoubleTapReact below AND MediaBlock's own
+  // onDoubleTapReact — same factoring reasoning as FeedGistCard/
+  // ProfileGistCard's own triggerLoveReact.
+  const triggerLoveReact = () => {
+    const now = Date.now();
+    // Gated here too, not just inside ReactionButton's own externalTrigger
+    // effect — that guard stops the row/count from actually updating, but
+    // the big center-burst celebration below is fired independently and
+    // would otherwise still play for a guest whose reaction never happened.
+    if (!requireAuth("react to gists")) return;
+    setReactTrigger({ type: "LOVE", nonce: now });
+    setCenterBurst({ id: now, type: "LOVE" });
+  };
   const handleDoubleTapReact = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest("button, a, input, textarea")) return;
+    if ((e.target as HTMLElement).closest("button, a, input, textarea, [data-media-block]")) return;
     const now = Date.now();
     if (now - lastTapRef.current < 300) {
       lastTapRef.current = 0;
-      // Gated here too, not just inside ReactionButton's own externalTrigger
-      // effect — that guard stops the row/count from actually updating, but
-      // the big center-burst celebration below is fired independently and
-      // would otherwise still play for a guest whose reaction never happened.
-      if (!requireAuth("react to gists")) return;
-      setReactTrigger({ type: "LOVE", nonce: now });
-      setCenterBurst({ id: now, type: "LOVE" });
+      triggerLoveReact();
     } else {
       lastTapRef.current = now;
     }
@@ -635,12 +647,14 @@ export const GistCard = memo(function GistCard({
           — it's the content inside that scrolls when text + media together
           don't fit, exactly the same scroll-vs-swipe boundary behavior a
           long text-only gist already had, just now also covering media.
-          Double-tap-to-react listens here (text-only gists only — see
-          handleDoubleTapReact), not on the whole card, so it stays scoped to
-          the actual content rather than also catching taps on the header/
-          footer chrome around it. */}
+          Double-tap-to-react listens here (see handleDoubleTapReact), not
+          on the whole card, so it stays scoped to the actual content rather
+          than also catching taps on the header/footer chrome around it —
+          excludes [data-media-block] same as FeedGistCard/ProfileGistCard,
+          since MediaBlock now owns detecting a double-tap on the media
+          itself (see its own onDoubleTapReact doc). */}
       <div
-        onClick={!hasMedia ? handleDoubleTapReact : undefined}
+        onClick={handleDoubleTapReact}
         className="relative z-10 mt-4 min-h-0 flex-1 overflow-hidden"
       >
         <div
@@ -671,6 +685,7 @@ export const GistCard = memo(function GistCard({
                 active={isActive && !showEdit}
                 stackDuo
                 fitHeightPx={mediaFitHeightPx ?? undefined}
+                onDoubleTapReact={triggerLoveReact}
               />
             </>
           ) : short ? (
@@ -965,13 +980,23 @@ export function ShortGist({
 /** The quoted gist's own body — text, its own real poll (PollBlock, the
  * same interactive component any gist's poll renders with — voting on
  * it from inside the quote genuinely votes on the ORIGINAL gist, same
- * gist_id either way, not a separate read-only copy), and its own real
- * media rendered the same way any gist's media renders (MediaBlock + a
- * real full-screen GistMediaOverlay on tap, up to 2 items, not a shrunk
- * preview thumbnail). Its own local overlayIndex state, independent of
+ * gist_id either way, not a separate read-only copy), and its own media.
+ *
+ * `mediaVariant` splits the two contexts this renders in on purpose:
+ * "full" (default) — the real MediaBlock + a real full-screen
+ * GistMediaOverlay on tap, up to 2 items — is for an ALREADY-POSTED
+ * repost (RepostThreadLine, below), where the quote is content you're
+ * reading and should be able to interact with same as any other gist's
+ * media. "thumbnail" — one small static square, first item only, no tap
+ * target — is for QuotedGistPreview, the COMPOSER's still-drafting
+ * preview: you're not reading the original there, just confirming which
+ * gist you're about to repost, so a compact reference thumbnail is the
+ * right weight, not a second full interactive media surface competing
+ * with the textarea you're actually typing into. Own local
+ * overlayIndex state (only meaningful for "full"), independent of
  * whatever overlay state the OUTER (reposting) card's own media might
  * have — these are two unrelated gists, each gets its own overlay. */
-function QuotedGistBody({ gist }: { gist: Gist }) {
+function QuotedGistBody({ gist, mediaVariant = "full" }: { gist: Gist; mediaVariant?: "full" | "thumbnail" }) {
   const [overlayIndex, setOverlayIndex] = useState<number | null>(null);
   const hasMedia = !!gist.media?.length;
   const hasPoll = !!gist.poll;
@@ -989,7 +1014,16 @@ function QuotedGistBody({ gist }: { gist: Gist }) {
         </p>
       )}
       {hasPoll && <PollBlock gistId={gist.gist_id} poll={gist.poll!} />}
-      {hasMedia && (
+      {hasMedia && mediaVariant === "thumbnail" && (
+        <div className={`h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-black/5 ${gist.gist_text ? "mt-2" : ""}`}>
+          <MediaImage
+            src={gist.media![0].thumbnail_url ?? gist.media![0].media_url}
+            alt=""
+            className="h-full w-full object-cover"
+          />
+        </div>
+      )}
+      {hasMedia && mediaVariant === "full" && (
         <div className={gist.gist_text ? "mt-2" : undefined}>
           <MediaBlock
             media={gist.media!}
@@ -998,7 +1032,7 @@ function QuotedGistBody({ gist }: { gist: Gist }) {
           />
         </div>
       )}
-      {hasMedia && overlayIndex !== null && (
+      {hasMedia && mediaVariant === "full" && overlayIndex !== null && (
         <GistMediaOverlay
           media={gist.media!}
           startIndex={overlayIndex}
@@ -1029,7 +1063,7 @@ export function QuotedGistPreview({ gist }: { gist: Gist }) {
         <QuotedGistPosterDetailsOnly gist={gist} />
       </div>
       <div className="bg-black/[0.015] px-3 pb-3 dark:bg-white/[0.02]">
-        <QuotedGistBody gist={gist} />
+        <QuotedGistBody gist={gist} mediaVariant="thumbnail" />
       </div>
     </div>
   );

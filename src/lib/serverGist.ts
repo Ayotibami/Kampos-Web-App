@@ -82,9 +82,9 @@ export async function fetchGistContext(
  * The backend defaults to 20 gists per page (see gist.controller.ts's list
  * handler), matching what the client-side gistStore.list() already requests.
  *
- * `feed_mode=gist` here matters, not just cosmetic: FeedContent's tab (and
- * gistStore's activeFeedMode) both default to "gist", so the client's own
- * first fetch always asks for the viewer's own-campus pool. Without this
+ * `feed_mode=gist` here matters, not just cosmetic: FeedContent's tab
+ * defaults to "gist", so the client's own first fetch always asks for the
+ * viewer's own-campus pool. Without this
  * param the backend falls back to Amebo's completely unfiltered pool (see
  * gist.controller.ts's own feedModeRaw default) — the very first paint the
  * user ever sees was every campus's posts mislabeled under the Gist tab,

@@ -204,6 +204,15 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     id: number;
     type: ReactionType;
   } | null>(null);
+  // Shared by handleDoubleTapReact below AND MediaBlock's own
+  // onDoubleTapReact (see GistMediaGrid.tsx's useDelayedTapAction) — same
+  // factoring reasoning as FeedGistCard's own triggerLoveReact.
+  const triggerLoveReact = () => {
+    const now = Date.now();
+    if (!requireAuth("react to gists")) return;
+    setReactTrigger({ type: "LOVE", nonce: now });
+    setCenterBurst({ id: now, type: "LOVE" });
+  };
   const handleDoubleTapReact = (e: React.MouseEvent) => {
     if (
       (e.target as HTMLElement).closest(
@@ -214,9 +223,7 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     const now = Date.now();
     if (now - lastTapRef.current < 300) {
       lastTapRef.current = 0;
-      if (!requireAuth("react to gists")) return;
-      setReactTrigger({ type: "LOVE", nonce: now });
-      setCenterBurst({ id: now, type: "LOVE" });
+      triggerLoveReact();
     } else {
       lastTapRef.current = now;
     }
@@ -623,6 +630,7 @@ export const ProfileGistCard = memo(function ProfileGistCard({
                   }}
                   overlayOpen={overlayIndex !== null}
                   videoSyncRef={videoSyncRef}
+                  onDoubleTapReact={triggerLoveReact}
                 />
               )}
             </>

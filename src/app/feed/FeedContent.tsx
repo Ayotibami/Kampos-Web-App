@@ -29,7 +29,6 @@ import { Illustration } from "@/components/brand/illustrations";
 import { Avatar } from "@/components/ui/Avatar";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { Plus, RefreshCw, X, AdminsIconFill } from "@/components/ui/icons";
-import { NewGistsPill } from "@/components/gist/NewGistsPill";
 import { FloatingComposeButton } from "@/components/gist/FloatingComposeButton";
 import { PullIndicator, usePullToRefresh } from "@/components/ui/PullToRefresh";
 import { AnimatePresence } from "framer-motion";
@@ -242,20 +241,8 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   // "school", which campus (see gist.controller.ts's list handler).
   const isSchoolTab = tab !== "Gist" && tab !== "Amebo";
   const feedMode = tab === "Amebo" ? "amebo" : isSchoolTab ? "school" : "gist";
-  const setActiveFeedMode = useGistStore((s) => s.setActiveFeedMode);
   const trendingSchools = useGistStore((s) => s.trendingSchools);
   const fetchTrendingSchools = useGistStore((s) => s.fetchTrendingSchools);
-
-  // Keeps gistStore's own copy of "which tab is active" current — that
-  // store-level flag exists purely for the module-level feed.global/
-  // GIST_APPROVED WS handler (see its own comment), which has no way to
-  // read this component's local `tab` state directly. Deliberately not
-  // skipped on mount like the tab-switch effect below — the store needs
-  // the real value from the very first render, not just from the second
-  // tab switch onward.
-  useEffect(() => {
-    setActiveFeedMode(feedMode, isSchoolTab ? tab : null);
-  }, [feedMode, isSchoolTab, tab, setActiveFeedMode]);
 
   // Trending schools refresh independently of the currently-selected tab —
   // fetched on mount and re-polled every 5 minutes so the row reflects the
@@ -782,23 +769,6 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                 onTouchEnd={onTouchEnd}
               >
                 <PullIndicator pull={pull} state={state} />
-                <NewGistsPill
-                  onLoad={async () => {
-                    // Instant path: the background refresh already cached
-                    // the fresh list — swap it in with zero network wait.
-                    // Only fall back to a real fetch if nothing was cached
-                    // (shouldn't normally happen; hasNewGists implies it was).
-                    const fresh = await useGistStore.getState().loadNewGists();
-                    if (fresh) {
-                      setGists(fresh);
-                      setExhausted(false);
-                      setLoadError(false);
-                      void prefetchComments(fresh.map((g) => g.gist_id));
-                    } else {
-                      void load();
-                    }
-                  }}
-                />
                 <div className="flex flex-1 justify-center px-4 pb-8 pt-3 sm:pt-4">
                   <div className="w-full max-w-[740px]">
                     <ul className="flex flex-col gap-3">
