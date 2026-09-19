@@ -346,7 +346,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
-  const { pull, state, onTouchStart, onTouchMove, onTouchEnd } = usePullToRefresh(
+  const { pull, state, containerRef: pullToRefreshRef } = usePullToRefresh<HTMLDivElement>(
     () => load({ resetToTop: true }),
     atTop,
   );
@@ -640,25 +640,24 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
       <div className="flex h-dvh w-full overflow-hidden">
         {/* Center Feed */}
         <div
+          ref={pullToRefreshRef}
           className="relative flex h-full min-w-0 flex-1 flex-col bg-brand/[0.04] dark:bg-brand/[0.07]"
-          // Pull-to-refresh's touch handlers bind up here — on the whole
-          // feed column (header included), not just the scrollable list
-          // below it. A real pull-down gesture is almost always started
-          // right near the top of the visible screen, which is exactly
-          // where the sticky header sits — binding only to the list below
-          // it (the original approach) meant a gesture that started ON or
-          // over the header, before the finger even reached the list, was
-          // silently dropped: onTouchStart never fired, so startY/pullingRef
-          // never got set, and the rest of the drag did nothing at all.
-          // Safe to attach this broadly: the handlers are a pure
-          // coordinate-based state machine (just e.touches[0].clientY),
-          // gated on `atTop`/a real downward delta before they do anything
-          // visible, and never call preventDefault/stopPropagation — an
-          // ordinary tap on the avatar, a tab pill, or anything else in the
-          // header still works exactly as before.
-          onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
-          onTouchEnd={onTouchEnd}
+          // Pull-to-refresh listens on the whole feed column (header
+          // included), not just the scrollable list below it. A real
+          // pull-down gesture is almost always started right near the top
+          // of the visible screen, which is exactly where the sticky
+          // header sits — binding only to the list below it (the original
+          // approach) meant a gesture that started ON or over the header,
+          // before the finger even reached the list, was silently
+          // dropped: touchstart never fired, so startY/pullingRef never
+          // got set, and the rest of the drag did nothing at all. Safe to
+          // attach this broadly: the gesture is a pure coordinate-based
+          // state machine (just clientY) gated on `atTop`/a real downward
+          // delta before it does anything visible, and only ever calls
+          // preventDefault once it's already sure this is a genuine pull
+          // (see usePullToRefresh's own doc) — an ordinary tap on the
+          // avatar, a tab pill, or anything else in the header still works
+          // exactly as before.
         >
           {/* Header — logo + account icons on their own row (app chrome);
               feed tabs get their own row underneath (X-style: "which feed am
@@ -783,7 +782,20 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
             ) : gists.length ? (
               <div
                 ref={scrollRef}
-                className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto"
+                // overscroll-y-contain: this is the actual scroll container
+                // that hits its own real top boundary as you pull down —
+                // `overscroll-behavior: none` on html/body (globals.css's
+                // `feed-locked` rule) only stops the outer PAGE from
+                // bouncing/native-refreshing, it does nothing for THIS
+                // nested container's own overscroll once IT runs out of
+                // room to scroll. Without this, a real phone's browser can
+                // still intercept the drag right at this div's own
+                // boundary — its own rubber-band bounce, or (worse) letting
+                // the gesture chain up to the page after all — competing
+                // with (or entirely stealing) the custom pull-to-refresh
+                // logic below. `contain` stops it exactly at this box's
+                // edge without disabling scroll bounce everywhere.
+                className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain"
               >
                 <PullIndicator pull={pull} state={state} />
                 <div className="flex flex-1 justify-center px-4 pb-8 pt-3 sm:pt-4">
