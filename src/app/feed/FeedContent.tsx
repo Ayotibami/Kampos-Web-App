@@ -639,7 +639,27 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     <AppShell variant="feed">
       <div className="flex h-dvh w-full overflow-hidden">
         {/* Center Feed */}
-        <div className="relative flex h-full min-w-0 flex-1 flex-col bg-brand/[0.04] dark:bg-brand/[0.07]">
+        <div
+          className="relative flex h-full min-w-0 flex-1 flex-col bg-brand/[0.04] dark:bg-brand/[0.07]"
+          // Pull-to-refresh's touch handlers bind up here — on the whole
+          // feed column (header included), not just the scrollable list
+          // below it. A real pull-down gesture is almost always started
+          // right near the top of the visible screen, which is exactly
+          // where the sticky header sits — binding only to the list below
+          // it (the original approach) meant a gesture that started ON or
+          // over the header, before the finger even reached the list, was
+          // silently dropped: onTouchStart never fired, so startY/pullingRef
+          // never got set, and the rest of the drag did nothing at all.
+          // Safe to attach this broadly: the handlers are a pure
+          // coordinate-based state machine (just e.touches[0].clientY),
+          // gated on `atTop`/a real downward delta before they do anything
+          // visible, and never call preventDefault/stopPropagation — an
+          // ordinary tap on the avatar, a tab pill, or anything else in the
+          // header still works exactly as before.
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+        >
           {/* Header — logo + account icons on their own row (app chrome);
               feed tabs get their own row underneath (X-style: "which feed am
               I looking at" reads as content, not global nav), left-aligned
@@ -764,9 +784,6 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
               <div
                 ref={scrollRef}
                 className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto"
-                onTouchStart={onTouchStart}
-                onTouchMove={onTouchMove}
-                onTouchEnd={onTouchEnd}
               >
                 <PullIndicator pull={pull} state={state} />
                 <div className="flex flex-1 justify-center px-4 pb-8 pt-3 sm:pt-4">
