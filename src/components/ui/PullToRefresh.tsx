@@ -1,75 +1,64 @@
 "use client";
 
 /**
- * Pull-to-refresh hook — tracks a downward touch drag and, past a
- * threshold, calls `onRefresh`. Returns pull distance + state for the
- * indicator, and a ref to attach to the container the gesture should
- * listen on.
+ * Pull-to-refresh — tracks a downward touch drag and, past a threshold,
+ * calls `onRefresh`. Returns pull distance + state for the indicator, and
+ * a ref to attach to the container the gesture should listen on.
  *
- * `enabled` gates the whole gesture. This isn't optional polish: on the
- * feed, the vertical drag is ALSO how you swipe to the previous gist (see
- * useOverscrollNav, attached directly to each card). Native touch events
- * bubble past a card's own preventDefault() up to this handler regardless
- * of who "claimed" the gesture first, so without an explicit gate, a
- * longer/slower swipe-to-previous could simultaneously trigger a full feed
- * reload — two unrelated things firing off one motion. The only place a
- * downward pull doesn't already mean "go to the previous gist" is when
- * you're on the very first one (there's nothing before it to go to), so
- * callers should only enable this while viewing that first card.
+ * Two things make this work reliably on a real iPhone, not just in a
+ * quick test:
  *
- * Native `addEventListener` calls (via a ref + effect), NOT React's own
- * onTouchStart/onTouchMove JSX props — this is the actual fix for "works
- * in a quick test, does nothing on a real iPhone." React registers its
- * touchmove listener as passive by default (Chrome/Safari's own
- * recommended default, for scroll performance), which silently means
- * `preventDefault()` inside a React onTouchMove handler does nothing at
- * all — there was never a real handler here calling it in the first
- * place, but even adding one the "normal" React way wouldn't have worked.
- * Without a real preventDefault, iOS Safari is free to treat a downward
- * drag at the top of the list as ITS OWN gesture (a rubber-band bounce, or
- * worse, its own native "pull down to reload the page") at the same time
- * this hook is trying to track it as a custom pull-to-refresh — on a
- * horizontally-swiped card stack (the old feed design) this never
- * mattered, since Safari had no reason to treat a horizontal swipe as a
- * vertical scroll gesture; an all-vertical list is exactly where the two
- * start fighting over the same touch. Attaching the real DOM listener
- * ourselves with `{ passive: false }` is what actually lets
- * `preventDefault()` take effect — called only once we're sure this really
- * is a downward pull (delta > 0), so ordinary scrolling elsewhere on the
- * page is completely unaffected.
+ * 1. Real `addEventListener` calls (via a ref + effect), NOT React's own
+ *    onTouchStart/onTouchMove JSX props. React registers its touchmove
+ *    listener as passive by default (the browser's own recommended
+ *    default, for scroll performance), which silently means
+ *    `preventDefault()` inside a React onTouchMove handler does nothing
+ *    at all. Without a real preventDefault, iOS Safari is free to treat a
+ *    downward drag at the top of the list as ITS OWN gesture (a
+ *    rubber-band bounce, or its own native "pull down to reload the
+ *    page") at the same time this hook is trying to track it as a custom
+ *    pull-to-refresh. Attaching the listener ourselves with
+ *    `{ passive: false }` is what actually lets `preventDefault()` take
+ *    effect — called only once we're sure this really is a downward pull
+ *    (delta > 0), so ordinary scrolling elsewhere is unaffected.
+ *
+ * 2. "Am I at the top" is read FRESH, directly off the real scroll
+ *    element's own `scrollTop`, at the exact moment each touch starts —
+ *    not a React state value computed by a separate scroll listener and
+ *    handed in as a prop. A separately-computed boolean can go stale
+ *    between the scroll event that set it and the touchstart that reads
+ *    it, and iOS Safari's own elastic/rubber-band scrolling can report
+ *    small non-zero scrollTop values even when a list is visually fully
+ *    at rest at its top edge — a strict `=== 0` (or too tight a
+ *    tolerance) check can leave the gesture unable to ever arm at all on
+ *    exactly the device this needs to work on. AT_TOP_TOLERANCE below is
+ *    deliberately forgiving about this; it doesn't weaken anything else,
+ *    since actually triggering a refresh still requires a real ~60px
+ *    downward drag on top of it.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 const THRESHOLD = 60;
+const AT_TOP_TOLERANCE = 12;
 
 export type PullState = "idle" | "pulling" | "ready" | "loading" | "done";
 
 export function usePullToRefresh<T extends HTMLElement = HTMLDivElement>(
   onRefresh: () => Promise<void>,
-  enabled = true,
+  scrollElRef: RefObject<HTMLElement | null>,
 ) {
   const [pull, setPull] = useState(0);
   const [state, setState] = useState<PullState>("idle");
   const containerRef = useRef<T | null>(null);
 
-  // Mirrored in refs so the native listeners (attached once, see the
-  // empty-deps effect below) always read the CURRENT value instead of
-  // whatever was current the one time the listener was attached — the
-  // classic stale-closure trap for a native addEventListener callback
-  // that closes over component state/props.
   const startY = useRef(0);
-  const pullingRef = useRef(false);
   const pullRef = useRef(0);
-  const enabledRef = useRef(enabled);
   const onRefreshRef = useRef(onRefresh);
 
   useEffect(() => {
     pullRef.current = pull;
   }, [pull]);
-  useEffect(() => {
-    enabledRef.current = enabled;
-  }, [enabled]);
   useEffect(() => {
     onRefreshRef.current = onRefresh;
   }, [onRefresh]);
@@ -78,26 +67,33 @@ export function usePullToRefresh<T extends HTMLElement = HTMLDivElement>(
     const el = containerRef.current;
     if (!el) return;
 
+    // Local to this effect closure, not React state — these track the
+    // gesture's own moment-to-moment truth (armed at touchstart, actually
+    // moving by touchmove) and don't need to trigger a re-render on their
+    // own; only `pull`/`state` (the visible parts) do.
+    let armed = false;
+    let tracking = false;
+
+    const reset = () => {
+      armed = false;
+      tracking = false;
+    };
+
     const handleTouchStart = (e: TouchEvent) => {
-      if (!enabledRef.current) return;
+      const scrollEl = scrollElRef.current;
+      armed = !!scrollEl && scrollEl.scrollTop <= AT_TOP_TOLERANCE;
+      tracking = false;
+      if (!armed) return;
       startY.current = e.touches[0].clientY;
-      pullingRef.current = false;
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (!enabledRef.current) {
-        if (pullingRef.current) {
-          pullingRef.current = false;
-          setPull(0);
-          setState("idle");
-        }
-        return;
-      }
+      if (!armed) return;
       const delta = e.touches[0].clientY - startY.current;
       if (delta <= 0) return;
-      pullingRef.current = true;
-      // The actual fix — see this file's own top-of-file doc for why this
-      // has to be a real native listener to have any effect at all.
+      tracking = true;
+      // The real fix — see this file's own top-of-file doc for why this
+      // has to be a genuine native listener to have any effect at all.
       e.preventDefault();
       const damped = Math.min(delta * 0.4, THRESHOLD + 20);
       setPull(damped);
@@ -105,8 +101,11 @@ export function usePullToRefresh<T extends HTMLElement = HTMLDivElement>(
     };
 
     const handleTouchEnd = () => {
-      if (!pullingRef.current) return;
-      pullingRef.current = false;
+      if (!armed || !tracking) {
+        reset();
+        return;
+      }
+      reset();
       if (pullRef.current >= THRESHOLD) {
         setState("loading");
         setPull(THRESHOLD);
@@ -127,18 +126,22 @@ export function usePullToRefresh<T extends HTMLElement = HTMLDivElement>(
     };
 
     // touchmove is the only one that needs { passive: false } — it's the
-    // only one that ever calls preventDefault. start/end stay passive,
-    // same as their old React-synthetic defaults, since neither needs to
-    // block anything.
+    // only one that ever calls preventDefault. touchcancel is handled the
+    // same as touchend (reset/settle) — iOS can fire this instead of
+    // touchend if the system itself interrupts a gesture (e.g. Control
+    // Center, an incoming call, a system alert); without it, an
+    // interrupted drag could leave the indicator stuck mid-pull forever.
     el.addEventListener("touchstart", handleTouchStart, { passive: true });
     el.addEventListener("touchmove", handleTouchMove, { passive: false });
     el.addEventListener("touchend", handleTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", handleTouchEnd, { passive: true });
     return () => {
       el.removeEventListener("touchstart", handleTouchStart);
       el.removeEventListener("touchmove", handleTouchMove);
       el.removeEventListener("touchend", handleTouchEnd);
+      el.removeEventListener("touchcancel", handleTouchEnd);
     };
-  }, []);
+  }, [scrollElRef]);
 
   return { pull, state, containerRef };
 }

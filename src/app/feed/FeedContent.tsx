@@ -333,22 +333,13 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   // list — the real equivalent of the old swipe-stack's "only at the first
   // card" gate, now expressed as a real scroll position instead of an
   // index. Below the top, a downward drag is just normal scroll-up, not a
-  // refresh gesture.
-  const [atTop, setAtTop] = useState(true);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      const top = el.scrollTop <= 2;
-      setAtTop((prev) => (prev === top ? prev : top));
-    };
-    onScroll();
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, []);
+  // refresh gesture. Reads scrollRef directly, fresh, at the moment each
+  // touch starts — see usePullToRefresh's own doc for why that's the
+  // reliable way to check this, not a separately-computed boolean from
+  // its own scroll listener (which is what used to live here).
   const { pull, state, containerRef: pullToRefreshRef } = usePullToRefresh<HTMLDivElement>(
     () => load({ resetToTop: true }),
-    atTop,
+    scrollRef,
   );
 
   // Prefetch comments for whichever gists are actually on screen at mount,
