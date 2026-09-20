@@ -422,7 +422,11 @@ function VideoCard({
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-[46%] bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
 
-      <div className="absolute bottom-[84px] left-4 right-[70px] z-10">
+      {/* bottom-[104px], not 84 — clears MobileTabBar now that it floats as
+          a pill lifted off the edge instead of a flush full-width bar; a
+          smaller offset here would sit the caption/handle block right under
+          (or behind) the pill's own top edge. */}
+      <div className="absolute bottom-[104px] left-4 right-[70px] z-10">
         <div className="flex items-center gap-1.5 font-nunito text-[13px] font-extrabold text-white">
           <span
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9.5px] font-extrabold text-white ring-2 ring-white/80"
@@ -465,7 +469,7 @@ function VideoCard({
         </p>
       </div>
 
-      <div className="absolute bottom-[84px] right-2.5 z-10 flex flex-col items-center gap-4">
+      <div className="absolute bottom-[104px] right-2.5 z-10 flex flex-col items-center gap-4">
         {/* Own compose entry, top of the rail — the same spot Reels/TikTok
             put "your avatar with a + badge", not a separate floating button.
             Keeping it in the rail (which already clears the tab bar via its
@@ -536,9 +540,9 @@ function VideoCard({
 }
 
 /**
- * The Video tab's feed screen — "Full Rail" direction from the UI review
- * (right-edge action rail, one clip full-bleed at a time). "Video" is a
- * placeholder name, same caveat as MobileTabBar.
+ * The Spot tab's feed screen — "Full Rail" direction from the UI review
+ * (right-edge action rail, one clip full-bleed at a time). "Spot" is the
+ * settled name for this tab; the route still lives at /video.
  *
  * No backend yet: `videos` starts from SEED_VIDEOS and only ever grows via
  * `handlePosted` below (prepends whatever CreateVideoSheet hands back) —

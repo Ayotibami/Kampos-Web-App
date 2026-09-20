@@ -661,12 +661,19 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                   page now, see below). Plus button balances it on the
                   opposite edge instead of the two sharing one side, so the
                   wordmark actually reads as centered between two anchors
-                  rather than centered against a dead spacer. */}
+                  rather than centered against a dead spacer.
+                  Avatar link is desktop-only (`hidden md:flex`) — mobile
+                  has its own profile entry point now (the "You" tab in
+                  MobileTabBar), and desktop has no bottom nav at all, so
+                  this stays the only way to reach your profile there. The
+                  admin link right after it stays visible on every size —
+                  mobile still needs its own way into Village People, and
+                  MobileTabBar has no admin stop. */}
               <div className="flex items-center gap-2 justify-self-start">
                 <Link
                   href={myAvitag ? `/${myAvitag}` : "/feed"}
                   aria-label="Your profile"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-line transition hover:ring-brand"
+                  className="hidden h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-line transition hover:ring-brand md:flex"
                 >
                   <Avatar src={myImageUrl} />
                 </Link>

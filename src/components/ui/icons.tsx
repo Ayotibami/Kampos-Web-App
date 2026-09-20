@@ -106,6 +106,8 @@ export {
   SignIn as LoginIconFill,
   ChatCircleDots as EngagementIconFill,
   Warning as PendingIconFill,
-  // Video tab (/video) — bottom tab bar + compose flow.
-  FilmSlate as VideoTabIconFill,
+  // Video tab (/video) — bottom tab bar. Eye (not a camera glyph) so it
+  // never reads as "opens the camera" the way the compose button's
+  // camera+plus icon does — this one means "watch," not "record."
+  Eye as VideoTabIconFill,
 } from "@phosphor-icons/react";
