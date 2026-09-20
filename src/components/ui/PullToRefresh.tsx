@@ -151,7 +151,20 @@ export function PullIndicator({ pull, state }: { pull: number; state: PullState 
   if (h === 0 && state === "idle") return null;
 
   return (
-    <div className="flex items-center justify-center overflow-hidden transition-[height] duration-200" style={{ height: h }}>
+    <div
+      // shrink-0 is load-bearing, not decorative: this sits as a flex
+      // child inside FeedContent's own flex-col scroll container, right
+      // next to a sibling that has flex-1 (the list wrapper). Without
+      // shrink-0, the flex layout algorithm is free to compress THIS
+      // element's own explicit inline height down toward 0 in favor of
+      // that flex-1 sibling claiming the space instead — which is exactly
+      // what was happening: the inline `height: Npx` style was correctly
+      // set the whole time (the drag-tracking logic was never the bug),
+      // but the browser's own flex sizing silently overrode it, so
+      // nothing ever actually became visible on screen, on any device.
+      className="flex shrink-0 items-center justify-center overflow-hidden transition-[height] duration-200"
+      style={{ height: h }}
+    >
       {state === "loading" ? (
         <svg className="h-5 w-5 animate-spin text-muted" viewBox="0 0 24 24" fill="none">
           <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
