@@ -109,7 +109,9 @@ export function FloatingComposeButton({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       aria-label="Create a gist"
       whileTap={{ scale: 0.88 }}
-      className="fixed right-4 bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-lg shadow-brand/40 transition hover:bg-brand-dark md:hidden"
+      // Bottom offset clears the bottom tab bar (MobileTabBar) that now
+      // sits below the feed on mobile, not just the safe-area inset alone.
+      className="fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-lg shadow-brand/40 transition hover:bg-brand-dark md:hidden"
     >
       <motion.span initial={REST} animate={controls} className="flex items-center justify-center">
         <Plus className="h-6 w-6" />

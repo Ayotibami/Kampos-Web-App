@@ -8,6 +8,7 @@ export {
   X,
   Menu,
   Camera,
+  Clapperboard,
   Check,
   Image as ImageIcon,
   Send,
@@ -105,4 +106,6 @@ export {
   SignIn as LoginIconFill,
   ChatCircleDots as EngagementIconFill,
   Warning as PendingIconFill,
+  // Video tab (/video) — bottom tab bar + compose flow.
+  FilmSlate as VideoTabIconFill,
 } from "@phosphor-icons/react";

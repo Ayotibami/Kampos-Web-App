@@ -789,7 +789,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                 className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain"
               >
                 <PullIndicator pull={pull} state={state} />
-                <div className="flex flex-1 justify-center px-4 pb-8 pt-3 sm:pt-4">
+                <div className="flex flex-1 justify-center px-4 pb-24 pt-3 sm:pt-4 md:pb-8">
                   <div className="w-full max-w-[740px]">
                     <ul className="flex flex-col gap-3">
                       {gists.map((g) => (

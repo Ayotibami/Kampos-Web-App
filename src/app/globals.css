@@ -144,3 +144,34 @@ textarea {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* Video tab (/video) — placeholder clips have no real footage, so a slow
+   pan/zoom stands in for motion instead of a static frame; the top progress
+   bar loops on the same cadence purely for visual rhythm (there's no real
+   duration to track for a placeholder). Both pause automatically once the
+   card scrolls out of the snap container (see VideoCard's `active` prop —
+   the animation classes are only applied while active), respecting
+   prefers-reduced-motion below. heart-pop is the double-tap-to-like burst,
+   shared by the placeholder and real-clip paths alike. */
+@keyframes videoclip-pan {
+  0% { transform: scale(1) translate(0, 0); }
+  50% { transform: scale(1.08) translate(-1.5%, 1%); }
+  100% { transform: scale(1) translate(0, 0); }
+}
+@keyframes videoclip-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes heart-pop {
+  0% { transform: scale(0.3); opacity: 0; }
+  35% { transform: scale(1.15); opacity: 1; }
+  60% { transform: scale(0.95); opacity: 1; }
+  100% { transform: scale(1); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[videoclip-pan_18s_ease-in-out_infinite\],
+  .animate-\[videoclip-progress_18s_linear_infinite\],
+  .animate-\[heart-pop_0\.55s_ease\] {
+    animation: none;
+  }
+}

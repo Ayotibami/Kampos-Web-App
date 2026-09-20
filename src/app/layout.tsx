@@ -11,6 +11,7 @@ import { AuthToast } from "@/components/auth/AuthToast";
 import { AdminNotificationToast } from "@/components/villagepeople/AdminNotificationToast";
 import { ThemeRouteSync } from "@/components/theme/ThemeRouteSync";
 import { FeedScrollLock } from "@/components/layout/FeedScrollLock";
+import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { InputModalitySync } from "@/components/layout/InputModalitySync";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
 import { SplashScreen } from "@/components/brand/SplashScreen";
@@ -167,6 +168,7 @@ export default function RootLayout({
         <AdminNotificationToast />
         <AuthPromptModal />
         <InstallPrompt />
+        <MobileTabBar />
         {children}
       </body>
     </html>
