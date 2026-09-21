@@ -104,6 +104,15 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  // Without this, Safari/Chrome confine the page to the phone's "safe
+  // area" and paint their own default chrome color into the notch/
+  // rounded-corner/home-indicator margins instead of letting the page
+  // draw there — exactly the gray border around the Spot video screen
+  // that should be edge-to-edge black. "cover" lets content extend the
+  // whole physical screen; the app then re-adds that space back as
+  // padding via env(safe-area-inset-*), which every fixed top/bottom bar
+  // in this app (MobileTabBar, headers, etc.) already accounts for.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
