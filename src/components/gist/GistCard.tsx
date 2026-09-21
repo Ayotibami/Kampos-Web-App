@@ -17,7 +17,7 @@ import { ReportModal } from "./ReportModal";
 import { ShareModal } from "./ShareModal";
 import { ErrorModal, ConfirmModal } from "@/components/ui/FeedbackModal";
 import { apiErrorMessage } from "@/lib/api";
-import { useGistStore } from "@/stores/gistStore";
+import { useGistStore, isPendingGistId } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { requireAuth } from "@/lib/requireAuth";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -300,7 +300,7 @@ export const GistCard = memo(function GistCard({
   // sharing/deleting against it would just hit the backend with an id that
   // doesn't exist, so those are guarded below with a friendly message
   // instead of a confusing network-error one.
-  const isPending = gist.gist_id.startsWith("offline-");
+  const isPending = isPendingGistId(gist.gist_id);
 
   // The left-hand metrics row's reactions_count reads straight off
   // gist.counts, which only ever updates once the counts:updated WS
@@ -334,7 +334,7 @@ export const GistCard = memo(function GistCard({
 
   const handleReact = async (type: ReactionType) => {
     if (isPending) {
-      setReactError("Still saving — this'll be reactable once it's back online and synced.");
+      setReactError("Still saving — this'll be reactable once it's done posting.");
       return;
     }
     const isFirstReaction = localReaction === null;
@@ -397,7 +397,7 @@ export const GistCard = memo(function GistCard({
     // The shareUrl above points at /gist/<offline-id>, which doesn't exist
     // server-side yet — nothing to share until this post has actually synced.
     if (isPending) {
-      setReactError("Still saving — you can share this once it's back online and synced.");
+      setReactError("Still saving — you can share this once it's done posting.");
       return;
     }
     try {

@@ -17,7 +17,7 @@ import { ReportModal } from "./ReportModal";
 import { ShareModal } from "./ShareModal";
 import { ErrorModal, ConfirmModal } from "@/components/ui/FeedbackModal";
 import { apiErrorMessage } from "@/lib/api";
-import { useGistStore } from "@/stores/gistStore";
+import { useGistStore, isPendingGistId } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { requireAuth } from "@/lib/requireAuth";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -148,7 +148,7 @@ export const FeedGistCard = memo(function FeedGistCard({
   // poll, not a big centered graphic competing with it for attention.
   const short = (gist.gist_text?.length ?? 0) < SHORT_TEXT && !hasMedia && !hasPoll;
   // Still sitting in the offline queue, not a real gist on the server yet.
-  const isPending = gist.gist_id.startsWith("offline-");
+  const isPending = isPendingGistId(gist.gist_id);
 
   // Double-tap-to-react — same 300ms window as the feed's swipe-stack card.
   // Excludes buttons/links AND anything inside the media block, which
@@ -207,7 +207,7 @@ export const FeedGistCard = memo(function FeedGistCard({
 
   const handleReact = async (type: ReactionType) => {
     if (isPending) {
-      setReactError("Still saving — this'll be reactable once it's back online and synced.");
+      setReactError("Still saving — this'll be reactable once it's done posting.");
       return;
     }
     const isFirstReaction = localReaction === null;
@@ -322,7 +322,7 @@ export const FeedGistCard = memo(function FeedGistCard({
 
   const handleShare = async () => {
     if (isPending) {
-      setReactError("Still saving — you can share this once it's back online and synced.");
+      setReactError("Still saving — you can share this once it's done posting.");
       return;
     }
     try {

@@ -14,7 +14,7 @@ import { ReportModal } from "./ReportModal";
 import { ShareModal } from "./ShareModal";
 import { ErrorModal, ConfirmModal } from "@/components/ui/FeedbackModal";
 import { apiErrorMessage } from "@/lib/api";
-import { useGistStore } from "@/stores/gistStore";
+import { useGistStore, isPendingGistId } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { requireAuth } from "@/lib/requireAuth";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -187,7 +187,7 @@ export const ProfileGistCard = memo(function ProfileGistCard({
   // the feed, but nothing here was guarding react/share against it, so
   // tapping either would have hit the backend with an id that doesn't
   // exist — a confusing raw error instead of GistCard's friendly one.
-  const isPending = gist.gist_id.startsWith("offline-");
+  const isPending = isPendingGistId(gist.gist_id);
 
   // Double-tap-to-react — same 300ms window as the feed. Excludes buttons/
   // links AND anything inside the media block (`[data-media-block]`), which
@@ -252,7 +252,7 @@ export const ProfileGistCard = memo(function ProfileGistCard({
 
   const handleReact = async (type: ReactionType) => {
     if (isPending) {
-      setReactError("Still saving — this'll be reactable once it's back online and synced.");
+      setReactError("Still saving — this'll be reactable once it's done posting.");
       return;
     }
     const isFirstReaction = localReaction === null;
@@ -404,7 +404,7 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     // The shareUrl above points at /gist/<offline-id>, which doesn't exist
     // server-side yet — nothing to share until this post has actually synced.
     if (isPending) {
-      setReactError("Still saving — you can share this once it's back online and synced.");
+      setReactError("Still saving — you can share this once it's done posting.");
       return;
     }
     try {

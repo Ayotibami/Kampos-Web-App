@@ -1259,6 +1259,17 @@ export function ProfileView({
             setGists((prev) => [fresh, ...prev]);
             setGistTotal((t) => t + 1);
           }}
+          // A brand-new post's optimistic placeholder already bumped
+          // gistTotal via onPosted above — onPostFailed has to undo that
+          // too, not just remove the placeholder itself, or the count
+          // stays one too high after a failed post.
+          onPostSynced={(tempId, realGist) =>
+            setGists((prev) => prev.map((g) => (g.gist_id === tempId ? realGist : g)))
+          }
+          onPostFailed={(tempId) => {
+            setGists((prev) => prev.filter((g) => g.gist_id !== tempId));
+            setGistTotal((t) => Math.max(0, t - 1));
+          }}
         />
       )}
 

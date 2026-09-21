@@ -8,7 +8,14 @@ import { Avatar } from "@/components/ui/Avatar";
 import { MediaImage, MediaVideo } from "@/components/ui/MediaFrame";
 import { ErrorModal, AnonymousModeModal } from "@/components/ui/FeedbackModal";
 import { CameraIconFill, ImageIconFill, PaletteIconFill, PollIconFill, AnonymousIconFill, X, Video, Sticker, Plus as PlusIcon } from "@/components/ui/icons";
-import { useGistStore, MediaUploadError, buildOfflineGistMedia, notifyActionSucceeded } from "@/stores/gistStore";
+import {
+  useGistStore,
+  MediaUploadError,
+  buildOfflineGist,
+  buildOfflineGistMedia,
+  notifyActionSucceeded,
+  notifyActionFailed,
+} from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { apiErrorMessage } from "@/lib/api";
 import { LIMITS, GIST_CARD_PALETTE, GIST_COLOR_KEYS, type GistColorKey } from "@/lib/brand";
@@ -188,6 +195,8 @@ export function CreateGistSheet({
   open,
   onClose,
   onPosted,
+  onPostSynced,
+  onPostFailed,
   initialText,
   placeholder,
   editGist,
@@ -201,8 +210,29 @@ export function CreateGistSheet({
    * list it's already showing instead of blindly refetching the entire
    * feed, which used to throw away scroll position and any pages loaded
    * past the first. `mode` distinguishes a brand-new post (append
-   * somewhere) from an edit (replace the existing entry in place). */
+   * somewhere) from an edit (replace the existing entry in place).
+   *
+   * For a brand-new post specifically (not editing), this now fires
+   * TWICE: once immediately with a locally-built optimistic placeholder
+   * (gist_id prefixed "posting-") the instant Post is tapped — the sheet
+   * closes right away rather than blocking on the network — and again
+   * later via onPostSynced/onPostFailed once the real request actually
+   * resolves. Callers that only implement onPosted and not those two
+   * still work, they just never learn the optimistic placeholder needs
+   * replacing or removing — see onPostSynced/onPostFailed below. */
   onPosted?: (gist: Gist, mode: "created" | "edited") => void;
+  /** The optimistic placeholder onPosted was just called with has now been
+   * confirmed for real — swap it (by `tempId`, the placeholder's own
+   * gist_id) for `realGist` in whatever list holds it. Create-only; never
+   * fires for editGist, which still uses the older wait-then-onPosted
+   * path (see handlePost's own doc for why edits weren't included). */
+  onPostSynced?: (tempId: string, realGist: Gist) => void;
+  /** The optimistic placeholder failed to actually post — remove it from
+   * wherever onPosted inserted it. The sheet has already reopened itself
+   * with the draft fully intact by the time this fires (see handlePost),
+   * so there's nothing else the caller needs to do beyond removing the
+   * now-dead placeholder. */
+  onPostFailed?: (tempId: string) => void;
   initialText?: string;
   /** Whatever the compose trigger's rotating prompt was showing at the
    * moment it got clicked — falls back to a static default when opened some
@@ -386,6 +416,19 @@ export function CreateGistSheet({
   const [showCamera, setShowCamera] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [posting, setPosting] = useState(false);
+  // True only while this sheet has reopened ITSELF after an optimistic
+  // create failed online (see handlePost) — independent of the `open`
+  // prop, which the parent still thinks is false at that point (its own
+  // onClose already fired when the sheet first closed optimistically).
+  // The sheet stays mounted the whole time regardless of `open` (it's
+  // unconditionally in the parent's JSX, not conditionally rendered), so
+  // flipping this local flag alone is enough to bring it back on screen
+  // with the draft untouched — no parent-side state needed for the
+  // reopen itself, only for the onPostSynced/onPostFailed placeholder
+  // swap. Cleared by handleModalClose (see the render below) so a
+  // dismiss — backdrop tap, X, or a successful retry — doesn't leave it
+  // stuck reopening itself forever.
+  const [forceOpen, setForceOpen] = useState(false);
   const [error, setError] = useState<string>();
   const [showError, setShowError] = useState(false);
   // Upload percent per media item (by its local `id`, not server media_id
@@ -418,18 +461,9 @@ export function CreateGistSheet({
     setSeededFor(currentTarget);
     const seedText = editGist?.gist_text ?? initialText ?? "";
     setText(seedText);
-    // A color is always on for a fresh, eligible compose session now, not
-    // just once the poster happens to open the picker — see
-    // colorPickerEligible's own doc for why editing/a poll/media/length
-    // rule the picker out entirely (mirrored here: an ineligible fresh
-    // session, or editing, seeds null same as before). Random per session,
-    // not re-rolled on every reopen of the same draft — this whole block
-    // only runs on a genuine target change (see this effect's own doc).
-    setPickedColor(
-      !editGist && seedText.length < 200
-        ? GIST_COLOR_KEYS[Math.floor(Math.random() * GIST_COLOR_KEYS.length)]
-        : null,
-    );
+    // No color pre-picked for a fresh session — starts null until the
+    // poster actually taps a swatch themselves.
+    setPickedColor(null);
     setShowColorPicker(false);
     setShowPoll(false);
     setPollOptions(["", ""]);
@@ -664,16 +698,16 @@ export function CreateGistSheet({
     // back online (flushOfflineQueue), swapping the local preview for the
     // real hosted version invisibly.
     const offline = typeof navigator !== "undefined" && !navigator.onLine;
+    const toQueuedMedia = (items: PickedMedia[]) =>
+      items.map((m) => ({
+        kind: m.kind,
+        name: m.name,
+        blob: m.blob,
+        remoteUrl: m.remoteUrl,
+        width: m.width ?? null,
+        height: m.height ?? null,
+      }));
     if (offline) {
-      const toQueuedMedia = (items: PickedMedia[]) =>
-        items.map((m) => ({
-          kind: m.kind,
-          name: m.name,
-          blob: m.blob,
-          remoteUrl: m.remoteUrl,
-          width: m.width ?? null,
-          height: m.height ?? null,
-        }));
       try {
         if (isEditing) {
           const gistId = editGist!.gist_id;
@@ -701,8 +735,8 @@ export function CreateGistSheet({
       }
       return;
     }
-    try {
-      if (isEditing) {
+    if (isEditing) {
+      try {
         const gistId = editGist!.gist_id;
         const newMedia = media.filter((m) => !m.existingId);
         const uploadedIds: string[] = [];
@@ -739,57 +773,102 @@ export function CreateGistSheet({
         if (fresh) onPosted?.(fresh, "edited");
         notifyActionSucceeded("edited");
         onClose();
-      } else {
-        // Text creates the gist row first (unavoidable with the current
-        // two-step API), but if any media fails, that gist is deleted
-        // again immediately rather than left behind text-only. A poll
-        // rides along in this same create call (the backend attaches it
-        // server-side, atomically enough — see gist.controller.ts) rather
-        // than a second round trip the way media needs, since it's just
-        // plain option text, nothing to upload.
-        const gist = await create({
-          gist_text: clean,
-          color_key: colorPickerEligible ? pickedColor : null,
-          ...(showPoll ? { poll: { options: validPollOptions } } : {}),
-          ...(isAnonymous ? { is_anonymous: true } : {}),
-          ...(quoteGist ? { quoted_gist_id: quoteGist.gist_id } : {}),
-        });
-        const gistId = gist!.gist_id;
-        if (!showPoll && media.length) {
-          const results = await Promise.allSettled(
-            media.map((m) =>
-              m.remoteUrl
-                ? attachMediaUrl(gistId, m.remoteUrl, m.width, m.height)
-                : uploadMedia(gistId, m.blob!, m.name, (pct) => setUploadProgress((p) => ({ ...p, [m.id]: pct }))),
-            ),
-          );
-          const failed = results.find((r) => r.status === "rejected");
-          if (failed) {
-            await removeGistApi(gistId).catch(() => null);
-            setError(describeUploadFailure((failed as PromiseRejectedResult).reason));
-            setShowError(true);
-            return;
-          }
-        }
-        const fresh = await getGist(gistId).catch(() => undefined);
-        reset();
-        if (fresh) onPosted?.(fresh, "created");
-        notifyActionSucceeded("created");
-        onClose();
+      } catch (err) {
+        setError(apiErrorMessage(err, "Failed to save changes"));
+        setShowError(true);
+      } finally {
+        setPosting(false);
       }
+      return;
+    }
+
+    // Brand-new post, online, with a real connection: optimistic-close.
+    // Insert a locally-built placeholder (gist_id prefixed "posting-", not
+    // "offline-" — this was never actually queued for later replay, so it
+    // must never get swept up by flushOfflineQueue's own "strip offline-
+    // prefixed gists" cleanup, which runs on ANY unrelated queue flush and
+    // would wipe this one out mid-flight for no reason if it shared that
+    // prefix) and close the sheet right away instead of blocking on the
+    // full create+upload+refetch round trip. The real request keeps
+    // running in the background:
+    //  - success: onPostSynced swaps the placeholder for the real gist,
+    //    same success toast as before.
+    //  - failure: onPostFailed removes the placeholder, an error toast
+    //    explains what happened, and the sheet reopens itself
+    //    (setForceOpen) with the draft exactly as the user left it — see
+    //    forceOpen's own doc for how that reopen actually works.
+    setForceOpen(false);
+    const tempKey = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const optimistic: Gist = {
+      ...buildOfflineGist(
+        { gist_text: clean, color_key: colorPickerEligible ? pickedColor : null, media: toQueuedMedia(media) },
+        tempKey,
+        Date.now(),
+        "posting",
+      ),
+      ...(isAnonymous ? { is_anonymous: true } : {}),
+      ...(quoteGist ? { quoted_gist_id: quoteGist.gist_id, quoted_gist: quoteGist } : {}),
+    };
+    const tempId = optimistic.gist_id;
+    onPosted?.(optimistic, "created");
+    onClose();
+    setPosting(false);
+
+    try {
+      // Text creates the gist row first (unavoidable with the current
+      // two-step API), but if any media fails, that gist is deleted again
+      // immediately rather than left behind text-only. A poll rides along
+      // in this same create call (the backend attaches it server-side,
+      // atomically enough — see gist.controller.ts) rather than a second
+      // round trip the way media needs, since it's just plain option
+      // text, nothing to upload.
+      const gist = await create({
+        gist_text: clean,
+        color_key: colorPickerEligible ? pickedColor : null,
+        ...(showPoll ? { poll: { options: validPollOptions } } : {}),
+        ...(isAnonymous ? { is_anonymous: true } : {}),
+        ...(quoteGist ? { quoted_gist_id: quoteGist.gist_id } : {}),
+      });
+      const gistId = gist!.gist_id;
+      if (!showPoll && media.length) {
+        const results = await Promise.allSettled(
+          media.map((m) =>
+            m.remoteUrl
+              ? attachMediaUrl(gistId, m.remoteUrl, m.width, m.height)
+              : uploadMedia(gistId, m.blob!, m.name, (pct) => setUploadProgress((p) => ({ ...p, [m.id]: pct }))),
+          ),
+        );
+        const failed = results.find((r) => r.status === "rejected");
+        if (failed) {
+          await removeGistApi(gistId).catch(() => null);
+          throw (failed as PromiseRejectedResult).reason;
+        }
+      }
+      const fresh = await getGist(gistId).catch(() => undefined);
+      reset();
+      if (fresh) onPostSynced?.(tempId, fresh);
+      notifyActionSucceeded("created");
     } catch (err) {
-      setError(apiErrorMessage(err, isEditing ? "Failed to save changes" : "Failed to create gist"));
-      setShowError(true);
-    } finally {
-      setPosting(false);
+      console.error("[optimistic post] failed to create gist:", err);
+      onPostFailed?.(tempId);
+      notifyActionFailed("created");
+      setForceOpen(true);
     }
   };
 
   return (
     <>
       <Modal
-        open={open}
-        onClose={onClose}
+        open={open || forceOpen}
+        onClose={() => {
+          // Clears the self-reopen flag too — otherwise dismissing a
+          // reopened-after-failure sheet (backdrop tap, X) would appear
+          // to close it while forceOpen quietly stayed true, doing
+          // nothing visible now but resurrecting the sheet unexpectedly
+          // on some unrelated later re-render.
+          setForceOpen(false);
+          onClose();
+        }}
         variant="sheet"
         desktopCenter
         // Yarn back gets the whole viewport, not just a taller sheet —
@@ -948,7 +1027,15 @@ export function CreateGistSheet({
                     ? "flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden rounded-3xl p-4"
                     : "relative min-w-0 flex-1"
                 }
-                style={heroPreviewActive ? { backgroundColor: heroPreviewHex, minHeight: 160 } : undefined}
+                // Composer-only height bump (460, not the 160 ShortGist uses
+                // on the real feed card) — width and the avatar-beside-box
+                // layout stay exactly as they were, just taller while
+                // actually composing. This is a deliberate preview/reality
+                // mismatch: the box feels roomier to type into, even though
+                // the real posted card still renders compact — see this
+                // block's own history for why that trade was made on
+                // purpose rather than also inflating ShortGist.
+                style={heroPreviewActive ? { backgroundColor: heroPreviewHex, minHeight: 460 } : undefined}
               >
                 {/* One persistent element regardless of mode — swapping in a
                     second, differently-styled textarea on toggle would
@@ -1134,14 +1221,12 @@ export function CreateGistSheet({
                     // race between the button grabbing it and us taking it
                     // back.
                     onMouseDown={(e) => e.preventDefault()}
-                    // A color is always on while colorPickerEligible now
-                    // (see the seeding block's own doc) — tapping the
-                    // already-active swatch again just re-confirms it
-                    // rather than clearing back to "no color," since "no
-                    // color" was never a real state the feed itself
-                    // honored anyway (a null color_key still gets a
-                    // hash-based one there — see ShortGist's fallbackSeed).
-                    onClick={() => setPickedColor(key)}
+                    // Tapping the already-active swatch again deselects it,
+                    // back to null — "no color" still isn't truly colorless
+                    // on the feed itself (a null color_key falls back to a
+                    // deterministic hash-based one there — see ShortGist's
+                    // fallbackSeed), it just means "let the system pick."
+                    onClick={() => setPickedColor((c) => (c === key ? null : key))}
                     aria-label={`${key} background`}
                     aria-pressed={pickedColor === key}
                     className={`h-7 w-7 shrink-0 rounded-full ring-2 ring-offset-2 ring-offset-brand-tint transition active:scale-90 ${
@@ -1201,8 +1286,8 @@ export function CreateGistSheet({
                         // payload the instant showPoll is true, so there's
                         // nothing to protect by nulling it out too. Leaving
                         // it be is what lets turning the poll back off
-                        // restore the SAME color rather than rolling a new
-                        // one, exactly like removing an attached image does.
+                        // restore the SAME color rather than losing it,
+                        // exactly like removing an attached image does.
                         //
                         // Deliberately NOT trimming `text` down to the
                         // poll's shorter cap here. Whatever was already

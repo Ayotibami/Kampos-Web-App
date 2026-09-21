@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Two related toasts, one component, one shared bottom slot:
+ * Three related toasts, one component, one shared bottom slot:
  *  - "offline" — a create/edit/delete/report just got queued while
  *    offline. Full-width bar, amber "pending" icon. See gistStore's
  *    notifyOfflineSave.
@@ -10,6 +10,11 @@
  *    "success" icon — nothing told a user this before, they had to infer
  *    it from the gist appearing/disappearing/updating. See gistStore's
  *    notifyActionSucceeded.
+ *  - "error" — create/edit only, the ONLINE request genuinely failed after
+ *    an optimistic close. Same full-width wrapping shape as "offline" (the
+ *    copy is too long for a short chip), red "error" icon. Fired alongside
+ *    CreateGistSheet reopening itself with the draft intact — see
+ *    gistStore's notifyActionFailed.
  *
  * Sharing one component/one slot (rather than two independent ones both
  * anchored to the same bottom position) means an offline-queued action and
@@ -31,8 +36,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { createPortal } from "react-dom";
-import { Check } from "@/components/ui/icons";
-import type { OfflineGistSaveAction, GistActionSuccess } from "@/stores/gistStore";
+import { Check, AlertCircle } from "@/components/ui/icons";
+import type { OfflineGistSaveAction, GistActionSuccess, GistActionFailure } from "@/stores/gistStore";
 
 const VISIBLE_MS = 5000;
 
@@ -50,7 +55,15 @@ const SUCCESS_COPY: Record<GistActionSuccess, string> = {
   reported: "Thanks! We go review am",
 };
 
-type ToastState = { kind: "offline"; action: OfflineGistSaveAction } | { kind: "success"; action: GistActionSuccess };
+const FAILURE_COPY: Record<GistActionFailure, string> = {
+  created: "We were not able to create your gist, please try again",
+  edited: "We were not able to save your changes, please try again",
+};
+
+type ToastState =
+  | { kind: "offline"; action: OfflineGistSaveAction }
+  | { kind: "success"; action: GistActionSuccess }
+  | { kind: "error"; action: GistActionFailure };
 
 export function GistActionToast() {
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -68,12 +81,17 @@ export function GistActionToast() {
     const onSuccess = (e: Event) => {
       show({ kind: "success", action: (e as CustomEvent<GistActionSuccess>).detail });
     };
+    const onFailure = (e: Event) => {
+      show({ kind: "error", action: (e as CustomEvent<GistActionFailure>).detail });
+    };
     window.addEventListener("kampos:gist-offline-saved", onOffline);
     window.addEventListener("kampos:gist-action-succeeded", onSuccess);
+    window.addEventListener("kampos:gist-action-failed", onFailure);
     return () => {
       if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
       window.removeEventListener("kampos:gist-offline-saved", onOffline);
       window.removeEventListener("kampos:gist-action-succeeded", onSuccess);
+      window.removeEventListener("kampos:gist-action-failed", onFailure);
     };
   }, []);
 
@@ -121,6 +139,29 @@ export function GistActionToast() {
             </span>
             <span className="font-nunito text-[12.5px] font-extrabold leading-none text-white/95">
               {SUCCESS_COPY[toast.action]}
+            </span>
+          </motion.div>
+        )}
+        {toast?.kind === "error" && (
+          // Same shape as the offline bar, not the compact success pill —
+          // "We were not able to create your gist, please try again" is too
+          // long to read as a short chip, so this one wraps like offline's
+          // longer copy does too.
+          <motion.div
+            key="error"
+            role="status"
+            aria-live="polite"
+            initial={{ opacity: 0, y: 28 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            className="pointer-events-none flex max-w-[420px] items-center gap-2.5 rounded-2xl bg-[#171a1f] py-2.5 pl-2.5 pr-4 shadow-lg"
+          >
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-danger/20">
+              <AlertCircle size={13} strokeWidth={2.6} color="#d41d0c" />
+            </span>
+            <span className="font-nunito text-[13px] font-semibold leading-snug text-white/95">
+              {FAILURE_COPY[toast.action]}
             </span>
           </motion.div>
         )}

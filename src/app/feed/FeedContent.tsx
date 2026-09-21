@@ -920,6 +920,13 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
             return [...prev.slice(0, idx + 1), fresh, ...prev.slice(idx + 1)];
           })
         }
+        // A brand-new post's optimistic placeholder (see CreateGistSheet's
+        // own doc) landed above via onPosted — these two just resolve it
+        // once the real request actually finishes, in place, same position.
+        onPostSynced={(tempId, realGist) =>
+          setGists((prev) => prev.map((g) => (g.gist_id === tempId ? realGist : g)))
+        }
+        onPostFailed={(tempId) => setGists((prev) => prev.filter((g) => g.gist_id !== tempId))}
         placeholder={composePlaceholder}
       />
       <CommentSheet

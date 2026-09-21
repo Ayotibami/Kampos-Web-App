@@ -186,11 +186,23 @@ interface QueuedMediaItem {
  *  string only stays valid for the page session that created it — it goes
  *  dead across a reload even though the underlying Blob (persisted for
  *  real in IndexedDB) is completely unaffected. */
-export function buildOfflineGistMedia(idKey: string, rawMedia: unknown): GistMedia[] | undefined {
+/** True for either flavor of locally-built placeholder gist: "offline-"
+ *  (genuinely queued, no connection at all — see buildOfflineGist) or
+ *  "posting-" (a real online request that just hasn't resolved yet — see
+ *  CreateGistSheet's own optimistic-close handlePost). GistCard/
+ *  FeedGistCard/ProfileGistCard each use this identically to gate
+ *  reacting/sharing and show the "Pending" badge — a shared helper here
+ *  instead of three copies of the same two-prefix check keeps them from
+ *  drifting if a third kind of placeholder ever shows up. */
+export function isPendingGistId(gistId: string): boolean {
+  return gistId.startsWith("offline-") || gistId.startsWith("posting-");
+}
+
+export function buildOfflineGistMedia(idKey: string, rawMedia: unknown, idPrefix: string = "offline"): GistMedia[] | undefined {
   if (!Array.isArray(rawMedia) || rawMedia.length === 0) return undefined;
   return (rawMedia as QueuedMediaItem[]).map((item, i) => ({
-    media_id: `offline-${idKey}-${i}`,
-    gist_id: `offline-${idKey}`,
+    media_id: `${idPrefix}-${idKey}-${i}`,
+    gist_id: `${idPrefix}-${idKey}`,
     order_index: i,
     media_type: item.kind === "video" ? "VIDEO" : "IMAGE",
     media_url: item.blob instanceof Blob ? URL.createObjectURL(item.blob) : (item.remoteUrl ?? ""),
@@ -237,11 +249,27 @@ export function notifyActionSucceeded(action: GistActionSuccess) {
   window.dispatchEvent(new CustomEvent<GistActionSuccess>("kampos:gist-action-succeeded", { detail: action }));
 }
 
-function buildOfflineGist(payload: Record<string, unknown>, idKey: string, createdAtMs: number): Gist {
+/** create/edit only — delete/report have nothing to "reopen" on failure,
+ *  they just show their own inline error today. Fired by CreateGistSheet
+ *  right before it reopens itself with the draft intact, after an
+ *  optimistic-close attempt fails online. */
+export type GistActionFailure = "created" | "edited";
+
+export function notifyActionFailed(action: GistActionFailure) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<GistActionFailure>("kampos:gist-action-failed", { detail: action }));
+}
+
+export function buildOfflineGist(
+  payload: Record<string, unknown>,
+  idKey: string,
+  createdAtMs: number,
+  idPrefix: string = "offline",
+): Gist {
   const { avitag: myAvitag, profiles } = useAuthStore.getState();
   const myProfile = profiles.find((p) => p.avitag === myAvitag);
   return {
-    gist_id: `offline-${idKey}`,
+    gist_id: `${idPrefix}-${idKey}`,
     gist_text: String(payload.gist_text ?? ""),
     avitag: myAvitag ?? "",
     first_name: (myProfile?.first_name as string | undefined) ?? null,
@@ -252,7 +280,7 @@ function buildOfflineGist(payload: Record<string, unknown>, idKey: string, creat
     color_key: (payload.color_key as string | null | undefined) ?? null,
     my_reaction: null,
     my_report: false,
-    media: buildOfflineGistMedia(idKey, payload.media),
+    media: buildOfflineGistMedia(idKey, payload.media, idPrefix),
     counts: { reactions_count: 0, comments_count: 0, views_count: 0, reports_count: 0, shares_count: 0 },
     // The moment it was actually queued, not "now" — matters once this is
     // called from getPendingGists() well after the fact (a reload 30
