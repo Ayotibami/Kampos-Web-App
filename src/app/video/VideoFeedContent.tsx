@@ -1,193 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Heart, MessageCircle, ShareIconFill, FlagIconFill, VolumeIconFill, MuteIconFill, Camera, Plus } from "@/components/ui/icons";
 import { useAnyModalOpen } from "@/stores/modalStore";
 import { CreateVideoSheet } from "@/components/video/CreateVideoSheet";
-
-export interface VideoPost {
-  id: string;
-  /** Bare avitag, no leading "@" — the "@" is a rendering choice (dropped
-   * next to the avatar, see VideoCard), not part of the stored value. */
-  handle: string;
-  avatarInitials: string;
-  avatarColor: string;
-  campusTag?: string;
-  majorTag?: string;
-  level?: number;
-  caption: string;
-  likeCount: number;
-  commentCount: number;
-  shareCount: number;
-  reportCount: number;
-  /** CSS background-image for placeholder clips with no real footage. */
-  gradient?: string;
-  /** A real, locally-recorded/picked clip (object URL) — only ever set for
-   * something posted in this session; nothing here is uploaded anywhere
-   * yet, see CreateVideoSheet's own doc. */
-  src?: string;
-}
-
-// Seed content so the feed isn't empty on first load — same "unfiltered,
-// global, no campus scoping" feed this tab is meant to be, just standing
-// in for real posts until there's a backend to fetch from. Placeholder
-// gradients (not real photos), same honesty as the design mockup this
-// screen was built from — a moving clip is simulated with a slow CSS pan,
-// not passed off as real footage.
-const SEED_VIDEOS: VideoPost[] = [
-  {
-    id: "seed-1",
-    handle: "tsola_reads",
-    avatarInitials: "TS",
-    avatarColor: "#293857",
-    campusTag: "unilag",
-    majorTag: "computer_science",
-    level: 300,
-    caption: "who set the reading room AC to arctic today 🥶",
-    likeCount: 842,
-    commentCount: 61,
-    shareCount: 27,
-    reportCount: 0,
-    gradient: "radial-gradient(120% 90% at 25% 15%, #2f74e0 0%, #123a7a 45%, #0a1730 100%)",
-  },
-  {
-    id: "seed-2",
-    handle: "bimzy.codes",
-    avatarInitials: "BM",
-    avatarColor: "#442957",
-    campusTag: "uniben",
-    majorTag: "mechanical_engineering",
-    level: 200,
-    caption:
-      "line for the buttery don loooong die 😭 — by the time you reach front dem don close am, na so we dey live",
-    likeCount: 1230,
-    commentCount: 84,
-    shareCount: 53,
-    reportCount: 1,
-    gradient: "radial-gradient(115% 85% at 75% 20%, #17997a 0%, #10553f 48%, #0a1c1a 100%)",
-  },
-  {
-    id: "seed-3",
-    handle: "adaeze_unilag",
-    avatarInitials: "AD",
-    avatarColor: "#572940",
-    campusTag: "unn",
-    majorTag: "law",
-    level: 400,
-    caption: "guy just proposed for library o 😭😭",
-    likeCount: 631,
-    commentCount: 39,
-    shareCount: 12,
-    reportCount: 0,
-    gradient: "radial-gradient(120% 90% at 60% 80%, #b3542f 0%, #7a3a1a 48%, #1f0f08 100%)",
-  },
-  {
-    id: "seed-4",
-    handle: "zainab.yaps",
-    avatarInitials: "ZY",
-    avatarColor: "#5a2957",
-    campusTag: "ui",
-    majorTag: "english_language",
-    level: 200,
-    caption: "lecturer said 'submit by midnight' then portal crash by 11:58 — omo the audacity 💀",
-    likeCount: 2100,
-    commentCount: 156,
-    shareCount: 98,
-    reportCount: 0,
-    gradient: "radial-gradient(120% 90% at 30% 75%, #a3227a 0%, #5c1450 48%, #150a1f 100%)",
-  },
-  {
-    id: "seed-5",
-    handle: "emeka_thecruise",
-    avatarInitials: "EM",
-    avatarColor: "#574029",
-    campusTag: "unn",
-    majorTag: "mass_communication",
-    level: 300,
-    caption: "course rep don call meeting for the 5th time this week, una well done",
-    likeCount: 412,
-    commentCount: 28,
-    shareCount: 9,
-    reportCount: 0,
-    gradient: "radial-gradient(115% 85% at 70% 25%, #b8860b 0%, #6b4d0a 48%, #1c1406 100%)",
-  },
-  {
-    id: "seed-6",
-    handle: "fatimabee",
-    avatarInitials: "FB",
-    avatarColor: "#295730",
-    campusTag: "ui",
-    majorTag: "psychology",
-    level: 300,
-    caption: "my roommate cooking at 1am again, e smell like better life for the whole floor",
-    likeCount: 967,
-    commentCount: 71,
-    shareCount: 34,
-    reportCount: 0,
-    gradient: "radial-gradient(120% 90% at 20% 80%, #2f9e44 0%, #14551f 48%, #081f0c 100%)",
-  },
-  {
-    id: "seed-7",
-    handle: "kelvin_dbrand",
-    avatarInitials: "KD",
-    avatarColor: "#293857",
-    campusTag: "uniben",
-    majorTag: "mechanical_engineering",
-    level: 200,
-    caption: "workshop generator don spoil since last semester, we dey file metal by phone torchlight 🔦",
-    likeCount: 1540,
-    commentCount: 112,
-    shareCount: 61,
-    reportCount: 2,
-    gradient: "radial-gradient(115% 85% at 65% 20%, #3a3fd1 0%, #1c2070 48%, #090a2b 100%)",
-  },
-  {
-    id: "seed-8",
-    handle: "dami_jollof",
-    avatarInitials: "DJ",
-    avatarColor: "#572929",
-    campusTag: "unilag",
-    majorTag: "business_administration",
-    level: 400,
-    caption: "final year project supervisor dey reply email like say na carrier pigeon he dey use",
-    likeCount: 738,
-    commentCount: 45,
-    shareCount: 19,
-    reportCount: 0,
-    gradient: "radial-gradient(120% 90% at 50% 70%, #d1633a 0%, #7a3a1a 48%, #1f0f08 100%)",
-  },
-  {
-    id: "seed-9",
-    handle: "ifeomavibes",
-    avatarInitials: "IF",
-    avatarColor: "#29574b",
-    campusTag: "oau",
-    majorTag: "biochemistry",
-    level: 300,
-    caption: "practical class today na so we almost turn the whole lab to bomb scare 😭",
-    likeCount: 1875,
-    commentCount: 203,
-    shareCount: 140,
-    reportCount: 0,
-    gradient: "radial-gradient(115% 85% at 40% 25%, #14a0a0 0%, #0b5757 48%, #041c1c 100%)",
-  },
-  {
-    id: "seed-10",
-    handle: "chidi_no_chill",
-    avatarInitials: "CN",
-    avatarColor: "#442957",
-    campusTag: "oau",
-    majorTag: "economics",
-    level: 400,
-    caption: "naira don do wetinam do for the shawarma man menu, price change three times this week",
-    likeCount: 502,
-    commentCount: 37,
-    shareCount: 15,
-    reportCount: 1,
-    gradient: "radial-gradient(120% 90% at 75% 80%, #7c3aed 0%, #3f1e8a 48%, #120a2b 100%)",
-  },
-];
+import { SpotCommentSheet } from "@/components/video/SpotCommentSheet";
+import { Avatar } from "@/components/ui/Avatar";
+import { useSpotStore, type Spot } from "@/stores/spotStore";
+import { gistColorFor } from "@/lib/brand";
 
 function formatCount(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(n % 1000 >= 100 ? 1 : 0)}k`;
@@ -213,16 +34,20 @@ function VideoCard({
   muted,
   onToggleMute,
   onLike,
-  liked,
   onCompose,
+  onOpenComments,
+  onShare,
+  onFlag,
 }: {
-  video: VideoPost;
+  video: Spot;
   active: boolean;
   muted: boolean;
   onToggleMute: () => void;
   onLike: () => void;
-  liked: boolean;
   onCompose: () => void;
+  onOpenComments: () => void;
+  onShare: () => void;
+  onFlag: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubRef = useRef<HTMLDivElement>(null);
@@ -230,12 +55,21 @@ function VideoCard({
   const [paused, setPaused] = useState(false);
   const [pop, setPop] = useState(false);
   const [captionExpanded, setCaptionExpanded] = useState(false);
-  const [reported, setReported] = useState(false);
   const [progress, setProgress] = useState(0);
   const [scrubbing, setScrubbing] = useState(false);
+  // A real clip starts genuinely not-ready until its own onLoadedData
+  // fires — the shimmer skeleton below covers that gap.
+  const [videoReady, setVideoReady] = useState(false);
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const shouldPlay = active && !paused && !anyModalOpen;
+  const liked = video.my_reaction === "LIKE";
+  const caption = video.caption ?? "";
+
+  // While a real clip hasn't loaded its first frame yet, it's implicitly
+  // paused — there's nothing to actually be playing or resuming, so this
+  // state can't silently drift out of sync with what's genuinely on
+  // screen (the shimmer skeleton, not video content).
+  const shouldPlay = active && !paused && !anyModalOpen && videoReady;
 
   useEffect(() => {
     const el = videoRef.current;
@@ -249,11 +83,9 @@ function VideoCard({
     if (el) el.muted = muted;
   }, [muted]);
 
-  // Real playback position for a real posted clip — only meaningful when
-  // video.src is set; placeholder cards have no real timeline (see the
-  // decorative loop in the scrubber render below) so this never fires for
-  // them. Skipped while actively scrubbing so a drag doesn't fight with the
-  // video's own timeupdate events snapping the thumb back mid-gesture.
+  // Real playback position — skipped while actively scrubbing so a drag
+  // doesn't fight with the video's own timeupdate events snapping the thumb
+  // back mid-gesture.
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
@@ -276,13 +108,12 @@ function VideoCard({
 
   const handleScrubDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!video.src) return; // nothing to scrub on a placeholder clip
       e.stopPropagation();
       e.currentTarget.setPointerCapture(e.pointerId);
       setScrubbing(true);
       seekFromClientX(e.clientX);
     },
-    [video.src, seekFromClientX],
+    [seekFromClientX],
   );
   const handleScrubMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -306,10 +137,15 @@ function VideoCard({
 
   const handleTap = useCallback(() => {
     if (tapTimer.current) {
-      // second tap within the window — treat as a double-tap, like
+      // second tap within the window — treat as a double-tap-to-like, never
+      // a double-tap-to-UNlike (see spotStore.toggleLike — this only ever
+      // fires the like path visually via popHeart, but toggleLike itself
+      // does flip an already-liked video back off if tapped through the
+      // rail's own heart button; double-tap on the video itself is
+      // deliberately like-only, matching TikTok convention).
       clearTimeout(tapTimer.current);
       tapTimer.current = null;
-      onLike();
+      if (!liked) onLike();
       popHeart();
       return;
     }
@@ -317,36 +153,67 @@ function VideoCard({
       tapTimer.current = null;
       setPaused((p) => !p);
     }, 260);
-  }, [onLike, popHeart]);
+  }, [liked, onLike, popHeart]);
 
   useEffect(() => () => {
     if (tapTimer.current) clearTimeout(tapTimer.current);
   }, []);
 
+  const initials = video.avitag.slice(0, 2).toUpperCase();
+  const avatarColor = gistColorFor(video.avitag);
+
   return (
-    <div className="relative h-full w-full shrink-0 snap-start snap-always bg-black" onClick={handleTap}>
-      {video.src ? (
-        <video
-          ref={videoRef}
-          src={video.src}
-          // object-contain + a solid black bed, not object-cover — a clip
-          // that isn't 9:16 (landscape, square, whatever a student's phone
-          // actually recorded) letterboxes with dark bars instead of being
-          // cropped, same fallback TikTok itself uses for non-portrait
-          // uploads. The gradient placeholders below have no real aspect
-          // ratio to preserve, so they stay object-cover-equivalent
-          // (full-bleed) — this only applies to a real posted clip.
-          className="absolute inset-0 h-full w-full bg-black object-contain"
-          loop
-          playsInline
-          muted={muted}
-        />
-      ) : (
+    // overflow-hidden is load-bearing here, not decorative — see git
+    // history: an unset overflow-x next to overflow-y:auto on the scroll
+    // container computes AS auto too (CSS spec interop rule), which made
+    // the whole feed horizontally scrollable and let real (never-perfectly-
+    // vertical) touch gestures defeat the mandatory vertical snap.
+    <div className="relative h-full w-full shrink-0 snap-start snap-always overflow-hidden bg-black" onClick={handleTap}>
+      <video
+        ref={videoRef}
+        src={video.media_url ?? undefined}
+        poster={video.thumbnail_url ?? undefined}
+        // object-contain + a solid black bed, not object-cover — a clip
+        // that isn't 9:16 (landscape, square, whatever a student's phone
+        // actually recorded) letterboxes with dark bars instead of being
+        // cropped, same fallback TikTok itself uses for non-portrait
+        // uploads.
+        className="absolute inset-0 h-full w-full bg-black object-contain"
+        loop
+        playsInline
+        muted={muted}
+        // Only the active card actually needs the full file ready to go;
+        // the other mounted-but-off-screen clips just grab enough to know
+        // their own duration/dimensions, not the whole download.
+        preload={active ? "auto" : "metadata"}
+        onLoadedData={() => setVideoReady(true)}
+      />
+
+      {/* Shimmer skeleton — covers the gap between mount and the first
+          decoded frame; fades out the instant onLoadedData fires above. */}
+      {!videoReady && (
         <div
-          className="absolute -inset-[6%] animate-[videoclip-pan_18s_ease-in-out_infinite]"
-          style={{ backgroundImage: video.gradient }}
+          className="pointer-events-none absolute inset-0 z-10 overflow-hidden"
+          style={{
+            background: "radial-gradient(120% 90% at 50% 38%, #16233d 0%, #0a1120 55%, #050810 100%)",
+          }}
           aria-hidden
-        />
+        >
+          {/* The whole rectangle breathes together, not a highlight
+              sweeping across it — a brand-tinted wash over the base
+              gradient, fading in and out as one shape. */}
+          <div className="absolute inset-0 animate-pulse bg-brand-accent/10" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="relative flex h-16 w-16 items-center justify-center">
+              <div className="absolute inset-0 animate-pulse rounded-full bg-brand-accent/20 blur-md" />
+              <div className="relative flex h-14 w-14 animate-pulse items-center justify-center rounded-full bg-brand-accent/15 ring-1 ring-brand-accent/25">
+                <svg viewBox="0 0 24 24" className="ml-0.5 h-5 w-5 fill-brand-accent/80">
+                  <path d="M6 4l14 8-14 8V4z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Center heart-burst on double-tap-to-like — purely decorative, the
@@ -361,9 +228,10 @@ function VideoCard({
       )}
 
       {/* Paused affordance — a single tap toggles play/pause; this just
-          confirms it happened, same idea as every other video player's
-          center play glyph. */}
-      {paused && (
+          confirms it happened. Gated on videoReady too — while the shimmer
+          skeleton is showing (its own center glyph, above), this would
+          otherwise stack a second play icon right on top of it. */}
+      {paused && videoReady && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-black/35">
             <svg viewBox="0 0 24 24" className="ml-1 h-7 w-7 fill-white">
@@ -375,17 +243,11 @@ function VideoCard({
 
       {/* h-4 hit-area, not just the thin visible bar — a 2.5px line is
           nearly impossible to land a finger on; kept short enough (16px)
-          to clear the mute button just below it (top-5 = 20px), not
-          overlap its own tap target. Real clips get a draggable scrubber
-          (pointer-events auto, tied to the actual <video>'s currentTime);
-          placeholder clips have no real timeline, so they keep the old
-          decorative auto-looping bar and stay non-interactive. */}
+          to clear the mute button just below it (top-5 = 20px). */}
       <div
         ref={scrubRef}
-        className={`absolute inset-x-0 top-0 z-10 flex h-4 items-center px-3.5 ${
-          video.src ? "" : "pointer-events-none"
-        }`}
-        style={video.src ? { touchAction: "none" } : undefined}
+        className="absolute inset-x-0 top-0 z-10 flex h-4 items-center px-3.5"
+        style={{ touchAction: "none" }}
         onPointerDown={handleScrubDown}
         onPointerMove={handleScrubMove}
         onPointerUp={handleScrubUp}
@@ -393,19 +255,11 @@ function VideoCard({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="relative h-[2.5px] w-full rounded-full bg-white/25">
-          {video.src ? (
-            <div className="h-full rounded-full bg-white" style={{ width: `${Math.min(progress, 1) * 100}%` }} />
-          ) : (
-            active && (
-              <div className="h-full w-full origin-left animate-[videoclip-progress_18s_linear_infinite] rounded-full bg-white" />
-            )
-          )}
-          {video.src && (
-            <div
-              className="pointer-events-none absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_0_3px_rgba(0,0,0,0.25)]"
-              style={{ left: `${Math.min(progress, 1) * 100}%` }}
-            />
-          )}
+          <div className="h-full rounded-full bg-white" style={{ width: `${Math.min(progress, 1) * 100}%` }} />
+          <div
+            className="pointer-events-none absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_0_3px_rgba(0,0,0,0.25)]"
+            style={{ left: `${Math.min(progress, 1) * 100}%` }}
+          />
         </div>
       </div>
       <button
@@ -415,66 +269,61 @@ function VideoCard({
           e.stopPropagation();
           onToggleMute();
         }}
-        className="absolute right-3 top-5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white"
+        className="absolute right-3 top-5 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/40 text-white"
       >
-        {muted ? <MuteIconFill className="h-3.5 w-3.5" weight="fill" /> : <VolumeIconFill className="h-3.5 w-3.5" weight="fill" />}
+        {muted ? <MuteIconFill className="h-[18px] w-[18px]" weight="fill" /> : <VolumeIconFill className="h-[18px] w-[18px]" weight="fill" />}
       </button>
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-[46%] bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
 
       {/* bottom-[104px], not 84 — clears MobileTabBar now that it floats as
-          a pill lifted off the edge instead of a flush full-width bar; a
-          smaller offset here would sit the caption/handle block right under
-          (or behind) the pill's own top edge. */}
+          a pill lifted off the edge instead of a flush full-width bar. */}
       <div className="absolute bottom-[104px] left-4 right-[70px] z-10">
         <div className="flex items-center gap-1.5 font-nunito text-[13px] font-extrabold text-white">
           <span
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9.5px] font-extrabold text-white ring-2 ring-white/80"
-            style={{ backgroundColor: video.avatarColor }}
+            className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full text-[9.5px] font-extrabold text-white ring-2 ring-white/80"
+            style={{ backgroundColor: avatarColor }}
           >
-            {video.avatarInitials}
+            {video.image_url ? <Avatar src={video.image_url} /> : initials}
           </span>
-          {video.handle}
+          {video.avitag}
         </div>
 
-        {(video.campusTag || video.majorTag || video.level) && (
+        {(video.campus_tag || video.major_tag || video.level) && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {video.campusTag && <InfoTag>{video.campusTag}</InfoTag>}
-            {video.majorTag && <InfoTag>{video.majorTag}</InfoTag>}
+            {video.campus_tag && <InfoTag>{video.campus_tag}</InfoTag>}
+            {video.major_tag && <InfoTag>{video.major_tag}</InfoTag>}
             {video.level && <InfoTag>{`${video.level}L`}</InfoTag>}
           </div>
         )}
 
-        <p
-          className={`mt-1.5 font-nunito text-[13px] font-semibold text-white/95 ${
-            captionExpanded ? "" : "line-clamp-2"
-          }`}
-        >
-          {captionExpanded || video.caption.length <= CAPTION_TRUNCATE_AT
-            ? video.caption
-            : video.caption.slice(0, CAPTION_TRUNCATE_AT).trimEnd()}
-          {!captionExpanded && video.caption.length > CAPTION_TRUNCATE_AT && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setCaptionExpanded(true);
-              }}
-              aria-label="Show full caption"
-              className="pl-0.5 font-extrabold text-white"
-            >
-              &hellip;
-            </button>
-          )}
-        </p>
+        {caption && (
+          <p
+            // The WHOLE caption is the tap target when truncated, not just
+            // the "…" — a much easier, more forgiving target than a single
+            // character.
+            onClick={(e) => {
+              if (caption.length <= CAPTION_TRUNCATE_AT || captionExpanded) return;
+              e.stopPropagation();
+              setCaptionExpanded(true);
+            }}
+            role={!captionExpanded && caption.length > CAPTION_TRUNCATE_AT ? "button" : undefined}
+            aria-label={!captionExpanded && caption.length > CAPTION_TRUNCATE_AT ? "Show full caption" : undefined}
+            className={`mt-1.5 font-nunito text-[13px] font-semibold text-white/95 ${
+              captionExpanded ? "" : "line-clamp-2"
+            } ${!captionExpanded && caption.length > CAPTION_TRUNCATE_AT ? "cursor-pointer" : ""}`}
+          >
+            {captionExpanded || caption.length <= CAPTION_TRUNCATE_AT ? caption : caption.slice(0, CAPTION_TRUNCATE_AT).trimEnd()}
+            {!captionExpanded && caption.length > CAPTION_TRUNCATE_AT && (
+              <span className="pl-0.5 font-extrabold text-white">&hellip;</span>
+            )}
+          </p>
+        )}
       </div>
 
       <div className="absolute bottom-[104px] right-2.5 z-10 flex flex-col items-center gap-4">
         {/* Own compose entry, top of the rail — the same spot Reels/TikTok
-            put "your avatar with a + badge", not a separate floating button.
-            Keeping it in the rail (which already clears the tab bar via its
-            own bottom offset) instead of a standalone fixed FAB is what
-            avoids it colliding with the Share icon just below it. */}
+            put "your avatar with a + badge", not a separate floating button. */}
         <button
           type="button"
           aria-label="Record or upload a video"
@@ -495,44 +344,62 @@ function VideoCard({
           onClick={(e) => {
             e.stopPropagation();
             onLike();
-            popHeart();
+            if (!liked) popHeart();
           }}
           className="flex flex-col items-center gap-1"
         >
           <Heart className="h-6 w-6" stroke="#fff" strokeWidth={1.8} fill={liked ? "#ff4d6d" : "none"} style={{ color: liked ? "#ff4d6d" : undefined }} />
           <span className="font-nunito text-[10.5px] font-extrabold tabular-nums text-white">
-            {formatCount(video.likeCount + (liked ? 1 : 0))}
-          </span>
-        </button>
-        <button type="button" onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-1">
-          <MessageCircle className="h-6 w-6" stroke="#fff" strokeWidth={1.8} />
-          <span className="font-nunito text-[10.5px] font-extrabold tabular-nums text-white">
-            {formatCount(video.commentCount)}
-          </span>
-        </button>
-        <button type="button" onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-1">
-          <ShareIconFill className="h-6 w-6" weight="fill" style={{ color: "#fff" }} />
-          <span className="font-nunito text-[10.5px] font-extrabold tabular-nums text-white">
-            {formatCount(video.shareCount)}
+            {formatCount(video.reactions_count)}
           </span>
         </button>
         <button
           type="button"
-          aria-label={reported ? "Reported" : "Report"}
+          aria-label="View comments"
           onClick={(e) => {
             e.stopPropagation();
-            setReported((r) => !r);
+            onOpenComments();
           }}
           className="flex flex-col items-center gap-1"
         >
+          <MessageCircle className="h-6 w-6" stroke="#fff" strokeWidth={1.8} />
+          <span className="font-nunito text-[10.5px] font-extrabold tabular-nums text-white">
+            {formatCount(video.comments_count)}
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-label="Share"
+          onClick={(e) => {
+            e.stopPropagation();
+            onShare();
+          }}
+          className="flex flex-col items-center gap-1"
+        >
+          <ShareIconFill className="h-6 w-6" weight="fill" style={{ color: "#fff" }} />
+          <span className="font-nunito text-[10.5px] font-extrabold tabular-nums text-white">
+            {formatCount(video.shares_count)}
+          </span>
+        </button>
+        {/* No count shown here, deliberately — reports aren't a public
+            metric. Just the icon, filled/colored once already flagged
+            (my_report, persisted server-side), disabled from then on so a
+            second tap is a no-op instead of a second, wasted request. */}
+        <button
+          type="button"
+          aria-label={video.my_report ? "Reported" : "Report"}
+          disabled={video.my_report}
+          onClick={(e) => {
+            e.stopPropagation();
+            onFlag();
+          }}
+          className="flex flex-col items-center gap-1 disabled:opacity-70"
+        >
           <FlagIconFill
             className="h-6 w-6"
-            weight={reported ? "fill" : "regular"}
-            style={{ color: reported ? "#ffc107" : "#fff" }}
+            weight={video.my_report ? "fill" : "regular"}
+            style={{ color: video.my_report ? "#ffc107" : "#fff" }}
           />
-          <span className="font-nunito text-[10.5px] font-extrabold tabular-nums text-white">
-            {formatCount(video.reportCount + (reported ? 1 : 0))}
-          </span>
         </button>
       </div>
     </div>
@@ -540,23 +407,95 @@ function VideoCard({
 }
 
 /**
- * The Spot tab's feed screen — "Full Rail" direction from the UI review
- * (right-edge action rail, one clip full-bleed at a time). "Spot" is the
- * settled name for this tab; the route still lives at /video.
- *
- * No backend yet: `videos` starts from SEED_VIDEOS and only ever grows via
- * `handlePosted` below (prepends whatever CreateVideoSheet hands back) —
- * entirely client-side, gone on refresh. Wiring this to a real feed/videos
- * endpoint is the next pass, once this direction is confirmed.
+ * The real, current visible height of the screen — NOT `100dvh`. iOS
+ * Safari's address bar collapses/expands as you scroll, and `dvh` doesn't
+ * always recompute reliably mid-gesture on real devices.
+ * `window.visualViewport` fires reliably as the real toolbar animates, so
+ * every card's height is driven from this measured pixel value instead.
  */
-export function VideoFeedContent() {
-  const [videos, setVideos] = useState<VideoPost[]>(SEED_VIDEOS);
-  const [activeId, setActiveId] = useState<string>(SEED_VIDEOS[0]?.id ?? "");
-  const [muted, setMuted] = useState(true);
-  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
-  const [composeOpen, setComposeOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+function useRealViewportHeight(): number | null {
+  const [height, setHeight] = useState<number | null>(null);
 
+  useEffect(() => {
+    const measure = () => {
+      const h = window.visualViewport?.height ?? window.innerHeight;
+      setHeight(Math.round(h));
+    };
+    measure();
+    window.visualViewport?.addEventListener("resize", measure);
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+    return () => {
+      window.visualViewport?.removeEventListener("resize", measure);
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("orientationchange", measure);
+    };
+  }, []);
+
+  return height;
+}
+
+/** Fired once via `navigator.share` where available (mobile Safari/Chrome's
+ * native share sheet), falling back to a clipboard copy elsewhere (desktop
+ * Chrome/Firefox have no Web Share API). Either way, `onShared` only fires
+ * once the share genuinely went out/was copied — not just because the
+ * button was tapped — matching the backend's own "log a share when it
+ * actually completes" contract (see spot.controller.ts's `share` doc). */
+async function shareSpot(spotId: string, caption: string | null, onShared: (platform: string) => void) {
+  const url = `${window.location.origin}/video?spot=${spotId}`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: caption || "Check this out on Kampos Spot", url });
+      onShared("native");
+    } catch {
+      // AbortError (user dismissed the sheet) or any other failure — no
+      // share happened, so no /share call either.
+    }
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    onShared("clipboard");
+  } catch {
+    /* clipboard permission denied — nothing else to fall back to here */
+  }
+}
+
+export function VideoFeedContent() {
+  const viewportHeight = useRealViewportHeight();
+  const spots = useSpotStore((s) => s.spots);
+  const loading = useSpotStore((s) => s.loading);
+  const exhausted = useSpotStore((s) => s.exhausted);
+  const fetchFeed = useSpotStore((s) => s.fetchFeed);
+  const loadMore = useSpotStore((s) => s.loadMore);
+  const toggleLike = useSpotStore((s) => s.toggleLike);
+  const shareAction = useSpotStore((s) => s.share);
+  const reportAction = useSpotStore((s) => s.report);
+  const recordView = useSpotStore((s) => s.recordView);
+  const prependSpot = useSpotStore((s) => s.prependSpot);
+
+  const [activeId, setActiveId] = useState<string>("");
+  const [muted, setMuted] = useState(true);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [commentsSpotId, setCommentsSpotId] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const lastViewedRef = useRef<string>("");
+
+  useEffect(() => {
+    void fetchFeed();
+    // Only ever the initial load — loadMore (triggered by the sentinel
+    // below) handles every page after this one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!activeId && spots[0]) setActiveId(spots[0].spot_id);
+  }, [spots, activeId]);
+
+  // Which card is "active" (the one actually playing) — the same
+  // threshold-based IntersectionObserver-on-each-card pattern this screen
+  // has always used.
   useEffect(() => {
     const root = containerRef.current;
     if (!root) return;
@@ -573,52 +512,117 @@ export function VideoFeedContent() {
     );
     root.querySelectorAll("[data-video-id]").forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  }, [videos]);
+  }, [spots]);
 
-  const toggleLike = useCallback((id: string) => {
-    setLikedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
+  // Infinite scroll — same sentinel-in-the-scroll-container pattern
+  // FeedContent.tsx's Gist feed already uses: a nearly-invisible div near
+  // the end of the loaded list, watched by its own IntersectionObserver,
+  // firing loadMore() (which reads the last spot's own _feed_cursor) the
+  // moment it scrolls into view. Not rendered at all once the feed is
+  // exhausted, so a spent feed stops re-triggering fetches for content
+  // that isn't there.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    const root = containerRef.current;
+    if (!el || !root || exhausted) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMore();
+      },
+      { root, rootMargin: "0px 0px 200% 0px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMore, exhausted, spots.length]);
 
-  const handlePosted = useCallback((post: VideoPost) => {
-    setVideos((prev) => [post, ...prev]);
-    setComposeOpen(false);
-    // Jump the newly-posted clip into view once it's actually in the DOM.
-    requestAnimationFrame(() => {
-      containerRef.current?.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-      setActiveId(post.id);
-    });
-  }, []);
+  // One /view call per genuine activation — fires when a card transitions
+  // INTO being the active one, not on every intersection flicker or re-
+  // render while it stays active.
+  useEffect(() => {
+    if (!activeId || activeId === lastViewedRef.current) return;
+    lastViewedRef.current = activeId;
+    recordView(activeId);
+  }, [activeId, recordView]);
 
-  const items = useMemo(() => videos, [videos]);
+  const handlePosted = useCallback(
+    (post: Spot) => {
+      prependSpot(post);
+      setComposeOpen(false);
+      // Jump the newly-posted clip into view once it's actually in the DOM.
+      requestAnimationFrame(() => {
+        containerRef.current?.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+        setActiveId(post.spot_id);
+      });
+    },
+    [prependSpot],
+  );
+
+  const activeSpot = spots.find((s) => s.spot_id === commentsSpotId);
 
   return (
     <AppShell variant="feed">
-      <div className="flex h-dvh w-full overflow-hidden bg-black">
-        <div
-          ref={containerRef}
-          className="relative h-full w-full flex-1 snap-y snap-mandatory overflow-y-auto overscroll-y-contain"
-        >
-          {items.map((v) => (
-            <div key={v.id} data-video-id={v.id} className="h-full w-full snap-start snap-always">
-              <VideoCard
-                video={v}
-                active={v.id === activeId}
-                muted={muted}
-                onToggleMute={() => setMuted((m) => !m)}
-                onLike={() => toggleLike(v.id)}
-                liked={likedIds.has(v.id)}
-                onCompose={() => setComposeOpen(true)}
-              />
-            </div>
-          ))}
-        </div>
+      <div
+        className="flex w-full overflow-hidden bg-black"
+        // 100dvh only until the first real measurement lands (see
+        // useRealViewportHeight's own doc).
+        style={{ height: viewportHeight ? `${viewportHeight}px` : "100dvh" }}
+      >
+        {loading && spots.length === 0 ? (
+          <div className="flex h-full w-full items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-white" />
+          </div>
+        ) : spots.length === 0 ? (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-8 text-center">
+            <span className="font-nunito text-sm font-bold text-white">No Spots yet</span>
+            <span className="font-nunito text-[12.5px] text-white/60">Be the first to drop one</span>
+            <button
+              type="button"
+              onClick={() => setComposeOpen(true)}
+              className="mt-3 rounded-full bg-brand px-5 py-2.5 font-nunito text-[13px] font-extrabold text-white"
+            >
+              Record a Spot
+            </button>
+          </div>
+        ) : (
+          <div
+            ref={containerRef}
+            // overflow-x-hidden is a second, independent line of defense on
+            // top of each card's own overflow-hidden.
+            className="relative h-full w-full flex-1 snap-y snap-mandatory overflow-y-auto overflow-x-hidden overscroll-y-contain"
+          >
+            {spots.map((v) => (
+              <div key={v.spot_id} data-video-id={v.spot_id} className="h-full w-full snap-start snap-always">
+                <VideoCard
+                  video={v}
+                  active={v.spot_id === activeId}
+                  muted={muted}
+                  onToggleMute={() => setMuted((m) => !m)}
+                  onLike={() => void toggleLike(v.spot_id)}
+                  onCompose={() => setComposeOpen(true)}
+                  onOpenComments={() => setCommentsSpotId(v.spot_id)}
+                  onShare={() => void shareSpot(v.spot_id, v.caption, (platform) => void shareAction(v.spot_id, platform))}
+                  // reportAction() rejects on failure (see spotStore's own
+                  // doc — it rolls the optimistic my_report flag back and
+                  // throws so a caller COULD surface it); there's no toast
+                  // surface wired for Spot yet, so this just swallows it
+                  // rather than becoming an unhandled promise rejection —
+                  // the rollback itself is all the user-visible feedback
+                  // there is for now (the flag icon un-fills).
+                  onFlag={() => void reportAction(v.spot_id).catch(() => {})}
+                />
+              </div>
+            ))}
+            {!exhausted && <div ref={sentinelRef} aria-hidden className="h-1 w-full" />}
+          </div>
+        )}
 
         <CreateVideoSheet open={composeOpen} onClose={() => setComposeOpen(false)} onPosted={handlePosted} />
+        <SpotCommentSheet
+          open={!!commentsSpotId}
+          onClose={() => setCommentsSpotId(null)}
+          spotId={commentsSpotId}
+          commentCount={activeSpot?.comments_count ?? 0}
+        />
       </div>
     </AppShell>
   );

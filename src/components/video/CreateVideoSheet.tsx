@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Camera, Clapperboard, ImageIcon, X } from "@/components/ui/icons";
-import { useAuthStore } from "@/stores/authStore";
-import { gistColorFor } from "@/lib/brand";
-import type { VideoPost } from "@/app/video/VideoFeedContent";
+import { useSpotStore, SpotUploadError, type Spot } from "@/stores/spotStore";
 
-const MAX_DURATION_SECONDS = 120; // matches the gist video cap — see media.controller.ts on the backend
+// Spot's own limits — deliberately larger than Gist's incidental video cap,
+// matches MAX_VIDEO_DURATION_SECONDS/MAX_VIDEO_BYTES in
+// KamposBackend/src/modules/spot/spot.constants.ts.
+const MAX_DURATION_SECONDS = 300;
+const MAX_BYTES = 200 * 1024 * 1024;
 const CAPTION_MAX_LEN = 220;
 
 function formatTime(seconds: number): string {
@@ -18,16 +20,16 @@ function formatTime(seconds: number): string {
 }
 
 /**
- * Posting flow for the Video tab — chooser (record or upload) then a
+ * Posting flow for the Spot tab — chooser (record or upload) then a
  * preview + optional caption before posting. "Record" and "Upload" are both
  * genuinely wired to a real file, not stubs: two plain file inputs, one
  * with `capture="environment"` (opens the phone's actual camera app on
  * mobile) and one without (opens the gallery/file picker) — no in-browser
  * camera UI to build for this pass, since the OS's own camera already does
- * the job. "Post" has nowhere to send the clip yet (no backend module for
- * this tab exists), so it just hands the local object URL back up to
- * VideoFeedContent, which plays it for real in the feed — everything here
- * is real except persistence.
+ * the job. "Post" runs the real draft → signature → direct-to-Cloudinary
+ * upload → finalize sequence (see spotStore.postSpot) — the preview here
+ * plays from a local blob URL only until that resolves, then ownership
+ * passes to the feed with the real Cloudinary URL.
  */
 export function CreateVideoSheet({
   open,
@@ -36,10 +38,9 @@ export function CreateVideoSheet({
 }: {
   open: boolean;
   onClose: () => void;
-  onPosted: (post: VideoPost) => void;
+  onPosted: (post: Spot) => void;
 }) {
-  const avitag = useAuthStore((s) => s.avitag);
-  const myProfile = useAuthStore((s) => s.profiles.find((p) => p.avitag === s.avitag));
+  const postSpot = useSpotStore((s) => s.postSpot);
   const recordInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -50,6 +51,8 @@ export function CreateVideoSheet({
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [posting, setPosting] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState(0);
 
   const reset = () => {
     if (objectUrl) URL.revokeObjectURL(objectUrl);
@@ -59,6 +62,8 @@ export function CreateVideoSheet({
     setDuration(0);
     setCurrentTime(0);
     setError(null);
+    setPosting(false);
+    setUploadPercent(0);
   };
 
   useEffect(() => {
@@ -72,46 +77,52 @@ export function CreateVideoSheet({
       setError("That doesn't look like a video file.");
       return;
     }
+    if (f.size > MAX_BYTES) {
+      setError(`That file's too big — max ${Math.round(MAX_BYTES / 1024 / 1024)}MB.`);
+      return;
+    }
     setError(null);
     setFile(f);
     setObjectUrl(URL.createObjectURL(f));
   };
 
-  const handlePost = () => {
-    if (!file || !objectUrl) return;
-    const tag = avitag ?? "you";
-    const post: VideoPost = {
-      id: `local-${Date.now()}`,
-      handle: tag,
-      avatarInitials: tag.slice(0, 2).toUpperCase(),
-      avatarColor: gistColorFor(tag),
-      campusTag: typeof myProfile?.campus_tag === "string" ? myProfile.campus_tag : undefined,
-      majorTag: typeof myProfile?.major_tag === "string" ? myProfile.major_tag : undefined,
-      level: typeof myProfile?.level === "number" ? myProfile.level : undefined,
-      caption: caption.trim(),
-      likeCount: 0,
-      commentCount: 0,
-      shareCount: 0,
-      reportCount: 0,
-      src: objectUrl,
-    };
-    onPosted(post);
-    // Ownership of the blob URL passes to the feed here — clear local state
-    // WITHOUT revoking it (unlike reset(), which is for actually discarding
-    // a clip). The `open` effect above calls reset() once this sheet closes;
-    // objectUrl is already null by then, so its revoke is a no-op instead of
-    // pulling the rug out from under the clip now playing in the feed.
-    setFile(null);
-    setObjectUrl(null);
-    setCaption("");
-    setDuration(0);
-    setCurrentTime(0);
+  const handlePost = async () => {
+    if (!file || posting) return;
+    setPosting(true);
+    setError(null);
+    setUploadPercent(0);
+    try {
+      const spot = await postSpot(file, file.name || "spot.mp4", caption, setUploadPercent);
+      onPosted(spot);
+      // Ownership of the local preview ends here on success — the feed now
+      // has the real, Cloudinary-hosted spot. reset() (via the `open`
+      // effect once the parent closes this sheet) is what actually revokes
+      // the blob URL; nothing here needs to keep it alive any further.
+      setFile(null);
+      setObjectUrl(null);
+      setCaption("");
+      setDuration(0);
+      setCurrentTime(0);
+      setPosting(false);
+      setUploadPercent(0);
+    } catch (err) {
+      // Keep the draft (file/caption/preview) intact on failure — the user
+      // shouldn't have to re-pick the clip and retype the caption just
+      // because the upload hiccupped. Same "don't throw the draft away on
+      // failure" reasoning CreateGistSheet's own optimistic-post error path
+      // follows.
+      const message =
+        err instanceof SpotUploadError ? err.message : err instanceof Error ? err.message : "Couldn't post your video — please try again.";
+      setError(message);
+      setPosting(false);
+      setUploadPercent(0);
+    }
   };
 
   const step: "choose" | "preview" = file ? "preview" : "choose";
 
   return (
-    <Modal open={open} onClose={onClose} className="h-[100dvh] w-full max-w-none rounded-none">
+    <Modal open={open} onClose={() => { if (!posting) onClose(); }} className="h-[100dvh] w-full max-w-none rounded-none">
       <div className="flex h-full w-full flex-col">
         {step === "choose" ? (
           // Kampos's own compose-sheet surface (bg-brand-tint), same as
@@ -203,8 +214,9 @@ export function CreateVideoSheet({
               <button
                 type="button"
                 onClick={reset}
+                disabled={posting}
                 aria-label="Discard and choose again"
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white disabled:opacity-40"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -219,21 +231,35 @@ export function CreateVideoSheet({
               </div>
             )}
 
+            {error && (
+              <div className="absolute inset-x-4 top-[calc(3.5rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
+                {error}
+              </div>
+            )}
+
             <div className="absolute inset-x-3 bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] z-10 flex flex-col gap-2.5">
               <textarea
                 value={caption}
                 onChange={(e) => setCaption(e.target.value.slice(0, CAPTION_MAX_LEN))}
                 placeholder="Add a caption… (optional)"
                 rows={1}
-                className="resize-none rounded-2xl bg-black/45 px-3.5 py-2.5 font-nunito text-[13px] font-medium text-white placeholder:text-white/50 backdrop-blur-md focus:outline-none"
+                disabled={posting}
+                className="resize-none rounded-2xl bg-black/45 px-3.5 py-2.5 font-nunito text-[13px] font-medium text-white placeholder:text-white/50 backdrop-blur-md focus:outline-none disabled:opacity-60"
               />
               <button
                 type="button"
-                onClick={handlePost}
-                disabled={duration > MAX_DURATION_SECONDS}
-                className="self-end rounded-full bg-brand px-6 py-2.5 font-nunito text-[13px] font-extrabold text-white shadow-lg shadow-brand/40 disabled:opacity-40"
+                onClick={() => void handlePost()}
+                disabled={duration > MAX_DURATION_SECONDS || posting}
+                className="flex min-w-[92px] items-center justify-center gap-1.5 self-end rounded-full bg-brand px-6 py-2.5 font-nunito text-[13px] font-extrabold text-white shadow-lg shadow-brand/40 disabled:opacity-70"
               >
-                Post
+                {posting ? (
+                  <>
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    {uploadPercent > 0 ? `${uploadPercent}%` : "Posting…"}
+                  </>
+                ) : (
+                  "Post"
+                )}
               </button>
             </div>
           </div>

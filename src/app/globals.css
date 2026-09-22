@@ -171,7 +171,8 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   .animate-\[videoclip-pan_18s_ease-in-out_infinite\],
   .animate-\[videoclip-progress_18s_linear_infinite\],
-  .animate-\[heart-pop_0\.55s_ease\] {
+  .animate-\[heart-pop_0\.55s_ease\],
+  .animate-pulse {
     animation: none;
   }
 }
