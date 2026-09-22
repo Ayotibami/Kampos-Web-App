@@ -224,7 +224,7 @@ function VideoCard({
       await onFlag(reason);
       setShowReportModal(false);
     } catch (err) {
-      setReportError(err instanceof Error ? err.message : "Failed to report this video");
+      setReportError(err instanceof Error ? err.message : "Failed to report this Spot");
     } finally {
       setReporting(false);
     }
@@ -462,7 +462,7 @@ function VideoCard({
             creation action on a rail that's otherwise all engagement. */}
         <button
           type="button"
-          aria-label="Record or upload a video"
+          aria-label="Record or upload a Spot"
           onClick={(e) => {
             e.stopPropagation();
             onCompose();
@@ -558,11 +558,11 @@ function VideoCard({
         onClose={() => (reporting ? undefined : setShowReportModal(false))}
         onSubmit={handleReportSubmit}
         loading={reporting}
-        title="Report this video"
+        title="Report this Spot"
         bodyText={
           <>
             Kampos is a safe space — we work hard to keep Spot free of harmful content.
-            If this video breaks our{" "}
+            If this Spot breaks our{" "}
             <a
               href={env.COMMUNITY_GUIDELINES_URL}
               target="_blank"

@@ -112,7 +112,7 @@ export function CreateVideoSheet({
       // failure" reasoning CreateGistSheet's own optimistic-post error path
       // follows.
       const message =
-        err instanceof SpotUploadError ? err.message : err instanceof Error ? err.message : "Couldn't post your video — please try again.";
+        err instanceof SpotUploadError ? err.message : err instanceof Error ? err.message : "Couldn't post your Spot — please try again.";
       setError(message);
       setPosting(false);
       setUploadPercent(0);
@@ -133,7 +133,7 @@ export function CreateVideoSheet({
           // shows footage, so there's no reason for it to be dark too.
           <div className="flex h-full w-full flex-col bg-brand-tint">
             <div className="relative flex shrink-0 items-center justify-center px-5 pt-[calc(1rem+env(safe-area-inset-top,0px))] pb-3">
-              <span className="font-nunito text-base font-bold text-ink">New video</span>
+              <span className="font-nunito text-base font-bold text-ink">New Spot</span>
               <button
                 type="button"
                 onClick={onClose}
