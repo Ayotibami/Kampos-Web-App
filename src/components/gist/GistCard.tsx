@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/icons";
 import type { Gist, ReactionType } from "@/types";
 import { gistColorForGist } from "@/lib/brand";
-import { fitHeroBlock, nominalHeroTextRem } from "@/lib/heroText";
+import { fitHeroBlock, HERO_TEXT_NOMINAL_REM } from "@/lib/heroText";
 import { timeAgo, friendlyDateTime, compactNumber } from "@/lib/format";
 
 // Controlled dialog, same reasoning as FeedContent.tsx's own dynamic()
@@ -910,8 +910,9 @@ export function PopActionButton({
 /**
  * Short, text-only gists get a bold colored "hero" block that fills the card's
  * whole body (not just a floating minimum-height box), so it owns the frame
- * the way a quote card should. Text scales up on larger screens so a very
- * short gist doesn't read as a tiny caption lost in a big colored void.
+ * the way a quote card should. Every gist gets the same fixed, deliberate
+ * size (HERO_TEXT_NOMINAL_REM) regardless of length — see lib/heroText.ts's
+ * own doc for why a per-length curve was dropped in favor of this.
  *
  * `h-full` degrades gracefully outside the feed's fixed-height stack card
  * too: with no ancestor giving it a real height to be a percentage OF, it
@@ -930,26 +931,23 @@ export function ShortGist({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLParagraphElement>(null);
-  // Starts at the length-driven nominal size (a pure function of text.length
-  // — no DOM measurement needed), not the flat HERO_TEXT_MAX_REM ceiling.
-  // This is what the server actually renders into the initial HTML too, so
-  // a page reload paints something already close to correct instead of
-  // always starting at the absolute maximum size and visibly snapping down
-  // once hydration finally lets the layout effect below measure and correct
-  // it — a useLayoutEffect only actually runs before paint for a live
-  // client-side mount, not for the very first paint of server-rendered
-  // HTML, which happens before any JS has run at all.
-  const [fontSizeRem, setFontSizeRem] = useState(() => nominalHeroTextRem(text.length));
+  // Starts at the fixed nominal size — this is what the server actually
+  // renders into the initial HTML too, so a page reload paints something
+  // already correct instead of visibly snapping down once hydration
+  // finally lets the layout effect below measure and correct it (only
+  // matters for the rare gist that still overflows at the nominal size —
+  // see fitHeroBlock).
+  const [fontSizeRem, setFontSizeRem] = useState(HERO_TEXT_NOMINAL_REM);
 
   // Runs synchronously after layout but before paint, so there's no visible
-  // flash of the wrong size — starts from the length-driven nominal size,
-  // then shrinks further only if that still overflows this particular box.
+  // flash of the wrong size — starts from the fixed nominal size, then
+  // shrinks further only if that still overflows this particular box.
   useLayoutEffect(() => {
     const container = containerRef.current;
     const el = textRef.current;
     if (!container || !el) return;
 
-    const fit = () => setFontSizeRem(fitHeroBlock(el, container, nominalHeroTextRem(text.length)));
+    const fit = () => setFontSizeRem(fitHeroBlock(el, container));
 
     fit();
     // Covers device rotation / the card resizing under it — a static

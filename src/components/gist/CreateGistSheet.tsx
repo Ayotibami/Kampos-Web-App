@@ -19,7 +19,7 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import { apiErrorMessage } from "@/lib/api";
 import { LIMITS, GIST_CARD_PALETTE, GIST_COLOR_KEYS, type GistColorKey } from "@/lib/brand";
-import { fitHeroTextarea, nominalHeroTextRem } from "@/lib/heroText";
+import { fitHeroTextarea } from "@/lib/heroText";
 import { stripInvisibleChars, sanitizeForSubmit, sanitizeFileName } from "@/lib/sanitize";
 import { QuotedGistPreview } from "./GistCard";
 import {
@@ -379,21 +379,18 @@ export function CreateGistSheet({
       // fontSize/height fitHeroTextarea left behind, since an inline style
       // always beats the plain-mode Tailwind classes (h-full, text-[15px])
       // for the same property. Left uncleared, the textarea would keep
-      // rendering at its last hero-mode size after reverting. The
-      // empty-text case matters specifically for the placeholder: at length
-      // 0, nominalHeroTextRem would hand back the MAX hero size (shortest
-      // "text" reads biggest), which the placeholder — sharing the same
-      // element's font-size — would inherit and render huge. Skipping the
-      // hero sizing entirely while empty keeps the placeholder at normal
-      // reading size; real hero scaling only kicks in once there's actual
-      // text to size for its own length.
+      // rendering at its last hero-mode size after reverting. Skipping
+      // hero sizing entirely while empty also keeps the placeholder at
+      // normal reading size rather than the (now fixed, not length-based)
+      // hero size — there's no real text yet to apply the hero treatment
+      // to.
       el.style.fontSize = "";
       el.style.height = "";
       return;
     }
     const container = heroBoxRef.current;
     if (!container) return;
-    fitHeroTextarea(el, container, nominalHeroTextRem(text.length));
+    fitHeroTextarea(el, container);
   }, [text, heroPreviewActive]);
 
   // Picking a color swaps the textarea into the colored hero layout — jump

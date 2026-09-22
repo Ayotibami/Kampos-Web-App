@@ -4,42 +4,28 @@
  * the compose sheet's live preview, so composing genuinely previews what
  * posting will look like instead of two independently-tuned approximations.
  *
- * Two parts, not one:
- *  1. nominalHeroTextRem — a standard, length-driven STARTING size. This is
- *     the actual visual signal: shorter text reliably reads bigger than
- *     longer text, predictably, every time.
- *  2. fitHeroBlock/fitHeroTextarea — measure the real rendered box from
- *     that starting point and shrink further ONLY if it's actually
- *     overflowing. A pure measure-and-shrink-if-needed approach (no nominal
- *     size) was tried first and got this backwards: two different-length
- *     texts that both already fit at the max size rendered identically
- *     ("hey" looked the same as a 15-char gist) because neither needed to
- *     shrink. The nominal size fixes that; the measurement pass is only a
- *     safety net for cases the formula didn't predict (a run of unusually
- *     long words, a narrow viewport), guaranteeing no overflow either way.
+ * One fixed size (HERO_TEXT_NOMINAL_REM), not a length-driven curve — a
+ * per-length curve was tried first and made the treatment worse for exactly
+ * the gists it was meant to flatter: a short-but-not-tiny gist (several
+ * words, not one) got handed a large nominal size, and even when that size
+ * technically fit inside the box without clipping, a handful of words at
+ * that size wraps into awkward, unevenly-shaped lines — the box wasn't
+ * overflowing, it just read badly. One consistent size means every short
+ * gist gets the same deliberate, bold-but-readable treatment regardless of
+ * length. fitHeroBlock/fitHeroTextarea still measure the real rendered box
+ * and shrink further ONLY if it's genuinely overflowing (a run of unusually
+ * long words, a narrow viewport, a gist near the length cutoff) — a safety
+ * net against clipping, not a sizing strategy of its own.
  */
 export const HERO_TEXT_MIN_REM = 1; // ~16px — smallest a hero statement should ever render, any device
-export const HERO_TEXT_MAX_REM = 3; // one-word gist ceiling
+export const HERO_TEXT_NOMINAL_REM = 1.75; // ~28px — bold enough to read as a deliberate statement, restrained enough that a handful of words still wraps cleanly
 export const HERO_TEXT_STEP_REM = 0.0625; // 1px steps at the default root size — fine enough not to visibly jump
-
-/**
- * Sqrt curve, not linear: drops faster per character early on (so "hey" and
- * a 15-char gist actually look different from each other) and flattens out
- * for the long tail, instead of a flat slope where anything under ~20
- * characters was nearly indistinguishable. Tuned to reach the floor right
- * around SHORT_TEXT (200 — GistCard's own cutoff for even showing this
- * treatment at all), so the whole eligible range actually uses the scale.
- */
-export function nominalHeroTextRem(length: number): number {
-  const size = HERO_TEXT_MAX_REM - 0.1414 * Math.sqrt(length);
-  return Math.min(HERO_TEXT_MAX_REM, Math.max(HERO_TEXT_MIN_REM, size));
-}
 
 /** For a block element whose own height already tracks its content (e.g. a
  * `<p>`) — starts at `startRem` and shrinks `el`'s font-size only if it's
  * actually overflowing `container` in either dimension, down to the floor.
  * Returns the settled size in rem. */
-export function fitHeroBlock(el: HTMLElement, container: HTMLElement, startRem: number = HERO_TEXT_MAX_REM): number {
+export function fitHeroBlock(el: HTMLElement, container: HTMLElement, startRem: number = HERO_TEXT_NOMINAL_REM): number {
   let size = startRem;
   el.style.fontSize = `${size}rem`;
   let guard = 0;
@@ -65,7 +51,7 @@ export function fitHeroBlock(el: HTMLElement, container: HTMLElement, startRem: 
 export function fitHeroTextarea(
   el: HTMLTextAreaElement,
   container: HTMLElement,
-  startRem: number = HERO_TEXT_MAX_REM,
+  startRem: number = HERO_TEXT_NOMINAL_REM,
 ): number {
   let size = startRem;
   let guard = 0;
