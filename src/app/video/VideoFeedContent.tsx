@@ -28,9 +28,18 @@ function InfoTag({ children }: { children: string }) {
   );
 }
 
+// How many cards on either side of the active one keep a real <video>
+// mounted — active + 1 neighbor each way, 3 "hot" at once. Everything
+// farther out renders just its poster image: no <video> tag at all, so no
+// metadata request, no decoder, no memory held for it. This is what keeps
+// a long scroll session from accumulating dozens of live video elements —
+// see this screen's own windowing doc further down for the full reasoning.
+const WINDOW_RADIUS = 1;
+
 function VideoCard({
   video,
   active,
+  distance,
   muted,
   onToggleMute,
   onLike,
@@ -41,6 +50,11 @@ function VideoCard({
 }: {
   video: Spot;
   active: boolean;
+  /** |this card's index - the active card's index| — how far it is from
+   * the one actually playing. Only ever used to decide whether this card
+   * keeps a real <video> mounted (see WINDOW_RADIUS); nothing here reads
+   * it for anything else. */
+  distance: number;
   muted: boolean;
   onToggleMute: () => void;
   onLike: () => void;
@@ -49,6 +63,7 @@ function VideoCard({
   onShare: () => void;
   onFlag: () => void;
 }) {
+  const renderVideo = distance <= WINDOW_RADIUS;
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubRef = useRef<HTMLDivElement>(null);
   const anyModalOpen = useAnyModalOpen();
@@ -85,7 +100,10 @@ function VideoCard({
 
   // Real playback position — skipped while actively scrubbing so a drag
   // doesn't fight with the video's own timeupdate events snapping the thumb
-  // back mid-gesture.
+  // back mid-gesture. Also re-bound on renderVideo, not just scrubbing —
+  // without that, re-entering the window (a fresh <video> element, see
+  // WINDOW_RADIUS) wouldn't get this listener re-attached to the NEW
+  // element until scrubbing happened to change for some unrelated reason.
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
@@ -94,7 +112,42 @@ function VideoCard({
     };
     el.addEventListener("timeupdate", onTimeUpdate);
     return () => el.removeEventListener("timeupdate", onTimeUpdate);
-  }, [scrubbing]);
+  }, [scrubbing, renderVideo]);
+
+  // Leaving the window resets this card's own playback session — same
+  // "scroll away, scroll back, it replays from the start" behavior TikTok
+  // itself has, and it's what keeps the shimmer skeleton honest: without
+  // resetting videoReady, re-entering the window would briefly show the
+  // OLD "ready" state for a video element that hasn't decoded a single
+  // frame yet.
+  useEffect(() => {
+    if (!renderVideo) {
+      setVideoReady(false);
+      setPaused(false);
+      setProgress(0);
+    }
+  }, [renderVideo]);
+
+  // iOS Safari in particular can keep buffering/holding the decoder for a
+  // beat after a plain DOM removal — explicitly clearing src and calling
+  // load() right before this card's <video> is torn down forces it to
+  // actually abort and release the resource, not just visually disappear.
+  // `el` is captured here (while the element still exists) rather than
+  // re-read inside the cleanup itself, which by the time it runs would see
+  // videoRef.current already nulled out by React's own unmount handling.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    return () => {
+      try {
+        el.pause();
+        el.removeAttribute("src");
+        el.load();
+      } catch {
+        /* best-effort — nothing else to do once the element's on its way out */
+      }
+    };
+  }, [renderVideo]);
 
   const seekFromClientX = useCallback((clientX: number) => {
     const bar = scrubRef.current;
@@ -169,29 +222,47 @@ function VideoCard({
     // the whole feed horizontally scrollable and let real (never-perfectly-
     // vertical) touch gestures defeat the mandatory vertical snap.
     <div className="relative h-full w-full shrink-0 snap-start snap-always overflow-hidden bg-black" onClick={handleTap}>
-      <video
-        ref={videoRef}
-        src={video.media_url ?? undefined}
-        poster={video.thumbnail_url ?? undefined}
-        // object-contain + a solid black bed, not object-cover — a clip
-        // that isn't 9:16 (landscape, square, whatever a student's phone
-        // actually recorded) letterboxes with dark bars instead of being
-        // cropped, same fallback TikTok itself uses for non-portrait
-        // uploads.
-        className="absolute inset-0 h-full w-full bg-black object-contain"
-        loop
-        playsInline
-        muted={muted}
-        // Only the active card actually needs the full file ready to go;
-        // the other mounted-but-off-screen clips just grab enough to know
-        // their own duration/dimensions, not the whole download.
-        preload={active ? "auto" : "metadata"}
-        onLoadedData={() => setVideoReady(true)}
-      />
+      {renderVideo ? (
+        <video
+          ref={videoRef}
+          src={video.media_url ?? undefined}
+          poster={video.thumbnail_url ?? undefined}
+          // object-contain + a solid black bed, not object-cover — a clip
+          // that isn't 9:16 (landscape, square, whatever a student's phone
+          // actually recorded) letterboxes with dark bars instead of being
+          // cropped, same fallback TikTok itself uses for non-portrait
+          // uploads.
+          className="absolute inset-0 h-full w-full bg-black object-contain"
+          loop
+          playsInline
+          muted={muted}
+          // Only the active card actually needs the full file ready to go;
+          // its one neighbor on each side (still within WINDOW_RADIUS)
+          // just grabs enough to know duration/dimensions so a swipe to it
+          // has a head start, not the whole download.
+          preload={active ? "auto" : "metadata"}
+          onLoadedData={() => setVideoReady(true)}
+        />
+      ) : (
+        // Outside the window — no <video> element at all (see
+        // WINDOW_RADIUS), just its poster sitting in the same box so
+        // swiping toward it shows something immediately instead of a
+        // blank frame while its real <video> mounts.
+        <img
+          src={video.thumbnail_url ?? undefined}
+          alt=""
+          className="absolute inset-0 h-full w-full bg-black object-contain"
+        />
+      )}
 
-      {/* Shimmer skeleton — covers the gap between mount and the first
-          decoded frame; fades out the instant onLoadedData fires above. */}
-      {!videoReady && (
+      {/* Shimmer skeleton — covers the gap between a real <video> mounting
+          and its first decoded frame; fades out the instant onLoadedData
+          fires above. Gated on renderVideo too, not just videoReady — a
+          poster-only card has nothing loading, so it never shows this
+          (videoReady never flips true for it either, but without this
+          guard it'd shimmer forever, misrepresenting "not loaded yet" as
+          "actively loading"). */}
+      {renderVideo && !videoReady && (
         <div
           className="pointer-events-none absolute inset-0 z-10 overflow-hidden"
           style={{
@@ -244,22 +315,33 @@ function VideoCard({
       {/* h-4 hit-area, not just the thin visible bar — a 2.5px line is
           nearly impossible to land a finger on; kept short enough (16px)
           to clear the mute button just below it (top-5 = 20px). */}
+      {/* Not interactive at all on a poster-only card (renderVideo=false)
+          — there's no real <video> for seekFromClientX to act on (it
+          already no-ops safely via its own `!el` guard), but skipping the
+          handlers/touchAction entirely here is what stops it from eating
+          a vertical swipe gesture over a card that isn't actually
+          scrubbable. `progress` is already pinned at 0 for these (reset
+          alongside videoReady, see its own effect), so the bar correctly
+          shows empty rather than some stale position from before it left
+          the window. */}
       <div
         ref={scrubRef}
         className="absolute inset-x-0 top-0 z-10 flex h-4 items-center px-3.5"
-        style={{ touchAction: "none" }}
-        onPointerDown={handleScrubDown}
-        onPointerMove={handleScrubMove}
-        onPointerUp={handleScrubUp}
-        onPointerCancel={handleScrubUp}
+        style={renderVideo ? { touchAction: "none" } : undefined}
+        onPointerDown={renderVideo ? handleScrubDown : undefined}
+        onPointerMove={renderVideo ? handleScrubMove : undefined}
+        onPointerUp={renderVideo ? handleScrubUp : undefined}
+        onPointerCancel={renderVideo ? handleScrubUp : undefined}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="relative h-[2.5px] w-full rounded-full bg-white/25">
           <div className="h-full rounded-full bg-white" style={{ width: `${Math.min(progress, 1) * 100}%` }} />
-          <div
-            className="pointer-events-none absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_0_3px_rgba(0,0,0,0.25)]"
-            style={{ left: `${Math.min(progress, 1) * 100}%` }}
-          />
+          {renderVideo && (
+            <div
+              className="pointer-events-none absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_0_3px_rgba(0,0,0,0.25)]"
+              style={{ left: `${Math.min(progress, 1) * 100}%` }}
+            />
+          )}
         </div>
       </div>
       <button
@@ -559,6 +641,15 @@ export function VideoFeedContent() {
 
   const activeSpot = spots.find((s) => s.spot_id === commentsSpotId);
 
+  // Recomputed fresh every render, never cached in state — resolving by id
+  // (not a stored index) is what keeps this correct across prependSpot()
+  // shifting every existing card's position by one when a new post lands
+  // at the top. -1 (activeId not resolved yet, e.g. the very first paint
+  // before the effect above sets it) falls back to `i` itself, which
+  // treats index 0 as distance 0 — the right answer for that transient
+  // frame anyway, since activeId is about to become spots[0]'s id.
+  const activeIndex = spots.findIndex((s) => s.spot_id === activeId);
+
   return (
     <AppShell variant="feed">
       <div
@@ -590,11 +681,12 @@ export function VideoFeedContent() {
             // top of each card's own overflow-hidden.
             className="relative h-full w-full flex-1 snap-y snap-mandatory overflow-y-auto overflow-x-hidden overscroll-y-contain"
           >
-            {spots.map((v) => (
+            {spots.map((v, i) => (
               <div key={v.spot_id} data-video-id={v.spot_id} className="h-full w-full snap-start snap-always">
                 <VideoCard
                   video={v}
                   active={v.spot_id === activeId}
+                  distance={activeIndex === -1 ? i : Math.abs(i - activeIndex)}
                   muted={muted}
                   onToggleMute={() => setMuted((m) => !m)}
                   onLike={() => void toggleLike(v.spot_id)}
