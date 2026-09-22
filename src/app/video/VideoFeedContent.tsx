@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { Heart, MessageCircle, ShareIconFill, FlagIconFill, VolumeIconFill, MuteIconFill, Camera, Plus } from "@/components/ui/icons";
+import { Heart, MessageCircle, ShareIconFill, FlagIconFill, VolumeIconFill, MuteIconFill, Plus } from "@/components/ui/icons";
 import { useAnyModalOpen } from "@/stores/modalStore";
 import { CreateVideoSheet } from "@/components/video/CreateVideoSheet";
 import { SpotCommentSheet } from "@/components/video/SpotCommentSheet";
 import { Avatar } from "@/components/ui/Avatar";
+import { useAuthStore } from "@/stores/authStore";
 import { useSpotStore, type Spot } from "@/stores/spotStore";
 import { gistColorFor } from "@/lib/brand";
 
@@ -41,6 +42,7 @@ function VideoCard({
   active,
   distance,
   muted,
+  myImageUrl,
   onToggleMute,
   onLike,
   onCompose,
@@ -56,6 +58,11 @@ function VideoCard({
    * it for anything else. */
   distance: number;
   muted: boolean;
+  /** The VIEWER's own avatar (not this card's poster) — the compose button
+   * is "your own picture with a + badge", same "add a story" language
+   * Instagram/Snapchat use, not a generic camera icon. Null falls back to
+   * Avatar's own plain-grey-circle degrade path. */
+  myImageUrl: string | null;
   onToggleMute: () => void;
   onLike: () => void;
   onCompose: () => void;
@@ -422,8 +429,14 @@ function VideoCard({
       </div>
 
       <div className="absolute bottom-[104px] right-2.5 z-10 flex flex-col items-center gap-4">
-        {/* Own compose entry, top of the rail — the same spot Reels/TikTok
-            put "your avatar with a + badge", not a separate floating button. */}
+        {/* Own compose entry, top of the rail — the viewer's OWN avatar with
+            a + badge, the same "add a story" language Instagram/Snapchat
+            use, not a generic camera icon. The brand ring is what keeps this
+            reading as a deliberate, on-brand button no matter what a given
+            person's actual photo looks like; Avatar's own fallback (a plain
+            grey circle) covers anyone with no picture set. Sized a step up
+            from the plain h-6 icon buttons below it — this is the one
+            creation action on a rail that's otherwise all engagement. */}
         <button
           type="button"
           aria-label="Record or upload a video"
@@ -431,9 +444,16 @@ function VideoCard({
             e.stopPropagation();
             onCompose();
           }}
-          className="relative flex h-9 w-9 items-center justify-center rounded-full bg-brand text-white ring-2 ring-white/85"
+          className="relative flex h-10 w-10 items-center justify-center"
         >
-          <Camera className="h-4 w-4" />
+          {/* Clipping lives on this inner wrapper, not the button itself —
+              the plus badge below is a sibling positioned to hang slightly
+              past the button's own edge (-bottom-0.5 -right-0.5), which an
+              overflow-hidden on the button would clip right along with the
+              avatar photo it's actually meant for. */}
+          <span className="h-full w-full overflow-hidden rounded-full bg-black/40 ring-2 ring-brand">
+            <Avatar src={myImageUrl} />
+          </span>
           <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white text-brand ring-2 ring-brand">
             <Plus className="h-2 w-2" strokeWidth={3} />
           </span>
@@ -573,6 +593,11 @@ export function VideoFeedContent() {
   const reportAction = useSpotStore((s) => s.report);
   const recordView = useSpotStore((s) => s.recordView);
   const prependSpot = useSpotStore((s) => s.prependSpot);
+  // Same lookup MobileTabBar's own "You" tab avatar uses — the compose
+  // button's picture is the viewer's own, not tied to any particular card.
+  const myImageUrl = useAuthStore(
+    (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null,
+  );
 
   const [activeId, setActiveId] = useState<string>("");
   const [muted, setMuted] = useState(true);
@@ -706,6 +731,7 @@ export function VideoFeedContent() {
                   active={v.spot_id === activeId}
                   distance={activeIndex === -1 ? i : Math.abs(i - activeIndex)}
                   muted={muted}
+                  myImageUrl={myImageUrl}
                   onToggleMute={() => setMuted((m) => !m)}
                   onLike={() => void toggleLike(v.spot_id)}
                   onCompose={() => setComposeOpen(true)}
