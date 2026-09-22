@@ -223,7 +223,7 @@ function VideoCard({
           className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
           onAnimationEnd={() => setPop(false)}
         >
-          <Heart className="h-24 w-24 animate-[heart-pop_0.55s_ease]" fill="#ff4d6d" stroke="#ff4d6d" />
+          <Heart className="h-24 w-24 animate-[heart-pop_0.55s_ease_forwards]" fill="#ff4d6d" stroke="#ff4d6d" />
         </div>
       )}
 

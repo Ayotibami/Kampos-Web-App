@@ -80,6 +80,17 @@ function normalizeSpot(raw: Spot): Spot {
 // responses" pattern any fetch-race bug needs, not specific to posting.
 let feedFetchSeq = 0;
 
+// Serializes toggleLike()'s network calls per spot — without this, tapping
+// like/unlike twice in quick succession (well within one round trip) fires
+// a POST and a DELETE concurrently with no guaranteed resolution order,
+// which can leave the server in the OPPOSITE state from the user's actual
+// last tap. Each call chains onto the previous one for the same spot_id,
+// so the requests always reach the server in tap order, while the
+// optimistic UI update below still happens synchronously on every tap —
+// nothing about the visible responsiveness changes, only the network
+// ordering underneath it.
+const likeRequestChains: Record<string, Promise<void>> = {};
+
 interface SpotState {
   spots: Spot[];
   loading: boolean;
@@ -166,22 +177,38 @@ export const useSpotStore = create<SpotState>((set, get) => ({
           : sp,
       ),
     }));
-    try {
-      if (wasLiked) {
-        await api.delete(`/reactions/entity/SPOT/${encodeURIComponent(spotId)}`);
-      } else {
-        await api.post("/reactions", { entity_type: "SPOT", entity_id: spotId, type: "LIKE" });
+
+    const run = async () => {
+      try {
+        if (wasLiked) {
+          await api.delete(`/reactions/entity/SPOT/${encodeURIComponent(spotId)}`);
+        } else {
+          await api.post("/reactions", { entity_type: "SPOT", entity_id: spotId, type: "LIKE" });
+        }
+      } catch {
+        // Revert on failure — undoes exactly THIS call's own delta, not a
+        // reset to some earlier snapshot. A snapshot-based revert would
+        // clobber whatever a subsequent (already-resolved or still
+        // in-flight) tap had since done to the same spot; this composes
+        // correctly no matter how many taps landed in between.
+        set((s) => ({
+          spots: s.spots.map((sp) =>
+            sp.spot_id === spotId
+              ? {
+                  ...sp,
+                  my_reaction: wasLiked ? "LIKE" : null,
+                  reactions_count: Math.max(0, sp.reactions_count + (wasLiked ? 1 : -1)),
+                }
+              : sp,
+          ),
+        }));
       }
-    } catch {
-      // Revert on failure — the optimistic flip didn't actually happen.
-      set((s) => ({
-        spots: s.spots.map((sp) =>
-          sp.spot_id === spotId
-            ? { ...sp, my_reaction: wasLiked ? "LIKE" : null, reactions_count: spot.reactions_count }
-            : sp,
-        ),
-      }));
-    }
+    };
+
+    const previous = likeRequestChains[spotId] ?? Promise.resolve();
+    const chained = previous.then(run);
+    likeRequestChains[spotId] = chained;
+    await chained;
   },
 
   fetchComments: async (spotId) => {
