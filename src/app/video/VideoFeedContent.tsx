@@ -135,10 +135,28 @@ function VideoCard({
   // `el` is captured here (while the element still exists) rather than
   // re-read inside the cleanup itself, which by the time it runs would see
   // videoRef.current already nulled out by React's own unmount handling.
+  //
+  // isFirstRun guards against a real bug this had: React 18 Strict Mode
+  // (on by default in Next dev) mounts every component twice — mount,
+  // simulate-unmount, mount again — specifically to catch effects that
+  // don't clean up correctly. Without this guard, that SIMULATED unmount
+  // right after a real mount would call this cleanup for real, stripping
+  // src off a <video> that had never even started loading — confirmed
+  // live: every card inside the window at first paint got its src wiped
+  // before React ever got a chance to use it (readyState stuck at 0
+  // forever), while cards that entered the window later via a genuine
+  // scroll-triggered transition loaded fine. The teardown below is
+  // destructive and non-idempotent (unlike e.g. removeEventListener), so
+  // it can only ever safely run on a REAL transition, never on Strict
+  // Mode's synthetic one.
+  const isFirstCleanupRun = useRef(true);
   useEffect(() => {
     const el = videoRef.current;
+    const wasFirstRun = isFirstCleanupRun.current;
+    isFirstCleanupRun.current = false;
     if (!el) return;
     return () => {
+      if (wasFirstRun) return;
       try {
         el.pause();
         el.removeAttribute("src");
