@@ -31,6 +31,13 @@
  * remove/report all fire these directly from their own branches, since
  * each one has multiple UI entry points and a global event is simpler than
  * threading a callback through all of them.
+ *
+ * Also covers Spot's own report-success pill (spotStore's
+ * notifySpotActionSucceeded) — same slot, same compact-chip shape as
+ * Gist's "success" kind, kept as its own discriminated-union member rather
+ * than reusing Gist's event/type since it genuinely isn't a Gist action.
+ * Still named GistActionToast (not renamed) to avoid unnecessary churn on
+ * otherwise-working code for what's currently one extra action.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -38,6 +45,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { createPortal } from "react-dom";
 import { Check, AlertCircle } from "@/components/ui/icons";
 import type { OfflineGistSaveAction, GistActionSuccess, GistActionFailure } from "@/stores/gistStore";
+import type { SpotActionSuccess } from "@/stores/spotStore";
 
 const VISIBLE_MS = 5000;
 
@@ -60,10 +68,16 @@ const FAILURE_COPY: Record<GistActionFailure, string> = {
   edited: "We were not able to save your changes, please try again",
 };
 
+const SPOT_SUCCESS_COPY: Record<SpotActionSuccess, string> = {
+  reported: "Thanks! We go review am",
+  posted: "Your Spot don land",
+};
+
 type ToastState =
   | { kind: "offline"; action: OfflineGistSaveAction }
   | { kind: "success"; action: GistActionSuccess }
-  | { kind: "error"; action: GistActionFailure };
+  | { kind: "error"; action: GistActionFailure }
+  | { kind: "spot-success"; action: SpotActionSuccess };
 
 export function GistActionToast() {
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -84,14 +98,19 @@ export function GistActionToast() {
     const onFailure = (e: Event) => {
       show({ kind: "error", action: (e as CustomEvent<GistActionFailure>).detail });
     };
+    const onSpotSuccess = (e: Event) => {
+      show({ kind: "spot-success", action: (e as CustomEvent<SpotActionSuccess>).detail });
+    };
     window.addEventListener("kampos:gist-offline-saved", onOffline);
     window.addEventListener("kampos:gist-action-succeeded", onSuccess);
     window.addEventListener("kampos:gist-action-failed", onFailure);
+    window.addEventListener("kampos:spot-action-succeeded", onSpotSuccess);
     return () => {
       if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
       window.removeEventListener("kampos:gist-offline-saved", onOffline);
       window.removeEventListener("kampos:gist-action-succeeded", onSuccess);
       window.removeEventListener("kampos:gist-action-failed", onFailure);
+      window.removeEventListener("kampos:spot-action-succeeded", onSpotSuccess);
     };
   }, []);
 
@@ -139,6 +158,27 @@ export function GistActionToast() {
             </span>
             <span className="font-nunito text-[12.5px] font-extrabold leading-none text-white/95">
               {SUCCESS_COPY[toast.action]}
+            </span>
+          </motion.div>
+        )}
+        {toast?.kind === "spot-success" && (
+          // Identical shape to Gist's own "success" chip — same slot,
+          // same compact pill, just Spot's own copy dictionary.
+          <motion.div
+            key="spot-success"
+            role="status"
+            aria-live="polite"
+            initial={{ opacity: 0, y: 20, scale: 0.92 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 14, scale: 0.94 }}
+            transition={{ duration: 0.28, ease: "easeOut" }}
+            className="pointer-events-none flex items-center gap-2 rounded-full bg-[#171a1f] py-2 pl-2 pr-4 shadow-lg"
+          >
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#6eed94]/20">
+              <Check size={11} strokeWidth={3.2} color="#6eed94" />
+            </span>
+            <span className="font-nunito text-[12.5px] font-extrabold leading-none text-white/95">
+              {SPOT_SUCCESS_COPY[toast.action]}
             </span>
           </motion.div>
         )}

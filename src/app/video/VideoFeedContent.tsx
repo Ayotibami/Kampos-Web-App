@@ -10,6 +10,9 @@ import { Avatar } from "@/components/ui/Avatar";
 import { useAuthStore } from "@/stores/authStore";
 import { useSpotStore, type Spot } from "@/stores/spotStore";
 import { gistColorFor } from "@/lib/brand";
+import { ReportModal } from "@/components/gist/ReportModal";
+import { ErrorModal } from "@/components/ui/FeedbackModal";
+import { env } from "@/lib/env";
 
 function formatCount(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(n % 1000 >= 100 ? 1 : 0)}k`;
@@ -68,13 +71,20 @@ function VideoCard({
   onCompose: () => void;
   onOpenComments: () => void;
   onShare: () => void;
-  onFlag: () => void;
+  /** Rejects on failure (spotStore.report's own contract) — this card's own
+   * report modal awaits it directly to show a real error instead of
+   * silently swallowing it, now that there's an actual surface to show one
+   * on (there wasn't, before this modal existed). */
+  onFlag: (reason: string) => Promise<void>;
 }) {
   const renderVideo = distance <= WINDOW_RADIUS;
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubRef = useRef<HTMLDivElement>(null);
   const anyModalOpen = useAnyModalOpen();
   const [paused, setPaused] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const [reportError, setReportError] = useState<string>();
   const [pop, setPop] = useState(false);
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -206,6 +216,19 @@ function VideoCard({
     e.stopPropagation();
     setScrubbing(false);
   }, [scrubbing]);
+
+  const handleReportSubmit = async (reason: string) => {
+    setReporting(true);
+    setReportError(undefined);
+    try {
+      await onFlag(reason);
+      setShowReportModal(false);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : "Failed to report this video");
+    } finally {
+      setReporting(false);
+    }
+  };
 
   const popHeart = useCallback(() => {
     setPop(false);
@@ -502,26 +525,58 @@ function VideoCard({
           </span>
         </button>
         {/* No count shown here, deliberately — reports aren't a public
-            metric. Just the icon, filled/colored once already flagged
-            (my_report, persisted server-side), disabled from then on so a
-            second tap is a no-op instead of a second, wasted request. */}
+            metric. Opens the same reason-picker dialog Gist uses (just
+            re-worded for video), not an instant one-tap report — a report
+            is a deliberate, considered action. Icon fills brand-colored
+            once already flagged (my_report, persisted server-side),
+            disabled from then on so a second tap is a no-op instead of a
+            second, wasted request. */}
         <button
           type="button"
           aria-label={video.my_report ? "Reported" : "Report"}
           disabled={video.my_report}
           onClick={(e) => {
             e.stopPropagation();
-            onFlag();
+            setShowReportModal(true);
           }}
           className="flex flex-col items-center gap-1 disabled:opacity-70"
         >
           <FlagIconFill
             className="h-6 w-6"
             weight={video.my_report ? "fill" : "regular"}
-            style={{ color: video.my_report ? "#ffc107" : "#fff" }}
+            // #165abf mirrors globals.css's --color-brand — this file
+            // already reaches for raw hex on every other rail icon (the
+            // liked heart, the share glyph) rather than a Tailwind class,
+            // since these are SVG color props, not classNames.
+            style={{ color: video.my_report ? "#165abf" : "#fff" }}
           />
         </button>
       </div>
+
+      <ReportModal
+        open={showReportModal}
+        onClose={() => (reporting ? undefined : setShowReportModal(false))}
+        onSubmit={handleReportSubmit}
+        loading={reporting}
+        title="Report this video"
+        bodyText={
+          <>
+            Kampos is a safe space — we work hard to keep Spot free of harmful content.
+            If this video breaks our{" "}
+            <a
+              href={env.COMMUNITY_GUIDELINES_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-brand underline underline-offset-2"
+            >
+              community guidelines
+            </a>
+            , report it and we&apos;ll review and act on it. Rest assured, your report is 100%
+            anonymous.
+          </>
+        }
+      />
+      <ErrorModal open={!!reportError} onClose={() => setReportError(undefined)} message={reportError} />
     </div>
   );
 }
@@ -739,12 +794,11 @@ export function VideoFeedContent() {
                   onShare={() => void shareSpot(v.spot_id, v.caption, (platform) => void shareAction(v.spot_id, platform))}
                   // reportAction() rejects on failure (see spotStore's own
                   // doc — it rolls the optimistic my_report flag back and
-                  // throws so a caller COULD surface it); there's no toast
-                  // surface wired for Spot yet, so this just swallows it
-                  // rather than becoming an unhandled promise rejection —
-                  // the rollback itself is all the user-visible feedback
-                  // there is for now (the flag icon un-fills).
-                  onFlag={() => void reportAction(v.spot_id).catch(() => {})}
+                  // throws). VideoCard's own report modal now awaits this
+                  // directly and shows the real error via its ErrorModal
+                  // (e.g. "You cannot report your own spot"), so this no
+                  // longer needs to swallow it itself.
+                  onFlag={(reason) => reportAction(v.spot_id, reason)}
                 />
               </div>
             ))}

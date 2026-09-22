@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { X, Check } from "@/components/ui/icons";
@@ -31,17 +31,25 @@ const REPORT_REASONS = [
  * same as every other selectable-pill UI in the app (Chip) — red read as
  * alarming for what's just a routine form, not an actual destructive
  * action like ConfirmModal's delete flow.
+ *
+ * Shared between Gist and Spot (see VideoFeedContent.tsx's own usage) —
+ * `title`/`bodyText` are the only content-specific bits, defaulting to the
+ * original Gist copy so GistCard's own call site needs no changes.
  */
 export function ReportModal({
   open,
   onClose,
   onSubmit,
   loading = false,
+  title = "Report this gist",
+  bodyText,
 }: {
   open: boolean;
   onClose: () => void;
   onSubmit: (reason: string) => void;
   loading?: boolean;
+  title?: string;
+  bodyText?: ReactNode;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [otherText, setOtherText] = useState("");
@@ -100,21 +108,25 @@ export function ReportModal({
         </button>
 
         {/* Header */}
-        <h2 className="shrink-0 pr-12 font-nunito text-2xl font-bold text-ink">Report this gist</h2>
+        <h2 className="shrink-0 pr-12 font-nunito text-2xl font-bold text-ink">{title}</h2>
 
         <p className="mt-3 shrink-0 font-nunito text-sm leading-relaxed text-muted">
-          Kampos is a safe space — we work hard to keep your feed free of harmful content.
-          If this gist breaks our{" "}
-          <a
-            href={env.COMMUNITY_GUIDELINES_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-semibold text-brand underline underline-offset-2"
-          >
-            community guidelines
-          </a>
-          , report it and we&apos;ll review and act on it. Rest assured, your report is 100%
-          anonymous.
+          {bodyText ?? (
+            <>
+              Kampos is a safe space — we work hard to keep your feed free of harmful content.
+              If this gist breaks our{" "}
+              <a
+                href={env.COMMUNITY_GUIDELINES_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-brand underline underline-offset-2"
+              >
+                community guidelines
+              </a>
+              , report it and we&apos;ll review and act on it. Rest assured, your report is 100%
+              anonymous.
+            </>
+          )}
         </p>
 
         {/* Reason pills — small and horizontally arranged (wrapping as

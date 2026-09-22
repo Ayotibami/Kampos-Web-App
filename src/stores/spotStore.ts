@@ -12,6 +12,17 @@ export class SpotUploadError extends Error {
   }
 }
 
+/** Same "fire a window event, let GistActionToast.tsx show the pill" pattern
+ * gistStore's own notifyActionSucceeded uses — a report is deliberate and
+ * infrequent enough to deserve real confirmation, unlike like/comment/share
+ * which stay silent. Named/typed separately from GistActionSuccess (not
+ * reusing the "gist" event) since this genuinely isn't a gist action. */
+export type SpotActionSuccess = "reported" | "posted";
+export function notifySpotActionSucceeded(action: SpotActionSuccess) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<SpotActionSuccess>("kampos:spot-action-succeeded", { detail: action }));
+}
+
 /** What the backend's spot rows actually look like — see
  * KamposBackend/src/modules/spot/spot.repo.ts's SpotWithCounts. */
 export interface Spot {
@@ -280,6 +291,7 @@ export const useSpotStore = create<SpotState>((set, get) => ({
     }));
     try {
       await api.post(`/spots/${encodeURIComponent(spotId)}/report`, reason ? { reason } : {});
+      notifySpotActionSucceeded("reported");
     } catch (err) {
       set((s) => ({
         spots: s.spots.map((sp) => (sp.spot_id === spotId ? { ...sp, my_report: false } : sp)),
@@ -346,6 +358,7 @@ export const useSpotStore = create<SpotState>((set, get) => ({
       });
       const finalized = res.data?.data;
       if (!finalized) throw new Error("No spot returned");
+      notifySpotActionSucceeded("posted");
       return normalizeSpot(finalized);
     } catch (err) {
       throw new SpotUploadError("finalize", apiErrorMessage(err, "Couldn't save the upload"));
