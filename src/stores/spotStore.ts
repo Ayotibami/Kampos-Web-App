@@ -50,6 +50,8 @@ export interface SpotComment {
   commented_at: string;
   first_name: string | null;
   last_name: string | null;
+  campus_tag: string | null;
+  major_tag: string | null;
   image_url: string | null;
 }
 
@@ -99,6 +101,10 @@ interface SpotState {
   error: string | null;
   commentsBySpot: Record<string, SpotComment[]>;
   commentsLoadingBySpot: Record<string, boolean>;
+  /** Set only on a genuine fetch failure — deliberately NOT cleared just
+   * because a retry is in flight, so the retry UI stays up until it
+   * actually succeeds (mirrors commentStore's own errorByGist). */
+  commentsErrorBySpot: Record<string, string | undefined>;
 
   fetchFeed: () => Promise<void>;
   loadMore: () => Promise<void>;
@@ -120,6 +126,7 @@ export const useSpotStore = create<SpotState>((set, get) => ({
   error: null,
   commentsBySpot: {},
   commentsLoadingBySpot: {},
+  commentsErrorBySpot: {},
 
   fetchFeed: async () => {
     const seq = ++feedFetchSeq;
@@ -217,11 +224,18 @@ export const useSpotStore = create<SpotState>((set, get) => ({
       const res = await api.get<ApiEnvelope<SpotComment[]>>(`/spot-comments/spot/${encodeURIComponent(spotId)}`);
       const data = res.data?.data ?? [];
       set((s) => ({
+        // Written even when data is an empty array — that's what makes
+        // `spotId in commentsBySpot` a reliable "genuinely fetched, zero
+        // comments" signal for the UI, distinct from "hasn't loaded yet".
         commentsBySpot: { ...s.commentsBySpot, [spotId]: data },
         commentsLoadingBySpot: { ...s.commentsLoadingBySpot, [spotId]: false },
+        commentsErrorBySpot: { ...s.commentsErrorBySpot, [spotId]: undefined },
       }));
-    } catch {
-      set((s) => ({ commentsLoadingBySpot: { ...s.commentsLoadingBySpot, [spotId]: false } }));
+    } catch (err) {
+      set((s) => ({
+        commentsLoadingBySpot: { ...s.commentsLoadingBySpot, [spotId]: false },
+        commentsErrorBySpot: { ...s.commentsErrorBySpot, [spotId]: apiErrorMessage(err, "Couldn't load comments") },
+      }));
     }
   },
 
