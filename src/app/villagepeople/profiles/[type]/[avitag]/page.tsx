@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
 import { getProfile } from "@/lib/serverProfilesAdmin";
 import { listGists } from "@/lib/serverGistsAdmin";
+import { listSpots } from "@/lib/serverSpotsAdmin";
 import { profileTypeFromPath } from "@/lib/profileEditFields";
 import { ProfileViewPage } from "./ProfileViewPage";
 
 const GISTS_PAGE_SIZE = 20;
+const SPOTS_PAGE_SIZE = 20;
 
 /**
  * /villagepeople/profiles/[type]/[avitag] — the profile-view page. This is
@@ -30,7 +32,10 @@ export default async function ProfileViewRoute({
   const profile = await getProfile(type, avitag);
   if (!profile) notFound();
 
-  const initialGists = await listGists({ avitag, limit: GISTS_PAGE_SIZE });
+  const [initialGists, { spots: initialSpots, total: initialSpotsTotal }] = await Promise.all([
+    listGists({ avitag, limit: GISTS_PAGE_SIZE }),
+    listSpots({ avitag, limit: SPOTS_PAGE_SIZE }),
+  ]);
 
   return (
     <ProfileViewPage
@@ -39,6 +44,8 @@ export default async function ProfileViewRoute({
       avitag={avitag}
       initialProfile={profile}
       initialGists={initialGists}
+      initialSpots={initialSpots}
+      initialSpotsTotal={initialSpotsTotal}
     />
   );
 }

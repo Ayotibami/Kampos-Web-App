@@ -124,6 +124,31 @@ export interface PendingReport {
 }
 
 /**
+ * A pending Spot report row from GET /idiot/moderation/spot-reports.
+ * Confirmed directly against KamposBackend's spot/report.repo.ts's
+ * listPendingWithDetails() SQL — unlike PendingReport above (written ahead
+ * of its backend), this endpoint was built alongside this file. Same flat-
+ * columns-with-an-spot_ prefix shape that query actually selects (`s.avitag
+ * AS spot_avitag, s.caption AS spot_caption, ...`).
+ */
+export interface PendingSpotReport {
+  report_id: string;
+  spot_id: string;
+  reporter_avitag: string;
+  reason?: string | null;
+  status: string;
+  created_at: string;
+  spot_avitag: string;
+  spot_caption: string | null;
+  spot_media_url: string | null;
+  spot_thumbnail_url: string | null;
+  spot_duration_seconds: number | null;
+  spot_status: "DRAFT" | "ACTIVE" | "REJECTED" | "REMOVED";
+  display_name?: string | null;
+  image_url?: string | null;
+}
+
+/**
  * Shared "forward the incoming cookie, hit the backend directly, return []
  * on any failure" fetch — same pattern as serverAdmins.ts's listAdmins(),
  * factored out once here since all three moderation lists need it
@@ -166,4 +191,8 @@ export async function listPendingProfiles(): Promise<PendingProfile[]> {
 
 export async function listPendingReports(): Promise<PendingReport[]> {
   return fetchModerationList<PendingReport>("reports");
+}
+
+export async function listPendingSpotReports(): Promise<PendingSpotReport[]> {
+  return fetchModerationList<PendingSpotReport>("spot-reports");
 }

@@ -68,6 +68,12 @@ export {
   Image as ImageIconFill,
   PencilSimple as EditIconFill,
   TrashSimple as DeleteIconFill,
+  // Admin profile actions (/villagepeople/profiles/[type]/[avitag]) — one
+  // icon per toggle regardless of which state it's currently in, same
+  // "icon stays, label/color flips" pattern AdminSpotCard's Take Down
+  // button already uses.
+  SealCheck as VerifyIconFill,
+  Prohibit as BanIconFill,
   Palette as PaletteIconFill,
   UserGear as ProfileIconFill,
   LockKey as AccountIconFill,
@@ -99,6 +105,7 @@ export {
   Gavel as ModerationIconFill,
   UsersThree as UsersIconFill,
   Newspaper as AllGistsIconFill,
+  FilmStrip as AllSpotsIconFill,
   IdentificationCard as ProfilesIconFill,
   ClipboardText as AuditIconFill,
   // HQ dashboard stat cards.

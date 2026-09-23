@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { api, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
-import type { PendingGist, PendingProfile, PendingReport } from "@/lib/serverModeration";
+import type { PendingGist, PendingProfile, PendingReport, PendingSpotReport } from "@/lib/serverModeration";
 
 interface ModerationState {
   loading: boolean;
@@ -11,6 +11,8 @@ interface ModerationState {
   rejectProfile: (avitag: string, reason?: string) => Promise<void>;
   acceptReport: (reportId: string) => Promise<void>;
   rejectReport: (reportId: string, reason?: string) => Promise<void>;
+  acceptSpotReport: (reportId: string) => Promise<void>;
+  rejectSpotReport: (reportId: string, reason?: string) => Promise<void>;
   /**
    * "Load more" for each tab — always re-fetches from offset 0 with a
    * growing `limit`, never a growing `offset`. These three queues shrink as
@@ -25,6 +27,7 @@ interface ModerationState {
   fetchGists: (limit: number) => Promise<PendingGist[]>;
   fetchReports: (limit: number) => Promise<PendingReport[]>;
   fetchProfiles: (limit: number) => Promise<PendingProfile[]>;
+  fetchSpotReports: (limit: number) => Promise<PendingSpotReport[]>;
 }
 
 /**
@@ -129,6 +132,28 @@ export const useModerationStore = create<ModerationState>((set) => ({
     }
   },
 
+  acceptSpotReport: async (reportId) => {
+    set({ loading: true, error: null });
+    try {
+      await api.post(`/idiot/moderation/spot-reports/${reportId}/accept`);
+      set({ loading: false });
+    } catch (err) {
+      set({ error: apiErrorMessage(err, "Failed to accept report"), loading: false });
+      throw err;
+    }
+  },
+
+  rejectSpotReport: async (reportId, reason) => {
+    set({ loading: true, error: null });
+    try {
+      await api.post(`/idiot/moderation/spot-reports/${reportId}/reject`, reason ? { reason } : {});
+      set({ loading: false });
+    } catch (err) {
+      set({ error: apiErrorMessage(err, "Failed to dismiss report"), loading: false });
+      throw err;
+    }
+  },
+
   fetchGists: async (limit) => {
     const res = await api.get<ApiEnvelope<PendingGist[]>>(
       `/idiot/moderation/gists?limit=${limit}&offset=0`,
@@ -146,6 +171,13 @@ export const useModerationStore = create<ModerationState>((set) => ({
   fetchProfiles: async (limit) => {
     const res = await api.get<ApiEnvelope<PendingProfile[]>>(
       `/idiot/moderation/profiles?limit=${limit}&offset=0`,
+    );
+    return res.data?.data ?? [];
+  },
+
+  fetchSpotReports: async (limit) => {
+    const res = await api.get<ApiEnvelope<PendingSpotReport[]>>(
+      `/idiot/moderation/spot-reports?limit=${limit}&offset=0`,
     );
     return res.data?.data ?? [];
   },

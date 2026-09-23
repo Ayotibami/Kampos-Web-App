@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AllGistsManager } from "@/app/villagepeople/gists/AllGistsManager";
+import { AllSpotsManager } from "@/app/villagepeople/spots/AllSpotsManager";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { ConfirmReasonModal, ErrorModal } from "@/components/ui/FeedbackModal";
 import Link from "next/link";
-import { ArrowLeft, DeleteIconFill, EditIconFill, UsersIconFill } from "@/components/ui/icons";
+import { ArrowLeft, DeleteIconFill, EditIconFill, UsersIconFill, VerifyIconFill, BanIconFill } from "@/components/ui/icons";
 import { apiErrorMessage } from "@/lib/api";
 import { friendlyDateTime } from "@/lib/format";
 import { profileTypeLabel } from "@/lib/profileEditFields";
@@ -15,6 +16,7 @@ import { profileDisplayFields } from "@/lib/profileDisplayFields";
 import { useReferenceStore } from "@/stores/referenceStore";
 import { useProfilesAdminStore } from "@/stores/profilesAdminStore";
 import type { AdminGist } from "@/lib/serverGistsAdmin";
+import type { AdminSpot } from "@/lib/serverSpotsAdmin";
 import type { ProfileDetailRow } from "@/lib/serverProfilesAdmin";
 import type { ProfileType } from "@/types";
 
@@ -49,6 +51,8 @@ export function ProfileViewPage({
   avitag,
   initialProfile,
   initialGists,
+  initialSpots,
+  initialSpotsTotal,
 }: {
   profileType: ProfileType;
   /** The plural URL segment (students/kreators/kompanies/schools/idiots)
@@ -58,6 +62,8 @@ export function ProfileViewPage({
   avitag: string;
   initialProfile: ProfileDetailRow;
   initialGists: AdminGist[];
+  initialSpots: AdminSpot[];
+  initialSpotsTotal?: number;
 }) {
   const router = useRouter();
   const [profile, setProfile] = useState(initialProfile);
@@ -66,6 +72,10 @@ export function ProfileViewPage({
   const [showBanConfirm, setShowBanConfirm] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>();
   const [showError, setShowError] = useState(false);
+  // Which of this profile's own content shows below — same Gist|Spot tab
+  // switcher the consumer profile page uses (ProfileView.tsx), not the two
+  // sections stacked vertically this used to be.
+  const [contentTab, setContentTab] = useState<"gist" | "spot">("gist");
 
   const campuses = useReferenceStore((s) => s.campuses);
   const majors = useReferenceStore((s) => s.majors);
@@ -236,38 +246,43 @@ export function ProfileViewPage({
             <Button
               variant={profile.is_verified ? "secondary" : "primary"}
               fullWidth={false}
-              className="!px-4 !py-2 text-sm"
+              aria-label={profile.is_verified ? "Unverify" : "Verify"}
+              className="!px-3 text-sm sm:!px-4"
               loading={busyAction === "verify"}
               disabled={busyAction !== null}
               onClick={handleToggleVerify}
             >
-              {profile.is_verified ? "Unverify" : "Verify"}
+              <VerifyIconFill className="h-3.5 w-3.5" weight={profile.is_verified ? "regular" : "fill"} />
+              <span className="hidden sm:inline">{profile.is_verified ? "Unverify" : "Verify"}</span>
             </Button>
             {profile.profile_status !== "DELETED" && (
               <Button
                 variant="secondary"
                 fullWidth={false}
+                aria-label={profile.profile_status === "BANNED" ? "Unban" : "Ban"}
                 className={
                   profile.profile_status === "BANNED"
-                    ? "!px-4 !py-2 text-sm"
-                    : "!border-warning !px-4 !py-2 text-sm !text-warning hover:!bg-warning/10"
+                    ? "!px-3 text-sm sm:!px-4"
+                    : "!border-warning !px-3 text-sm !text-warning hover:!bg-warning/10 sm:!px-4"
                 }
                 loading={busyAction === "ban"}
                 disabled={busyAction !== null}
                 onClick={() => (profile.profile_status === "BANNED" ? handleToggleBan() : setShowBanConfirm(true))}
               >
-                {profile.profile_status === "BANNED" ? "Unban" : "Ban"}
+                <BanIconFill className="h-3.5 w-3.5" weight={profile.profile_status === "BANNED" ? "regular" : "fill"} />
+                <span className="hidden sm:inline">{profile.profile_status === "BANNED" ? "Unban" : "Ban"}</span>
               </Button>
             )}
             <Button
               variant="secondary"
               fullWidth={false}
-              className="!border-danger !px-4 !py-2 text-sm !text-danger hover:!bg-danger/5"
+              aria-label="Delete"
+              className="!border-danger !px-3 text-sm !text-danger hover:!bg-danger/5 sm:!px-4"
               disabled={busyAction !== null}
               onClick={() => setShowDeleteConfirm(true)}
             >
               <DeleteIconFill className="h-3.5 w-3.5" weight="fill" />
-              Delete
+              <span className="hidden sm:inline">Delete</span>
             </Button>
           </div>
 
@@ -307,23 +322,61 @@ export function ProfileViewPage({
         </section>
       </div>
 
-      {/* Full-width part — this profile's own gists. A sibling of the capped
-          div above, not nested in it, so AllGistsManager's own embedded
-          comment panel can reach the true right edge of the viewport. The
-          heading here stays visually aligned with the card above via the
-          same max-w-3xl/px-6/md:px-10 centering; AllGistsManager applies
-          that same centering to its own (embedded) filter bar below, before
-          breaking out to full width for the actual gist-list+panel split. */}
+      {/* Full-width part — this profile's own content. A sibling of the
+          capped div above, not nested in it, so AllGistsManager's own
+          embedded comment panel can reach the true right edge of the
+          viewport. Gist | Spot tabs, not two stacked sections — same
+          switcher the consumer profile page uses (ProfileView.tsx), for
+          the same reason: showing both lists at once meant Gists always
+          came first and Spots was easy to miss entirely below it. Only one
+          renders at a time now, each still using its own already-proven
+          `avitag`-scoped `embedded` manager. */}
       <div className="flex flex-col gap-3 pb-10">
-        <h2 className="mx-auto w-full max-w-3xl px-6 font-nunito text-sm font-bold text-ink md:px-10">
-          Gists
-        </h2>
-        <AllGistsManager
-          initialGists={initialGists}
-          avitag={avitag}
-          embedded
-          emptyMessage="This profile hasn't posted any gists yet."
-        />
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-1 px-6 md:px-10">
+          <div className="inline-flex items-center gap-1 rounded-full bg-brand/[0.06] p-1">
+            <button
+              type="button"
+              onClick={() => setContentTab("gist")}
+              aria-pressed={contentTab === "gist"}
+              className={`rounded-full px-5 py-1.5 font-nunito text-sm font-bold transition ${
+                contentTab === "gist"
+                  ? "bg-brand text-white shadow-sm shadow-brand/30"
+                  : "text-muted hover:text-brand"
+              }`}
+            >
+              Gist
+            </button>
+            <button
+              type="button"
+              onClick={() => setContentTab("spot")}
+              aria-pressed={contentTab === "spot"}
+              className={`rounded-full px-5 py-1.5 font-nunito text-sm font-bold transition ${
+                contentTab === "spot"
+                  ? "bg-brand text-white shadow-sm shadow-brand/30"
+                  : "text-muted hover:text-brand"
+              }`}
+            >
+              Spot
+            </button>
+          </div>
+        </div>
+
+        {contentTab === "gist" ? (
+          <AllGistsManager
+            initialGists={initialGists}
+            avitag={avitag}
+            embedded
+            emptyMessage="This profile hasn't posted any gists yet."
+          />
+        ) : (
+          <AllSpotsManager
+            initialSpots={initialSpots}
+            initialTotal={initialSpotsTotal}
+            avitag={avitag}
+            embedded
+            emptyMessage="This profile hasn't posted any Spots yet."
+          />
+        )}
       </div>
     </>
   );

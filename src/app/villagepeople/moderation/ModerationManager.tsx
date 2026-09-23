@@ -3,21 +3,23 @@
 import { useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { SuccessModal, ErrorModal } from "@/components/ui/FeedbackModal";
-import type { PendingGist, PendingProfile, PendingReport } from "@/lib/serverModeration";
+import type { PendingGist, PendingProfile, PendingReport, PendingSpotReport } from "@/lib/serverModeration";
 import { PendingPostsTab } from "./PendingPostsTab";
 import { ReportsTab } from "./ReportsTab";
+import { SpotReportsTab } from "./SpotReportsTab";
 import { ProfileVerificationsTab } from "./ProfileVerificationsTab";
 
-type TabKey = "posts" | "reports" | "profiles";
+type TabKey = "posts" | "reports" | "spot-reports" | "profiles";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "posts", label: "Pending Posts" },
   { key: "reports", label: "Reports" },
+  { key: "spot-reports", label: "Spot Reports" },
   { key: "profiles", label: "Profile Verifications" },
 ];
 
 function isTabKey(v: string | null): v is TabKey {
-  return v === "posts" || v === "reports" || v === "profiles";
+  return v === "posts" || v === "reports" || v === "spot-reports" || v === "profiles";
 }
 
 /**
@@ -37,10 +39,12 @@ function isTabKey(v: string | null): v is TabKey {
 export function ModerationManager({
   initialGists,
   initialReports,
+  initialSpotReports,
   initialProfiles,
 }: {
   initialGists: PendingGist[];
   initialReports: PendingReport[];
+  initialSpotReports: PendingSpotReport[];
   initialProfiles: PendingProfile[];
 }) {
   const router = useRouter();
@@ -69,6 +73,7 @@ export function ModerationManager({
   const [counts, setCounts] = useState<Record<TabKey, number>>({
     posts: initialGists.length,
     reports: initialReports.length,
+    "spot-reports": initialSpotReports.length,
     profiles: initialProfiles.length,
   });
 
@@ -141,6 +146,14 @@ export function ModerationManager({
             onFail={fail}
             onSucceed={succeed}
             onCountChange={(n) => setCounts((c) => ({ ...c, reports: n }))}
+          />
+        )}
+        {tab === "spot-reports" && (
+          <SpotReportsTab
+            initialReports={initialSpotReports}
+            onFail={fail}
+            onSucceed={succeed}
+            onCountChange={(n) => setCounts((c) => ({ ...c, "spot-reports": n }))}
           />
         )}
         {tab === "profiles" && (

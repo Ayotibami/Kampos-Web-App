@@ -4,6 +4,7 @@ import {
   ModerationIconFill,
   UsersIconFill,
   AllGistsIconFill,
+  AllSpotsIconFill,
   ProfilesIconFill,
   AuditIconFill,
   CampusIconFill,
@@ -46,6 +47,12 @@ export function getNavGroups(isKing: boolean): NavGroup[] {
         // once actioned it disappears from view entirely, which is exactly
         // what this screen exists to fix.
         { href: "/villagepeople/gists", label: "All Gists", icon: AllGistsIconFill },
+        // Same idea, Spot's own counterpart — browse every Spot regardless
+        // of status. Spot has no approval queue at all (see AdminSpotCard's
+        // own doc comment), so Moderation's own queue only ever surfaces a
+        // Spot via a report, not a pending-review state the way Gist's own
+        // queue does.
+        { href: "/villagepeople/spots", label: "All Spots", icon: AllSpotsIconFill },
       ],
     },
     {

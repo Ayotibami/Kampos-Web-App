@@ -2,7 +2,7 @@
 
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
-import { EditIconFill, DeleteIconFill } from "@/components/ui/icons";
+import { EditIconFill, DeleteIconFill, VerifyIconFill, BanIconFill } from "@/components/ui/icons";
 import { statusColor, type DisplayField } from "./shared";
 
 /**
@@ -107,27 +107,31 @@ export function ProfileRowCard({
           <Button
             variant={verified ? "secondary" : "primary"}
             fullWidth={false}
-            className="!px-4 !py-2 text-sm"
+            aria-label={verified ? "Unverify" : "Verify"}
+            className="!px-3 text-sm sm:!px-4"
             loading={busy === "verify"}
             disabled={disabled}
             onClick={onVerify}
           >
-            {verified ? "Unverify" : "Verify"}
+            <VerifyIconFill className="h-3.5 w-3.5" weight={verified ? "regular" : "fill"} />
+            <span className="hidden sm:inline">{verified ? "Unverify" : "Verify"}</span>
           </Button>
           {!deleted && (
             <Button
               variant="secondary"
               fullWidth={false}
+              aria-label={banned ? "Unban" : "Ban"}
               className={
                 banned
-                  ? "!px-4 !py-2 text-sm"
-                  : "!border-warning !px-4 !py-2 text-sm !text-warning hover:!bg-warning/10"
+                  ? "!px-3 text-sm sm:!px-4"
+                  : "!border-warning !px-3 text-sm !text-warning hover:!bg-warning/10 sm:!px-4"
               }
               loading={busy === "ban"}
               disabled={disabled}
               onClick={onBan}
             >
-              {banned ? "Unban" : "Ban"}
+              <BanIconFill className="h-3.5 w-3.5" weight={banned ? "regular" : "fill"} />
+              <span className="hidden sm:inline">{banned ? "Unban" : "Ban"}</span>
             </Button>
           )}
           <button
