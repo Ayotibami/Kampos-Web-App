@@ -60,6 +60,62 @@ function formatTime(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+// Same traffic-light thresholds as CreateGistSheet's CharCountRing (green
+// while there's plenty of runway left, amber then red as the recording
+// nears MAX_DURATION_SECONDS) — reusing that language here instead of
+// inventing a new one.
+function ringColor(remaining: number, max: number): string {
+  if (remaining > max * 0.2) return "#22c55e";
+  if (remaining > max * 0.1) return "#f59e0b";
+  return "#ef4444";
+}
+
+const RING_SIZE = 40;
+const RING_STROKE = 3;
+const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+/** Circular record-progress indicator — elapsed time centered inside a
+ * ring that fills clockwise toward MAX_DURATION_SECONDS, with a small
+ * pulsing "REC" label beside it (the top bar read as too empty with just
+ * the ring on one side and the close button on the other). */
+function RecordingProgressRing({ elapsed, max }: { elapsed: number; max: number }) {
+  const progress = Math.min(elapsed / max, 1);
+  const color = ringColor(max - elapsed, max);
+  return (
+    <div className="absolute left-4 top-[calc(1rem+env(safe-area-inset-top,0px))] z-10 flex items-center gap-2">
+      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center">
+        <svg width={RING_SIZE} height={RING_SIZE} className="absolute inset-0 -rotate-90">
+          <circle
+            cx={RING_SIZE / 2}
+            cy={RING_SIZE / 2}
+            r={RING_RADIUS}
+            fill="none"
+            stroke="rgba(255,255,255,0.25)"
+            strokeWidth={RING_STROKE}
+          />
+          <circle
+            cx={RING_SIZE / 2}
+            cy={RING_SIZE / 2}
+            r={RING_RADIUS}
+            fill="none"
+            stroke={color}
+            strokeWidth={RING_STROKE}
+            strokeLinecap="round"
+            strokeDasharray={RING_CIRCUMFERENCE}
+            strokeDashoffset={RING_CIRCUMFERENCE * (1 - progress)}
+          />
+        </svg>
+        <span className="relative font-nunito text-[9px] font-extrabold tabular-nums text-white">{formatTime(elapsed)}</span>
+      </div>
+      <span className="flex items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 backdrop-blur-md">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" />
+        <span className="font-nunito text-[10px] font-extrabold uppercase tracking-wide text-white">Rec</span>
+      </span>
+    </div>
+  );
+}
+
 /**
  * Posting flow for the Spot tab — a live, in-sheet camera by default (same
  * getUserMedia technique as Gist's WebcamCapture, extended here from a photo
@@ -90,6 +146,15 @@ export function CreateVideoSheet({
   const discardRef = useRef(false);
   const timerRef = useRef<number | null>(null);
   const startedAtRef = useRef(0);
+  // True while `duration` holds a value we already trust (measured from the
+  // recording timer, in onstop below) — set false for an uploaded file,
+  // which has no such ground truth. Guards the preview <video>'s own
+  // onLoadedMetadata from overwriting a known-good recorded duration with
+  // whatever a MediaRecorder blob's still-missing duration header resolves
+  // to (Infinity is the commonly-cited case, but not the only bogus value
+  // browsers have been seen to report for it — a ref, not state, since it's
+  // only ever read inside that one event handler, not during render).
+  const trustedDurationRef = useRef(false);
 
   const [step, setStep] = useState<"camera" | "preview">("camera");
   const [heading, setHeading] = useState(SPOT_HEADINGS[0]);
@@ -123,6 +188,7 @@ export function CreateVideoSheet({
 
   const discardPreview = () => {
     if (objectUrl) URL.revokeObjectURL(objectUrl);
+    trustedDurationRef.current = false;
     setFile(null);
     setFileName("");
     setObjectUrl(null);
@@ -224,8 +290,16 @@ export function CreateVideoSheet({
       // Not `recordedSeconds` — this closure was created back when
       // recording started, so that state is frozen at whatever it was at
       // that instant (0), not the latest tick from the interval below.
-      // startedAtRef is a ref, so it's always current.
-      setDuration((Date.now() - startedAtRef.current) / 1000);
+      // startedAtRef is a ref, so it's always current. Clamped to the cap:
+      // when the auto-stop-at-max path (below) is what ends the recording,
+      // real elapsed time by the time this actually fires is always a
+      // little past it — the 200ms tick granularity plus MediaRecorder's
+      // own stop/finalization delay — which would otherwise make the "over
+      // the limit" warning (and the disabled Post button that comes with
+      // it) fire on a clip the app itself cut off exactly at the limit,
+      // with no trim UI to recover from it.
+      setDuration(Math.min((Date.now() - startedAtRef.current) / 1000, MAX_DURATION_SECONDS));
+      trustedDurationRef.current = true;
       setStep("preview");
     };
     recorderRef.current = recorder;
@@ -250,9 +324,17 @@ export function CreateVideoSheet({
   };
 
   const handleStopRecording = () => {
-    if (!recording) return;
+    // Checking the recorder's own `.state` (not the `recording` React
+    // state) matters here: this same function is also called from inside
+    // handleStartRecording's setInterval callback, whose closure was
+    // created at recording-start — where `recording` was still false — so
+    // `if (!recording) return` silently no-op'd every single time,
+    // permanently breaking the auto-stop-at-max-duration path. The
+    // recorder's `.state` is read fresh off the ref, not a stale closure.
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state !== "recording") return;
     setRecording(false);
-    recorderRef.current?.stop();
+    recorder.stop();
   };
 
   const handleClose = () => {
@@ -281,6 +363,7 @@ export function CreateVideoSheet({
       return;
     }
     setCameraError(null);
+    trustedDurationRef.current = false;
     setFile(f);
     setFileName(f.name || "spot.mp4");
     setObjectUrl(URL.createObjectURL(f));
@@ -320,8 +403,6 @@ export function CreateVideoSheet({
     }
   };
 
-  const progressPct = Math.min(100, (recordedSeconds / MAX_DURATION_SECONDS) * 100);
-
   return (
     <Modal open={open} onClose={handleClose} className="h-[100dvh] w-full max-w-none rounded-none">
       <div className="flex h-full w-full flex-col bg-black">
@@ -360,9 +441,9 @@ export function CreateVideoSheet({
               type="button"
               onClick={handleClose}
               aria-label="Close"
-              className="absolute right-4 top-[calc(1rem+env(safe-area-inset-top,0px))] z-20 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white"
+              className="absolute right-4 top-[calc(1rem+env(safe-area-inset-top,0px))] z-20 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md"
             >
-              <X className="h-4 w-4" />
+              <X className="h-4 w-4" strokeWidth={2.5} />
             </button>
 
             {!cameraError && !recording && (
@@ -382,23 +463,7 @@ export function CreateVideoSheet({
             )}
 
             {!cameraError && recording && (
-              <>
-                <div className="absolute inset-x-5 top-[calc(3.25rem+env(safe-area-inset-top,0px))] z-10 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 rounded-full bg-danger/90 px-2.5 py-1 font-nunito text-[11px] font-extrabold tabular-nums text-white">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-                    {formatTime(recordedSeconds)}
-                  </span>
-                  <span className="rounded-full bg-black/35 px-2.5 py-1 font-nunito text-[10.5px] font-bold tabular-nums text-white/80 backdrop-blur-md">
-                    {formatTime(MAX_DURATION_SECONDS)} max
-                  </span>
-                </div>
-                <div className="absolute inset-x-5 top-[calc(4.75rem+env(safe-area-inset-top,0px))] z-10 h-[3px] overflow-hidden rounded-full bg-white/25">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-brand-accent to-brand"
-                    style={{ width: `${progressPct}%` }}
-                  />
-                </div>
-              </>
+              <RecordingProgressRing elapsed={recordedSeconds} max={MAX_DURATION_SECONDS} />
             )}
 
             {!cameraError && (
@@ -439,7 +504,26 @@ export function CreateVideoSheet({
                     aria-label="Start recording"
                     className="relative flex h-[70px] w-[70px] items-center justify-center rounded-full bg-white shadow-[0_0_0_7px_rgba(11,176,255,0.16),0_8px_24px_-6px_rgba(22,90,191,0.65)] disabled:opacity-60"
                   >
-                    <span className="absolute -inset-[5px] rounded-full border-[3px] border-brand/55" />
+                    {/* Faint base ring, always visible, so the button reads
+                        as "ringed" even on the side the spinning highlight
+                        below isn't currently passing over. */}
+                    <span className="absolute -inset-[5px] rounded-full border-[3px] border-brand/30" />
+                    {/* The animated highlight: a masked conic-gradient arc
+                        (the mask keeps only a thin ring band, so the
+                        gradient itself never shows as a filled disc)
+                        spinning continuously via Tailwind's animate-spin —
+                        reads as a light trail circling the button, not
+                        just a static glow. */}
+                    <span
+                      aria-hidden
+                      className="absolute -inset-[5px] animate-spin rounded-full motion-reduce:animate-none"
+                      style={{
+                        background:
+                          "conic-gradient(from 0deg, transparent 0%, var(--color-brand-accent) 10%, var(--color-brand) 22%, transparent 38%)",
+                        WebkitMaskImage: "radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))",
+                        maskImage: "radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))",
+                      }}
+                    />
                     <span className="h-[26px] w-[26px] rounded-full bg-brand" />
                   </button>
                 )}
@@ -478,16 +562,17 @@ export function CreateVideoSheet({
               loop
               muted
               playsInline
-              // A MediaRecorder-produced blob reports Infinity here (a
-              // well-known browser quirk — WebM/MP4 written without a
-              // duration header until the file is finalized on disk, which
-              // never happens for an in-memory blob) — trust it only when
-              // it's a real number; a recorded clip already has its real
-              // duration set from the recording timer in onstop above, and
-              // overwriting that with Infinity is what previously made a
-              // 4-second recording falsely trip the "over 5 minutes"
-              // warning below.
+              // For a recorded clip, `duration` is already the real
+              // measured value (trustedDurationRef, set in onstop above) —
+              // skip this entirely rather than let it overwrite that with
+              // whatever a MediaRecorder blob's still-missing duration
+              // header resolves to (commonly Infinity, but browsers vary,
+              // and any bogus large-but-finite value here previously made
+              // a several-second recording falsely trip the "over 5
+              // minutes" warning below). An uploaded file has no such
+              // ground truth, so it's the only case this is trusted for.
               onLoadedMetadata={(e) => {
+                if (trustedDurationRef.current) return;
                 const d = e.currentTarget.duration;
                 if (Number.isFinite(d)) setDuration(d);
               }}
