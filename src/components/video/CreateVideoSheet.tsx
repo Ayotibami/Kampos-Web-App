@@ -53,6 +53,57 @@ function extensionForMimeType(mime: string): string {
   return mime.includes("mp4") ? "mp4" : "webm";
 }
 
+// Optical/digital zoom via MediaTrackConstraints isn't part of the standard
+// TS lib types (it's a real, implemented Chromium/Android extension, just
+// not in every browser or on most webcams/desktops) — a small local shape
+// instead of `any`, cast through `unknown` since MediaTrackCapabilities
+// doesn't declare it.
+interface ZoomRange {
+  min: number;
+  max: number;
+  step: number;
+}
+function getZoomRange(track: MediaStreamTrack): ZoomRange | null {
+  const caps = track.getCapabilities?.() as unknown as (MediaTrackCapabilities & { zoom?: ZoomRange }) | undefined;
+  return caps?.zoom ?? null;
+}
+function applyZoom(track: MediaStreamTrack, value: number) {
+  void track.applyConstraints({ advanced: [{ zoom: value } as unknown as MediaTrackConstraintSet] }).catch(() => {});
+}
+
+/** First frame of a video blob as a small JPEG data URL — used for the
+ * gallery button's thumbnail once someone has picked a clip. Real thing a
+ * website can never do is read the actual last photo in someone's camera
+ * roll (no browser API grants that — a deliberate privacy boundary); this
+ * only ever shows what was already explicitly picked in this sheet. */
+function makeVideoThumbnail(url: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    // Not captured directly on loadeddata — that can fire before a frame
+    // is actually decoded and painted (a real, if occasional, browser
+    // timing quirk that produced a solid-black thumbnail in testing here).
+    // Seeking to a small definite offset and waiting for onseeked
+    // guarantees a real decoded frame is what gets drawn.
+    video.onloadedmetadata = () => {
+      video.currentTime = Math.min(0.15, (video.duration || 0.3) / 2);
+    };
+    video.onseeked = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 100;
+      canvas.height = video.videoHeight || 100;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(null);
+      ctx.drawImage(video, 0, 0);
+      resolve(canvas.toDataURL("image/jpeg", 0.6));
+    };
+    video.onerror = () => resolve(null);
+    video.src = url;
+  });
+}
+
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds)) return "0:00";
   const m = Math.floor(seconds / 60);
@@ -168,6 +219,15 @@ export function CreateVideoSheet({
   const [streamReady, setStreamReady] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordedSeconds, setRecordedSeconds] = useState(0);
+  // null until the current camera's video track reports zoom support —
+  // most desktop webcams and plenty of phones don't, so the slider only
+  // renders once we actually know it'll do something.
+  const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null);
+  const [zoom, setZoom] = useState(1);
+  // Thumbnail of whatever was last picked via the gallery button, this
+  // sheet-open only — not persisted, not the real camera roll (see
+  // makeVideoThumbnail's own doc for why that's never possible on the web).
+  const [lastPickedThumbUrl, setLastPickedThumbUrl] = useState<string | null>(null);
 
   const [file, setFile] = useState<Blob | null>(null);
   const [fileName, setFileName] = useState("");
@@ -206,6 +266,7 @@ export function CreateVideoSheet({
     setCameraError(null);
     setRecording(false);
     setRecordedSeconds(0);
+    setLastPickedThumbUrl(null);
   };
 
   useEffect(() => {
@@ -238,6 +299,10 @@ export function CreateVideoSheet({
         streamRef.current = stream;
         setCameraError(null);
         setStreamReady(true);
+        const videoTrack = stream.getVideoTracks()[0];
+        const range = videoTrack ? getZoomRange(videoTrack) : null;
+        setZoomRange(range);
+        setZoom(range?.min ?? 1);
         if (liveVideoRef.current) {
           liveVideoRef.current.srcObject = stream;
           await liveVideoRef.current.play().catch(() => {});
@@ -251,10 +316,17 @@ export function CreateVideoSheet({
     return () => {
       cancelled = true;
       setStreamReady(false);
+      setZoomRange(null);
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
   }, [open, step, facing]);
+
+  const handleZoomChange = (value: number) => {
+    setZoom(value);
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (track) applyZoom(track, value);
+  };
 
   const handleStartRecording = () => {
     const stream = streamRef.current;
@@ -366,8 +438,12 @@ export function CreateVideoSheet({
     trustedDurationRef.current = false;
     setFile(f);
     setFileName(f.name || "spot.mp4");
-    setObjectUrl(URL.createObjectURL(f));
+    const url = URL.createObjectURL(f);
+    setObjectUrl(url);
     setStep("preview");
+    void makeVideoThumbnail(url).then((thumb) => {
+      if (thumb) setLastPickedThumbUrl(thumb);
+    });
   };
 
   const handlePost = async () => {
@@ -533,10 +609,35 @@ export function CreateVideoSheet({
                   onClick={() => uploadInputRef.current?.click()}
                   disabled={recording}
                   aria-label="Choose from gallery"
-                  className="flex h-11 w-11 items-center justify-center rounded-full bg-white/90 text-brand shadow-md disabled:opacity-40"
+                  className="relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white/90 text-brand shadow-md disabled:opacity-40"
                 >
-                  <ImageIcon className="h-[19px] w-[19px]" />
+                  {lastPickedThumbUrl ? (
+                    // A canvas-drawn data: URL, not a remote/optimizable image.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={lastPickedThumbUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                  ) : (
+                    <ImageIcon className="h-[19px] w-[19px]" />
+                  )}
                 </button>
+              </div>
+            )}
+
+            {!cameraError && !recording && zoomRange && (
+              <div className="absolute inset-x-6 bottom-[calc(6.5rem+env(safe-area-inset-bottom,0px))] z-10 flex items-center gap-2.5 rounded-full bg-black/40 px-3.5 py-2 backdrop-blur-md">
+                <span className="font-nunito text-[10px] font-bold tabular-nums text-white/70">1x</span>
+                <input
+                  type="range"
+                  min={zoomRange.min}
+                  max={zoomRange.max}
+                  step={zoomRange.step || 0.1}
+                  value={zoom}
+                  onChange={(e) => handleZoomChange(Number(e.target.value))}
+                  aria-label="Zoom"
+                  className="h-1.5 flex-1 accent-brand"
+                />
+                <span className="min-w-[28px] text-right font-nunito text-[10px] font-bold tabular-nums text-white/70">
+                  {zoomRange.max.toFixed(zoomRange.max % 1 === 0 ? 0 : 1)}x
+                </span>
               </div>
             )}
 
