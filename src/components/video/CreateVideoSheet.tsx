@@ -804,10 +804,15 @@ export function CreateVideoSheet({
 
             {/* Close sits alone, isolated at the very top — matching where
                 it sits on the camera step, so the same control lands in the
-                same spot across both steps. Playback (the scrub bar) comes
-                next, then Retake/Mute share one row below it — Retake on
-                the left, Mute on the right, layout-guaranteed spacing via
-                justify-between rather than independent absolute offsets. */}
+                same spot across both steps. Retake/Mute share the row
+                below it (Retake left, Mute right, spacing guaranteed by
+                justify-between rather than independent absolute offsets),
+                with a deliberate gap between the two rows (3.5rem vs.
+                Close's 1rem+8px height) so they never crowd each other.
+                Playback (the scrub bar) sits at the bottom instead, right
+                above the caption/post controls — the conventional spot for
+                a player's progress bar, next to the rest of the bottom
+                chrome rather than isolated at the very top of the screen. */}
             <div className="absolute inset-x-4 top-[calc(1rem+env(safe-area-inset-top,0px))] z-10 flex justify-end">
               <button
                 type="button"
@@ -820,26 +825,7 @@ export function CreateVideoSheet({
               </button>
             </div>
 
-            <div className="absolute inset-x-4 top-[calc(2.75rem+env(safe-area-inset-top,0px))] z-10">
-              <input
-                type="range"
-                min={0}
-                max={Math.max(duration, 0.1)}
-                step={0.01}
-                value={Math.min(currentTime, duration || 0)}
-                onChange={(e) => handleScrub(Number(e.target.value))}
-                aria-label="Seek"
-                className="h-1 w-full cursor-pointer accent-brand"
-              />
-              <div className="mt-1 flex items-center justify-between">
-                <span className="font-nunito text-[10px] font-bold tabular-nums text-white/60">{formatTime(currentTime)}</span>
-                <span className="font-nunito text-[10px] font-bold tabular-nums text-white/60">
-                  {formatTime(Math.min(duration, MAX_DURATION_SECONDS))}
-                </span>
-              </div>
-            </div>
-
-            <div className="absolute inset-x-4 top-[calc(4.75rem+env(safe-area-inset-top,0px))] z-10 flex items-center justify-between">
+            <div className="absolute inset-x-4 top-[calc(3.5rem+env(safe-area-inset-top,0px))] z-10 flex items-center justify-between">
               <button
                 type="button"
                 onClick={discardPreview}
@@ -860,19 +846,37 @@ export function CreateVideoSheet({
             </div>
 
             {duration > MAX_DURATION_SECONDS && (
-              <div className="absolute inset-x-4 top-[calc(6.5rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
+              <div className="absolute inset-x-4 top-[calc(6rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
                 That's over {MAX_DURATION_SECONDS / 60} minutes — trim it before posting.
               </div>
             )}
 
             {error && (
-              <div className="absolute inset-x-4 top-[calc(6.5rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
+              <div className="absolute inset-x-4 top-[calc(6rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
                 {error}
               </div>
             )}
 
-            <div className="absolute inset-x-3 bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] z-10 flex flex-col gap-2">
-              <div className="flex flex-col gap-1 rounded-2xl bg-white/10 px-3.5 py-2.5 ring-1 ring-white/15 backdrop-blur-md">
+            <div className="absolute inset-x-3 bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] z-10 flex flex-col gap-4">
+              <div>
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(duration, 0.1)}
+                  step={0.01}
+                  value={Math.min(currentTime, duration || 0)}
+                  onChange={(e) => handleScrub(Number(e.target.value))}
+                  aria-label="Seek"
+                  className="h-1 w-full cursor-pointer accent-brand"
+                />
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="font-nunito text-[10px] font-bold tabular-nums text-white/60">{formatTime(currentTime)}</span>
+                  <span className="font-nunito text-[10px] font-bold tabular-nums text-white/60">
+                    {formatTime(Math.min(duration, MAX_DURATION_SECONDS))}
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5 rounded-2xl bg-white/10 px-3.5 py-3 ring-1 ring-white/15 backdrop-blur-md">
                 <textarea
                   value={caption}
                   onChange={(e) => setCaption(e.target.value.slice(0, CAPTION_MAX_LEN))}
