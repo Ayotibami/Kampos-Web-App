@@ -134,32 +134,35 @@ function RecordingProgressRing({ elapsed, max }: { elapsed: number; max: number 
   const progress = Math.min(elapsed / max, 1);
   const color = ringColor(max - elapsed, max);
   return (
-    <div className="absolute left-4 top-[calc(1rem+env(safe-area-inset-top,0px))] z-10 flex items-center gap-2">
-      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center">
-        <svg width={RING_SIZE} height={RING_SIZE} className="absolute inset-0 -rotate-90">
-          <circle
-            cx={RING_SIZE / 2}
-            cy={RING_SIZE / 2}
-            r={RING_RADIUS}
-            fill="none"
-            stroke="rgba(255,255,255,0.25)"
-            strokeWidth={RING_STROKE}
-          />
-          <circle
-            cx={RING_SIZE / 2}
-            cy={RING_SIZE / 2}
-            r={RING_RADIUS}
-            fill="none"
-            stroke={color}
-            strokeWidth={RING_STROKE}
-            strokeLinecap="round"
-            strokeDasharray={RING_CIRCUMFERENCE}
-            strokeDashoffset={RING_CIRCUMFERENCE * (1 - progress)}
-          />
-        </svg>
-        <span className="relative font-nunito text-[9px] font-extrabold tabular-nums text-white">{formatTime(elapsed)}</span>
+    <div className="absolute left-4 top-[calc(1rem+env(safe-area-inset-top,0px))] z-10 flex items-start gap-2">
+      <div className="flex flex-col items-center gap-1">
+        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center">
+          <svg width={RING_SIZE} height={RING_SIZE} className="absolute inset-0 -rotate-90">
+            <circle
+              cx={RING_SIZE / 2}
+              cy={RING_SIZE / 2}
+              r={RING_RADIUS}
+              fill="none"
+              stroke="rgba(255,255,255,0.25)"
+              strokeWidth={RING_STROKE}
+            />
+            <circle
+              cx={RING_SIZE / 2}
+              cy={RING_SIZE / 2}
+              r={RING_RADIUS}
+              fill="none"
+              stroke={color}
+              strokeWidth={RING_STROKE}
+              strokeLinecap="round"
+              strokeDasharray={RING_CIRCUMFERENCE}
+              strokeDashoffset={RING_CIRCUMFERENCE * (1 - progress)}
+            />
+          </svg>
+          <span className="relative font-nunito text-[9px] font-extrabold tabular-nums text-white">{formatTime(elapsed)}</span>
+        </div>
+        <span className="font-nunito text-[8.5px] font-bold tabular-nums text-white/60">of {formatTime(max)}</span>
       </div>
-      <span className="flex items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 backdrop-blur-md">
+      <span className="mt-1.5 flex items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 backdrop-blur-md">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" />
         <span className="font-nunito text-[10px] font-extrabold uppercase tracking-wide text-white">Rec</span>
       </span>
