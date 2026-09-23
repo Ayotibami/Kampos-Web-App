@@ -13,6 +13,7 @@ import { gistColorFor } from "@/lib/brand";
 import { ReportModal } from "@/components/gist/ReportModal";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
 import { env } from "@/lib/env";
+import { cloudinaryVideo } from "@/lib/cloudinary";
 
 function formatCount(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(n % 1000 >= 100 ? 1 : 0)}k`;
@@ -352,7 +353,17 @@ function VideoCard({
       {renderVideo ? (
         <video
           ref={videoRef}
-          src={video.media_url ?? undefined}
+          // cloudinaryVideo (f_auto,q_auto) — same codec/quality negotiation
+          // Gist's own video tiles already apply (see GistMediaGrid.tsx).
+          // Without it this served back whatever codec/container the
+          // uploading device recorded in, verbatim: an iPhone records HEVC
+          // by default, and Chrome (desktop and Android alike, most of
+          // this app's viewers) can't decode HEVC in a plain <video> tag —
+          // a raw media_url from a gallery-picked iPhone clip would sit on
+          // the shimmer indefinitely instead of ever firing onLoadedData,
+          // while the exact same clip through Gist's media pipeline plays
+          // fine, since that path already negotiates a compatible codec.
+          src={video.media_url ? cloudinaryVideo(video.media_url) : undefined}
           poster={video.thumbnail_url ?? undefined}
           // object-contain + a solid black bed, not object-cover — a clip
           // that isn't 9:16 (landscape, square, whatever a student's phone
