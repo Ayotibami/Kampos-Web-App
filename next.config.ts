@@ -87,8 +87,11 @@ const nextConfig: NextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           {
             key: "Permissions-Policy",
-            // Allow webcam capture on our own origin only; deny mic/geolocation.
-            value: "camera=(self), microphone=(), geolocation=()",
+            // Camera + mic on our own origin only (mic joined camera once
+            // Spot's live recording needed real audio, not just a silent
+            // clip — see CreateVideoSheet's getUserMedia call); geolocation
+            // stays denied, nothing in the app uses it.
+            value: "camera=(self), microphone=(self), geolocation=()",
           },
           {
             key: "Strict-Transport-Security",
