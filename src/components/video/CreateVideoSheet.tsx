@@ -20,6 +20,10 @@ import { useSpotStore, SpotUploadError, type Spot } from "@/stores/spotStore";
 const MAX_DURATION_SECONDS = 300;
 const MAX_BYTES = 200 * 1024 * 1024;
 const CAPTION_MAX_LEN = 220;
+// Grows with the content up to this ceiling, then scrolls inside itself —
+// same pattern as CommentComposer's COMPOSER_MAX_HEIGHT, just a shorter
+// ceiling since captions here cap out at 220 characters vs. a full comment.
+const CAPTION_MAX_HEIGHT = 120;
 
 // Heading shown over the live camera before recording starts — picked once
 // per sheet-open, not rotated while it's on screen (same pattern as
@@ -227,6 +231,7 @@ export function CreateVideoSheet({
   // below) — needed so the scrub bar, tap-to-pause, and mute toggle can
   // reach it, since it isn't a ref-attached JSX element.
   const previewVideoElRef = useRef<HTMLVideoElement | null>(null);
+  const captionRef = useRef<HTMLTextAreaElement>(null);
 
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -455,6 +460,16 @@ export function CreateVideoSheet({
     if (video) video.currentTime = value;
     setCurrentTime(value);
   };
+
+  // Grows the caption textarea to fit its content, up to CAPTION_MAX_HEIGHT
+  // — past that it scrolls internally instead of pushing the Post button
+  // further down. Same approach as CommentComposer's own auto-grow effect.
+  useEffect(() => {
+    const el = captionRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, CAPTION_MAX_HEIGHT)}px`;
+  }, [caption]);
 
   const handleStartRecording = () => {
     const stream = streamRef.current;
@@ -878,12 +893,14 @@ export function CreateVideoSheet({
               </div>
               <div className="flex flex-col gap-1.5 rounded-2xl bg-white/10 px-3.5 py-3 ring-1 ring-white/15 backdrop-blur-md">
                 <textarea
+                  ref={captionRef}
                   value={caption}
                   onChange={(e) => setCaption(e.target.value.slice(0, CAPTION_MAX_LEN))}
                   placeholder="Add a caption… (optional)"
                   rows={1}
                   disabled={posting}
-                  className="resize-none bg-transparent font-nunito text-[13px] font-medium text-white placeholder:text-white/50 focus:outline-none disabled:opacity-60"
+                  style={{ maxHeight: CAPTION_MAX_HEIGHT }}
+                  className="resize-none overflow-y-auto bg-transparent font-nunito text-[13px] font-medium text-white placeholder:text-white/50 focus:outline-none disabled:opacity-60"
                 />
                 <span
                   className={`self-end font-nunito text-[10px] font-bold tabular-nums ${
