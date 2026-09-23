@@ -441,9 +441,9 @@ export function CreateVideoSheet({
               type="button"
               onClick={handleClose}
               aria-label="Close"
-              className="absolute right-4 top-[calc(1rem+env(safe-area-inset-top,0px))] z-20 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md"
+              className="absolute right-4 top-[calc(1rem+env(safe-area-inset-top,0px))] z-20 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/10 backdrop-blur-md"
             >
-              <X className="h-4 w-4" strokeWidth={2.5} />
+              <X className="h-[18px] w-[18px]" strokeWidth={2.5} />
             </button>
 
             {!cameraError && !recording && (
