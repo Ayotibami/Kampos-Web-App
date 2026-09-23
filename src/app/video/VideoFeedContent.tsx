@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { Heart, MessageCircle, ShareIconFill, FlagIconFill, VolumeIconFill, MuteIconFill, Plus } from "@/components/ui/icons";
+import { Heart, MessageCircle, ShareIconFill, FlagIconFill, VolumeIconFill, MuteIconFill, Plus, RefreshCw } from "@/components/ui/icons";
 import { useAnyModalOpen } from "@/stores/modalStore";
 import { CreateVideoSheet } from "@/components/video/CreateVideoSheet";
 import { SpotCommentSheet } from "@/components/video/SpotCommentSheet";
@@ -39,6 +39,80 @@ function InfoTag({ children }: { children: string }) {
 // a long scroll session from accumulating dozens of live video elements —
 // see this screen's own windowing doc further down for the full reasoning.
 const WINDOW_RADIUS = 1;
+
+/** The pulsing dark-gradient-plus-center-play-glyph treatment — pulled out
+ * of VideoCard so the exact same shimmer can also back VideoFeedSkeleton's
+ * whole-page loading state below, instead of two independently-drifting
+ * approximations of "this is loading". */
+function VideoShimmerBackground() {
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-10 overflow-hidden"
+      style={{
+        background: "radial-gradient(120% 90% at 50% 38%, #16233d 0%, #0a1120 55%, #050810 100%)",
+      }}
+      aria-hidden
+    >
+      {/* The whole rectangle breathes together, not a highlight sweeping
+          across it — a brand-tinted wash over the base gradient, fading in
+          and out as one shape. */}
+      <div className="absolute inset-0 animate-pulse bg-brand-accent/10" />
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="relative flex h-16 w-16 items-center justify-center">
+          <div className="absolute inset-0 animate-pulse rounded-full bg-brand-accent/20 blur-md" />
+          <div className="relative flex h-14 w-14 animate-pulse items-center justify-center rounded-full bg-brand-accent/15 ring-1 ring-brand-accent/25">
+            <svg viewBox="0 0 24 24" className="ml-0.5 h-5 w-5 fill-brand-accent/80">
+              <path d="M6 4l14 8-14 8V4z" />
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The Spot feed's own first-load skeleton — shaped like a real VideoCard
+ * (same shimmer background, same bottom-left poster-info block, same
+ * bottom-right action rail positions) instead of a bare spinner sitting on
+ * black, so the very first thing anyone sees already reads as "a video
+ * feed is about to appear here" rather than a generic "something is
+ * loading" moment. Every placeholder pulses via animate-pulse, same
+ * treatment the shimmer itself already uses, so nothing here introduces a
+ * new loading language of its own.
+ */
+export function VideoFeedSkeleton() {
+  return (
+    <div className="relative h-full w-full overflow-hidden bg-black" aria-hidden>
+      <VideoShimmerBackground />
+
+      {/* Poster-info block stand-in — avatar circle, handle, tag pills,
+          caption lines — same bottom-[104px] position a real card's own
+          block sits at, so nothing jumps once real content lands. */}
+      <div className="absolute bottom-[104px] left-4 right-[70px] z-10 flex flex-col gap-2">
+        <div className="flex items-center gap-1.5">
+          <div className="h-6 w-6 shrink-0 animate-pulse rounded-full bg-white/20" />
+          <div className="h-3 w-24 animate-pulse rounded-full bg-white/20" />
+        </div>
+        <div className="flex gap-1.5">
+          <div className="h-4 w-14 animate-pulse rounded-full bg-white/10" />
+          <div className="h-4 w-20 animate-pulse rounded-full bg-white/10" />
+        </div>
+        <div className="mt-1 h-3 w-full animate-pulse rounded-full bg-white/10" />
+        <div className="h-3 w-2/3 animate-pulse rounded-full bg-white/10" />
+      </div>
+
+      {/* Action rail stand-in — same 5-slot, bottom-[104px] positioning as
+          the real compose/like/comment/share/flag column. */}
+      <div className="absolute bottom-[104px] right-2.5 z-10 flex flex-col items-center gap-4">
+        <div className="h-10 w-10 animate-pulse rounded-full bg-white/15" />
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-6 w-6 animate-pulse rounded-full bg-white/15" />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function VideoCard({
   video,
@@ -310,30 +384,7 @@ function VideoCard({
           (videoReady never flips true for it either, but without this
           guard it'd shimmer forever, misrepresenting "not loaded yet" as
           "actively loading"). */}
-      {renderVideo && !videoReady && (
-        <div
-          className="pointer-events-none absolute inset-0 z-10 overflow-hidden"
-          style={{
-            background: "radial-gradient(120% 90% at 50% 38%, #16233d 0%, #0a1120 55%, #050810 100%)",
-          }}
-          aria-hidden
-        >
-          {/* The whole rectangle breathes together, not a highlight
-              sweeping across it — a brand-tinted wash over the base
-              gradient, fading in and out as one shape. */}
-          <div className="absolute inset-0 animate-pulse bg-brand-accent/10" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="relative flex h-16 w-16 items-center justify-center">
-              <div className="absolute inset-0 animate-pulse rounded-full bg-brand-accent/20 blur-md" />
-              <div className="relative flex h-14 w-14 animate-pulse items-center justify-center rounded-full bg-brand-accent/15 ring-1 ring-brand-accent/25">
-                <svg viewBox="0 0 24 24" className="ml-0.5 h-5 w-5 fill-brand-accent/80">
-                  <path d="M6 4l14 8-14 8V4z" />
-                </svg>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {renderVideo && !videoReady && <VideoShimmerBackground />}
 
       {/* Center heart-burst on double-tap-to-like — purely decorative, the
           real like state lives in the rail button below. */}
@@ -640,6 +691,7 @@ export function VideoFeedContent() {
   const viewportHeight = useRealViewportHeight();
   const spots = useSpotStore((s) => s.spots);
   const loading = useSpotStore((s) => s.loading);
+  const error = useSpotStore((s) => s.error);
   const exhausted = useSpotStore((s) => s.exhausted);
   const fetchFeed = useSpotStore((s) => s.fetchFeed);
   const loadMore = useSpotStore((s) => s.loadMore);
@@ -757,8 +809,26 @@ export function VideoFeedContent() {
         style={{ height: viewportHeight ? `${viewportHeight}px` : "100dvh" }}
       >
         {loading && spots.length === 0 ? (
-          <div className="flex h-full w-full items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-white" />
+          // Never a bare spinner — loading starts true in spotStore's own
+          // initial state (not just once fetchFeed's effect fires), so
+          // this is what's on screen from the very first paint, closing
+          // the gap that used to briefly show "No Spots yet" before the
+          // first fetch had even started.
+          <VideoFeedSkeleton />
+        ) : error && spots.length === 0 ? (
+          // The fetch itself failed — genuinely different from "confirmed
+          // zero spots" below, and was previously indistinguishable from
+          // it (a dead backend read exactly like an empty feed).
+          <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-8 text-center">
+            <RefreshCw className="h-8 w-8 text-white/60" />
+            <span className="font-nunito text-sm font-bold text-white">Abeg we no fit load Spot — check your connection.</span>
+            <button
+              type="button"
+              onClick={() => void fetchFeed()}
+              className="mt-1 rounded-full bg-brand px-5 py-2.5 font-nunito text-[13px] font-extrabold text-white"
+            >
+              Try again
+            </button>
           </div>
         ) : spots.length === 0 ? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-8 text-center">

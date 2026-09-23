@@ -131,7 +131,15 @@ interface SpotState {
 
 export const useSpotStore = create<SpotState>((set, get) => ({
   spots: [],
-  loading: false,
+  // Starts true, not false — VideoFeedContent always calls fetchFeed() on
+  // mount, so a fetch is genuinely about to happen the instant anything
+  // reads this. Starting false left a real gap: the store's very first
+  // render (before that mount effect had even run) showed loading=false
+  // with an empty spots array, which VideoFeedContent's own "confirmed
+  // empty" check couldn't tell apart from a real empty feed — the whole
+  // reason "No Spots yet" used to flash before the actual fetch ever
+  // started.
+  loading: true,
   loadingMore: false,
   exhausted: false,
   error: null,

@@ -3,10 +3,10 @@ import { HydrateAuth } from "@/components/auth/HydrateAuth";
 import { VideoFeedContent } from "./VideoFeedContent";
 
 // "Spot" is the settled name for this tab (see MobileTabBar); the route
-// itself still lives at /video. No backend yet: the feed below seeds itself
-// with local placeholder clips, and posting only ever updates that same
-// in-memory list — nothing is persisted or sent to a server. That part
-// comes once the UI direction is locked in.
+// itself still lives at /video. Fully wired to the real backend (see
+// spotStore.ts) — the feed fetches real posted Spots, and posting goes
+// through the real draft -> signature -> Cloudinary upload -> finalize
+// sequence.
 export default async function VideoPage() {
   const { state, account, profiles } = await gateServer(["active"]);
   return (
