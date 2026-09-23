@@ -2,7 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
-import { X, SwitchCamera, ImageIcon } from "@/components/ui/icons";
+import {
+  X,
+  SwitchCamera,
+  ImageIcon,
+  RefreshCw,
+  SendIconFill,
+  VolumeIconFill,
+  MuteIconFill,
+  PlayIconFill,
+} from "@/components/ui/icons";
 import { useSpotStore, SpotUploadError, type Spot } from "@/stores/spotStore";
 
 // Spot's own limits — deliberately larger than Gist's incidental video cap,
@@ -214,6 +223,10 @@ export function CreateVideoSheet({
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const liveVideoRef = useRef<HTMLVideoElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
+  // Handle to the imperatively-created preview <video> (see the effect
+  // below) — needed so the scrub bar, tap-to-pause, and mute toggle can
+  // reach it, since it isn't a ref-attached JSX element.
+  const previewVideoElRef = useRef<HTMLVideoElement | null>(null);
 
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -259,6 +272,11 @@ export function CreateVideoSheet({
   const [caption, setCaption] = useState("");
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [previewPaused, setPreviewPaused] = useState(false);
+  // Defaults muted — consistent, no surprise audio blasting on open — one
+  // tap to actually hear the clip. Previously there was no way to unmute
+  // the preview at all, so there was no way to confirm audio recorded.
+  const [previewMuted, setPreviewMuted] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const [uploadPercent, setUploadPercent] = useState(0);
@@ -378,6 +396,9 @@ export function CreateVideoSheet({
     // will actually appear once posted — cropping here and letterboxing
     // there would be a lying preview.
     video.className = "absolute inset-0 h-full w-full bg-black object-contain";
+    previewVideoElRef.current = video;
+    setPreviewPaused(false);
+    setPreviewMuted(true);
     const onLoadedMetadata = () => {
       unstickRecordedVideo(video);
       // For a recorded clip, `duration` is already the real measured value
@@ -393,20 +414,47 @@ export function CreateVideoSheet({
       }
     };
     const onTimeUpdate = () => setCurrentTime(video.currentTime);
+    const onPlay = () => setPreviewPaused(false);
+    const onPause = () => setPreviewPaused(true);
     video.addEventListener("loadedmetadata", onLoadedMetadata);
     video.addEventListener("timeupdate", onTimeUpdate);
+    video.addEventListener("play", onPlay);
+    video.addEventListener("pause", onPause);
     container.appendChild(video);
     video.src = objectUrl;
 
     return () => {
       video.removeEventListener("loadedmetadata", onLoadedMetadata);
       video.removeEventListener("timeupdate", onTimeUpdate);
+      video.removeEventListener("play", onPlay);
+      video.removeEventListener("pause", onPause);
       video.pause();
       video.removeAttribute("src");
       video.load();
       video.remove();
+      previewVideoElRef.current = null;
     };
   }, [step, objectUrl]);
+
+  const togglePreviewPlayback = () => {
+    const video = previewVideoElRef.current;
+    if (!video) return;
+    if (video.paused) void video.play().catch(() => {});
+    else video.pause();
+  };
+
+  const togglePreviewMute = () => {
+    const video = previewVideoElRef.current;
+    if (!video) return;
+    video.muted = !video.muted;
+    setPreviewMuted(video.muted);
+  };
+
+  const handleScrub = (value: number) => {
+    const video = previewVideoElRef.current;
+    if (video) video.currentTime = value;
+    setCurrentTime(value);
+  };
 
   const handleStartRecording = () => {
     const stream = streamRef.current;
@@ -737,50 +785,114 @@ export function CreateVideoSheet({
                 empirically many different ways), while a brand-new element
                 created fresh and pointed at the exact same blob URL always
                 loaded correctly, every time, no exceptions found. This
-                container just holds whatever that effect creates. */}
-            <div ref={previewContainerRef} className="absolute inset-0 h-full w-full bg-black" />
+                container just holds whatever that effect creates. Its own
+                onClick is the tap-to-pause toggle — the imperatively
+                inserted <video> is a real DOM child, so a tap on it
+                genuinely bubbles up to this handler. */}
+            <div ref={previewContainerRef} onClick={togglePreviewPlayback} className="absolute inset-0 h-full w-full bg-black" />
 
-            <div className="absolute inset-x-4 z-10 flex items-center justify-between top-[calc(1rem+env(safe-area-inset-top,0px))]">
+            {previewPaused && (
+              <button
+                type="button"
+                onClick={togglePreviewPlayback}
+                aria-label="Play"
+                className="absolute left-1/2 top-1/2 z-20 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm"
+              >
+                <PlayIconFill className="ml-0.5 h-6 w-6" weight="fill" />
+              </button>
+            )}
+
+            <div className="absolute inset-x-4 top-[calc(0.75rem+env(safe-area-inset-top,0px))] z-10">
+              <input
+                type="range"
+                min={0}
+                max={Math.max(duration, 0.1)}
+                step={0.01}
+                value={Math.min(currentTime, duration || 0)}
+                onChange={(e) => handleScrub(Number(e.target.value))}
+                aria-label="Seek"
+                className="h-1 w-full cursor-pointer accent-brand"
+              />
+              <div className="mt-1 flex items-center justify-between">
+                <span className="font-nunito text-[10px] font-bold tabular-nums text-white/60">{formatTime(currentTime)}</span>
+                <span className="font-nunito text-[10px] font-bold tabular-nums text-white/60">
+                  {formatTime(Math.min(duration, MAX_DURATION_SECONDS))}
+                </span>
+              </div>
+            </div>
+
+            {/* One flex row for all three top controls — Retake, Mute,
+                Close share layout-guaranteed spacing via gap/justify-between
+                instead of each being positioned by an independent absolute
+                offset, which is exactly what let the mute button drift
+                into the retake button's space depending on viewport
+                height. */}
+            <div className="absolute inset-x-4 top-[calc(2.75rem+env(safe-area-inset-top,0px))] z-10 flex items-center justify-between">
               <button
                 type="button"
                 onClick={discardPreview}
                 disabled={posting}
-                aria-label="Discard and choose again"
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white disabled:opacity-40"
+                className="flex items-center gap-1.5 rounded-full bg-black/40 py-1.5 pl-2 pr-3 font-nunito text-[11.5px] font-extrabold text-white backdrop-blur-md disabled:opacity-40"
               >
-                <X className="h-4 w-4" />
+                <RefreshCw className="h-3.5 w-3.5" />
+                Retake
               </button>
-              <span className="rounded-full bg-black/40 px-2.5 py-1 font-nunito text-[11px] font-extrabold tabular-nums text-white">
-                {formatTime(currentTime)} / {formatTime(Math.min(duration, MAX_DURATION_SECONDS))}
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={togglePreviewMute}
+                  aria-label={previewMuted ? "Unmute" : "Mute"}
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md"
+                >
+                  {previewMuted ? <MuteIconFill className="h-3.5 w-3.5" weight="fill" /> : <VolumeIconFill className="h-3.5 w-3.5" weight="fill" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  disabled={posting}
+                  aria-label="Close"
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md disabled:opacity-40"
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={2.5} />
+                </button>
+              </div>
             </div>
 
             {duration > MAX_DURATION_SECONDS && (
-              <div className="absolute inset-x-4 top-[calc(3.5rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
+              <div className="absolute inset-x-4 top-[calc(4.75rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
                 That's over {MAX_DURATION_SECONDS / 60} minutes — trim it before posting.
               </div>
             )}
 
             {error && (
-              <div className="absolute inset-x-4 top-[calc(3.5rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
+              <div className="absolute inset-x-4 top-[calc(4.75rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
                 {error}
               </div>
             )}
 
-            <div className="absolute inset-x-3 bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] z-10 flex flex-col gap-2.5">
-              <textarea
-                value={caption}
-                onChange={(e) => setCaption(e.target.value.slice(0, CAPTION_MAX_LEN))}
-                placeholder="Add a caption… (optional)"
-                rows={1}
-                disabled={posting}
-                className="resize-none rounded-2xl bg-black/45 px-3.5 py-2.5 font-nunito text-[13px] font-medium text-white placeholder:text-white/50 backdrop-blur-md focus:outline-none disabled:opacity-60"
-              />
+            <div className="absolute inset-x-3 bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] z-10 flex flex-col gap-2">
+              <div className="flex flex-col gap-1 rounded-2xl bg-white/10 px-3.5 py-2.5 ring-1 ring-white/15 backdrop-blur-md">
+                <textarea
+                  value={caption}
+                  onChange={(e) => setCaption(e.target.value.slice(0, CAPTION_MAX_LEN))}
+                  placeholder="Add a caption… (optional)"
+                  rows={1}
+                  disabled={posting}
+                  className="resize-none bg-transparent font-nunito text-[13px] font-medium text-white placeholder:text-white/50 focus:outline-none disabled:opacity-60"
+                />
+                <span
+                  className={`self-end font-nunito text-[10px] font-bold tabular-nums ${
+                    CAPTION_MAX_LEN - caption.length <= 20 ? "text-danger" : "text-white/40"
+                  }`}
+                >
+                  {caption.length} / {CAPTION_MAX_LEN}
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => void handlePost()}
                 disabled={duration > MAX_DURATION_SECONDS || posting}
-                className="flex min-w-[92px] items-center justify-center gap-1.5 self-end rounded-full bg-brand px-6 py-2.5 font-nunito text-[13px] font-extrabold text-white shadow-lg shadow-brand/40 disabled:opacity-70"
+                className="flex min-w-[136px] items-center justify-center gap-1.5 self-end rounded-full bg-brand px-6 py-2.5 font-nunito text-[13px] font-extrabold text-white shadow-lg shadow-brand/40 disabled:opacity-70"
               >
                 {posting ? (
                   <>
@@ -788,7 +900,10 @@ export function CreateVideoSheet({
                     {uploadPercent > 0 ? `${uploadPercent}%` : "Posting…"}
                   </>
                 ) : (
-                  "Post"
+                  <>
+                    <SendIconFill className="h-3.5 w-3.5" weight="fill" />
+                    Post to Spot
+                  </>
                 )}
               </button>
             </div>
