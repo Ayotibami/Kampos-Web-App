@@ -33,12 +33,17 @@ function InfoTag({ children }: { children: string }) {
 }
 
 // How many cards on either side of the active one keep a real <video>
-// mounted — active + 1 neighbor each way, 3 "hot" at once. Everything
-// farther out renders just its poster image: no <video> tag at all, so no
-// metadata request, no decoder, no memory held for it. This is what keeps
-// a long scroll session from accumulating dozens of live video elements —
-// see this screen's own windowing doc further down for the full reasoning.
-const WINDOW_RADIUS = 1;
+// mounted — active + 4 neighbors each way, 9 "hot" at once (bumped up from
+// a radius of 1/3 total: too tight in practice — scrolling back to
+// anything more than one card away always re-fetched from zero, and a
+// normal scrolling pace kept aborting a neighbor's in-flight download
+// before it finished, since the window slid past it before it had a
+// chance to buffer). Everything farther out than this still renders just
+// its poster image: no <video> tag at all, so no metadata request, no
+// decoder, no memory held for it — this is what keeps a long scroll
+// session from accumulating dozens of live video elements. See this
+// screen's own windowing doc further down for the full reasoning.
+const WINDOW_RADIUS = 4;
 
 /** The pulsing dark-gradient-plus-center-play-glyph treatment — pulled out
  * of VideoCard so the exact same shimmer can also back VideoFeedSkeleton's
