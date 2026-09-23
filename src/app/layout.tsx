@@ -110,8 +110,26 @@ export const viewport: Viewport = {
   // draw there — exactly the gray border around the Spot video screen
   // that should be edge-to-edge black. "cover" lets content extend the
   // whole physical screen; the app then re-adds that space back as
-  // padding via env(safe-area-inset-*), which every fixed top/bottom bar
-  // in this app (MobileTabBar, headers, etc.) already accounts for.
+  // padding via env(safe-area-inset-*).
+  //
+  // That re-adding is NOT automatic, and it is the whole reason an app
+  // saved to the home screen can look broken while the same page looks
+  // fine in a browser tab: in a tab iOS reserves the status-bar strip for
+  // itself, but an installed "standalone" PWA has no browser chrome at
+  // all, so with "cover" (plus black-translucent below) the page draws
+  // from the very top of the physical screen. Anything anchored to the top
+  // of the screen therefore has to consume env(safe-area-inset-top)
+  // itself, and anything anchored to the bottom env(safe-area-inset-bottom).
+  // Both resolve to 0 in a browser tab and on desktop, so adding them is
+  // free everywhere they aren't needed.
+  //
+  // Where that's handled today: AppShell's centered lane pads the top for
+  // every page it frames (settings, profile, auth, setup wizard); the
+  // feed/gist/Spot pages own an exactly-viewport-tall box of their own and
+  // pad their own headers/overlays instead; MobileTabBar,
+  // FloatingComposeButton and the sheet composers carry the bottom inset.
+  // Any NEW top- or bottom-anchored chrome must do the same, or it will
+  // sit under the status bar / home indicator once the app is installed.
   viewportFit: "cover",
 };
 

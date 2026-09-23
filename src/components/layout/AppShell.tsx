@@ -111,6 +111,29 @@ export function AppShell({
   // rendered height past the viewport and force the whole page to scroll,
   // the same reason "feed" (also exactly viewport-sized) skips it too.
   const lanePad = isFeed || isPanel ? "" : "md:items-center md:py-6";
+  // An app saved to the home screen ("standalone" display mode) has no
+  // browser chrome at all, so with viewport-fit=cover + black-translucent
+  // (see layout.tsx) the page draws from the very top of the physical
+  // screen — straight under the status bar/notch. A normal browser tab
+  // never shows this because iOS reserves that strip for itself there,
+  // which is exactly why the bug only appeared once the app was installed.
+  // Re-add it as top padding so the pages this shell frames directly (auth,
+  // the setup wizard, welcome) start below the status bar. env() resolves
+  // to 0 in a browser tab and on desktop, so this is a no-op everywhere it
+  // isn't actually needed.
+  //
+  // "feed" and "panel" are excluded — the same split lanePad above already
+  // makes — because both carry top chrome of their own, so padding the lane
+  // as well would shove their content down by the inset a second time:
+  //  - "feed" pages (feed, gist, Spot) render their own exactly-viewport-tall
+  //    box inside this lane and pad their own sticky headers/overlays
+  //    instead. Padding the lane too would additionally push that box one
+  //    inset past the bottom of the screen, where the outer overflow-hidden
+  //    clips it.
+  //  - "panel" pages each own a header that pads itself: SettingsHeader (in
+  //    normal flow) for every Settings page, and a `fixed top-0` bar for the
+  //    profile page and the Village People admin area.
+  const safeTop = isFeed || isPanel ? "" : "pt-[env(safe-area-inset-top,0px)]";
 
   return (
     <div className="relative min-h-dvh w-full overflow-hidden">
@@ -179,7 +202,7 @@ export function AppShell({
           feed breaks out to full width. outerHeader/outerFooter (landscape
           only) sit above/below the panel, sharing its width, inside one
           flex-col stack so the trio centers together as a unit. */}
-      <div className={`relative z-10 flex min-h-dvh w-full items-stretch justify-center ${lanePad}`}>
+      <div className={`relative z-10 flex min-h-dvh w-full items-stretch justify-center ${safeTop} ${lanePad}`}>
         <div className={`flex w-full ${panelWidth} flex-col gap-4`}>
           {outerHeader && <div className="hidden shrink-0 md:block">{outerHeader}</div>}
           <div className={`relative flex min-h-0 w-full flex-col ${panelBg} ${panelChrome} ${className}`}>

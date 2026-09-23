@@ -122,10 +122,12 @@ export function MobileNavBar({ isKing, email }: { isKing: boolean; email?: strin
           ProfileView.tsx's own `pt-[60px]` header-height convention) in
           normal document flow, since the header itself below is `fixed`
           (out of flow, so it can hide/reveal via transform without
-          content shifting to fill the gap while it's hidden). */}
-      <div className="h-[60px] shrink-0 md:hidden" aria-hidden />
+          content shifting to fill the gap while it's hidden). Plus the
+          status-bar inset the header now pads itself by in installed
+          ("standalone") mode — keep the two in sync. */}
+      <div className="h-[calc(60px+env(safe-area-inset-top,0px))] shrink-0 md:hidden" aria-hidden />
       <div
-        className={`fixed inset-x-0 top-0 z-30 flex shrink-0 items-center gap-2.5 border-b border-line/70 bg-surface px-4 py-3 transition-transform duration-300 md:hidden ${
+        className={`fixed inset-x-0 top-0 z-30 flex shrink-0 items-center gap-2.5 border-b border-line/70 bg-surface px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] transition-transform duration-300 md:hidden ${
           headerVisible ? "translate-y-0" : "-translate-y-full"
         }`}
       >

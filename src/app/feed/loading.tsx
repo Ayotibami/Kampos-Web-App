@@ -38,7 +38,10 @@ export default function Loading() {
     <AppShell variant="feed">
       <div className="flex h-dvh w-full overflow-hidden">
         <div className="relative flex h-full min-w-0 flex-1 flex-col bg-brand/[0.04] dark:bg-brand/[0.07]">
-          <header className="sticky top-0 z-20 w-full shrink-0 border-b border-line bg-surface/85 backdrop-blur-md">
+          {/* Same safe-area top padding as the real feed header (see
+              FeedContent.tsx) — the skeleton has to sit in the identical
+              box or the swap to the hydrated feed visibly jumps. */}
+          <header className="sticky top-0 z-20 w-full shrink-0 border-b border-line bg-surface/85 pt-[env(safe-area-inset-top,0px)] backdrop-blur-md">
             <div className="mx-auto grid max-w-[740px] grid-cols-[1fr_auto_1fr] items-center px-4 py-2 sm:px-6 md:py-2.5">
               <div className="flex h-9 w-9 shrink-0 animate-pulse items-center justify-center justify-self-start overflow-hidden rounded-full bg-line/50 ring-1 ring-line" />
               <Wordmark accentClassName="text-brand" className="justify-self-center text-lg sm:text-xl" />

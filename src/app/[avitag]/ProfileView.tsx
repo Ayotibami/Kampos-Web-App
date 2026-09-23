@@ -734,7 +734,7 @@ export function ProfileView({
           fold on desktop. */}
       <div
         ref={scrollContainerRef}
-        className="relative flex min-h-0 flex-1 flex-col overflow-y-auto pt-[60px]"
+        className="relative flex min-h-0 flex-1 flex-col overflow-y-auto pt-[calc(60px+env(safe-area-inset-top,0px))]"
       >
         {/* Full-bleed on mobile (already narrow, nothing to gain from
             capping it) — but "panel" is otherwise an edge-to-edge desktop
@@ -787,7 +787,7 @@ export function ProfileView({
               backdrop so content scrolling under it remains legible. At the
               very top of the page it's always visible. */}
             <div
-              className={`fixed top-0 inset-x-0 z-30 flex items-center justify-between gap-3 border-b border-line/60 bg-surface-2/95 px-4 py-3 backdrop-blur-md transition-transform duration-300 sm:px-6 ${
+              className={`fixed top-0 inset-x-0 z-30 flex items-center justify-between gap-3 border-b border-line/60 bg-surface-2/95 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] backdrop-blur-md transition-transform duration-300 sm:px-6 ${
                 headerVisible ? "translate-y-0" : "-translate-y-full"
               }`}
             >
@@ -1225,18 +1225,21 @@ export function ProfileView({
                   background scrolls past underneath this STICKY box as the
                   page moves, so without an opaque base of its own, that
                   moving doodle showed straight through the tint. */}
-                  {/* h-[calc(100dvh-60px)], not h-dvh: this box sticks at
-                      top:0 of the scroll container above, but that
-                      container reserves pt-[60px] for its own floating
+                  {/* h-[calc(100dvh-60px-<inset>)], not h-dvh: this box sticks
+                      at top:0 of the scroll container above, but that
+                      container reserves pt-[60px+inset] for its own floating
                       scroll-aware header — sticky respects that padding, so
-                      the box's actual stuck top sits 60px down the viewport,
-                      not flush at 0. Sizing it to the full 100dvh anyway
-                      made it run exactly 60px past the real viewport
-                      bottom — invisibly, since nothing clips it — pushing
-                      CommentPanel's composer (the last flex child at its
-                      bottom) that same 60px below the fold. Keep this in
-                      sync with the scroll container's own pt-[60px] above. */}
-                  <div className="sticky top-0 flex h-[calc(100dvh-60px)] flex-col bg-surface">
+                      the box's actual stuck top sits that far down the
+                      viewport, not flush at 0. Sizing it to the full 100dvh
+                      anyway made it run exactly that far past the real
+                      viewport bottom — invisibly, since nothing clips it —
+                      pushing CommentPanel's composer (the last flex child at
+                      its bottom) the same distance below the fold. Keep this
+                      in sync with the scroll container's own top padding
+                      above, including the safe-area inset: this column is
+                      md:block, so it shows on tablets too, where an installed
+                      standalone PWA still reports a non-zero inset. */}
+                  <div className="sticky top-0 flex h-[calc(100dvh-60px-env(safe-area-inset-top,0px))] flex-col bg-surface">
                     <ActiveGistStrip
                       gist={activeGist}
                       onClose={() => setCommentsOpen(false)}

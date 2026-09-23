@@ -26,12 +26,12 @@ function BoardSkeleton({ tone }: { tone: "blue" | "gold" | "mint" }) {
 export default function Loading() {
   return (
     <AppShell variant="panel">
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto pt-[60px]">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto pt-[calc(60px+env(safe-area-inset-top,0px))]">
         <div className="relative z-10 flex w-full flex-1 flex-col">
           <div className="mx-auto flex w-full flex-1 flex-col md:max-w-6xl">
             {/* Fixed header — real back arrow, placeholder title bar (the
                 real one is the avitag string, unknown here). */}
-            <div className="fixed inset-x-0 top-0 z-30 flex items-center gap-3 border-b border-line/60 bg-surface-2/95 px-4 py-3 backdrop-blur-md sm:px-6">
+            <div className="fixed inset-x-0 top-0 z-30 flex items-center gap-3 border-b border-line/60 bg-surface-2/95 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] backdrop-blur-md sm:px-6">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted">
                 <ArrowLeft className="h-5 w-5" />
               </div>

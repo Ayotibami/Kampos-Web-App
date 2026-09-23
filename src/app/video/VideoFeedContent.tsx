@@ -430,7 +430,7 @@ function VideoCard({
           the window. */}
       <div
         ref={scrubRef}
-        className="absolute inset-x-0 top-0 z-10 flex h-4 items-center px-3.5"
+        className="absolute inset-x-0 top-[env(safe-area-inset-top,0px)] z-10 flex h-4 items-center px-3.5"
         style={renderVideo ? { touchAction: "none" } : undefined}
         onPointerDown={renderVideo ? handleScrubDown : undefined}
         onPointerMove={renderVideo ? handleScrubMove : undefined}
@@ -455,7 +455,7 @@ function VideoCard({
           e.stopPropagation();
           onToggleMute();
         }}
-        className="absolute right-3 top-5 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/40 text-white"
+        className="absolute right-3 top-[calc(1.25rem+env(safe-area-inset-top,0px))] z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/40 text-white"
       >
         {muted ? <MuteIconFill className="h-[18px] w-[18px]" weight="fill" /> : <VolumeIconFill className="h-[18px] w-[18px]" weight="fill" />}
       </button>

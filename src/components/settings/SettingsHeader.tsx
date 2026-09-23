@@ -18,8 +18,17 @@ import { runGuardedNavigation } from "@/stores/unsavedChangesStore";
  */
 export function SettingsHeader({ title, backHref }: { title: string; backHref: string }) {
   const router = useRouter();
+  // The status-bar inset added on top of the usual pt-6 — an app saved to the
+  // home screen ("standalone") has no browser chrome, so the page draws from
+  // the very top of the physical screen and this header (in normal flow at the
+  // top of the panel) ended up under the status bar. AppShell deliberately
+  // does NOT pad its lane for the "panel" variant — the profile and Village
+  // People pages share that variant and own a `fixed` header that pads itself,
+  // so the lane padding would double-count the inset there — which leaves this
+  // header to carry its own. md:pt-8 still wins from md up, where the inset is
+  // 0 anyway.
   return (
-    <div className="flex shrink-0 items-center gap-3 px-6 pt-6 md:px-8 md:pt-8">
+    <div className="flex shrink-0 items-center gap-3 px-6 pt-[calc(1.5rem+env(safe-area-inset-top,0px))] md:px-8 md:pt-8">
       <Link
         href={backHref}
         aria-label="Go back"

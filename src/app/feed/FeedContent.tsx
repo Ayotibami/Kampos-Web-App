@@ -654,7 +654,14 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
               feed tabs get their own row underneath (X-style: "which feed am
               I looking at" reads as content, not global nav), left-aligned
               so it has room to grow rightward as more filters get added. */}
-          <header className="sticky top-0 z-20 w-full shrink-0 border-b border-line bg-surface/85 backdrop-blur-md">
+          {/* The status-bar inset as top padding — installed-to-home-screen
+              ("standalone") mode has no browser chrome, so the page draws
+              from the very top of the physical screen and the avatar/
+              wordmark row ended up under the status bar. Padding lives on
+              the header itself so its own frosted background fills that
+              strip. Resolves to 0 in a browser tab and on desktop — see
+              layout.tsx's viewportFit note for the full story. */}
+          <header className="sticky top-0 z-20 w-full shrink-0 border-b border-line bg-surface/85 pt-[env(safe-area-inset-top,0px)] backdrop-blur-md">
             <div className="mx-auto grid max-w-[740px] grid-cols-[1fr_auto_1fr] items-center px-4 py-2 sm:px-6 md:py-2.5">
               {/* Profile avatar — the account entry point, anchored at the
                   outer left edge (settings/theme toggle live on the profile
