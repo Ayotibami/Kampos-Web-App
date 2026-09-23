@@ -117,8 +117,37 @@ interface SpotState {
    * actually succeeds (mirrors commentStore's own errorByGist). */
   commentsErrorBySpot: Record<string, string | undefined>;
 
+  // A single profile's own Spots — the grid on ProfileView's Spot tab, and
+  // the scoped feed a tap into that grid opens (see VideoFeedContent's own
+  // "profile mode": scrolling from a grid tap moves through THIS user's
+  // other Spots, not the global feed). Kept entirely separate from `spots`
+  // above (the global feed) rather than reusing it — the two are genuinely
+  // different lists with different pagination cursors, and conflating them
+  // would mean a profile visit silently overwrites whatever the global feed
+  // had loaded (or vice versa).
+  userSpots: Spot[];
+  /** Which avitag userSpots currently reflects — a fresh fetchUserSpots()
+   * call for a DIFFERENT avitag replaces the list outright rather than
+   * appending, so switching from one profile's grid to another's never
+   * shows a mix of both. */
+  userSpotsAvitag: string | null;
+  userSpotsTotal: number;
+  userSpotsLoading: boolean;
+  userSpotsLoadingMore: boolean;
+  userSpotsExhausted: boolean;
+  userSpotsError: string | null;
+
   fetchFeed: () => Promise<void>;
   loadMore: () => Promise<void>;
+  fetchUserSpots: (avitag: string) => Promise<void>;
+  loadMoreUserSpots: (avitag: string) => Promise<void>;
+  /** A single spot by id, regardless of feed membership — used to fill in a
+   * deep link (`/video?spot=...`) to a clip that isn't on whichever list's
+   * first page happened to load. Returns null on any failure (not found,
+   * not visible to this viewer, network error) — callers just skip the
+   * deep-link jump rather than surfacing an error for what's a best-effort
+   * convenience, not the primary load path. */
+  fetchSpotById: (spotId: string) => Promise<Spot | null>;
   toggleLike: (spotId: string) => Promise<void>;
   fetchComments: (spotId: string) => Promise<void>;
   addComment: (spotId: string, text: string) => Promise<void>;
@@ -133,6 +162,14 @@ interface SpotState {
     trim?: { start: number; end: number },
   ) => Promise<Spot>;
   prependSpot: (spot: Spot) => void;
+  /** Plain "insert at the front if not already there" — unlike prependSpot,
+   * this never bumps feedFetchSeq. It exists purely to splice a deep-linked
+   * spot into an already-loaded list; prependSpot's seq-bump is specifically
+   * for invalidating an in-flight fetchFeed() a brand-new post just made
+   * stale, which doesn't apply here and would otherwise silently drop the
+   * real feed/profile-list fetch running alongside a deep link. */
+  insertSpotIfMissing: (spot: Spot) => void;
+  insertUserSpotIfMissing: (spot: Spot) => void;
 }
 
 export const useSpotStore = create<SpotState>((set, get) => ({
@@ -152,6 +189,14 @@ export const useSpotStore = create<SpotState>((set, get) => ({
   commentsBySpot: {},
   commentsLoadingBySpot: {},
   commentsErrorBySpot: {},
+
+  userSpots: [],
+  userSpotsAvitag: null,
+  userSpotsTotal: 0,
+  userSpotsLoading: false,
+  userSpotsLoadingMore: false,
+  userSpotsExhausted: false,
+  userSpotsError: null,
 
   fetchFeed: async () => {
     const seq = ++feedFetchSeq;
@@ -190,6 +235,73 @@ export const useSpotStore = create<SpotState>((set, get) => ({
       // background pagination fetch the way the initial load does.
       set({ loadingMore: false });
     }
+  },
+
+  fetchUserSpots: async (avitag) => {
+    set({ userSpots: [], userSpotsAvitag: avitag, userSpotsLoading: true, userSpotsExhausted: false, userSpotsError: null });
+    try {
+      // limit: 50 (the backend's own cap) — generous enough that a grid tap
+      // almost always lands within the first page, so the common case never
+      // needs the fetchSpotById fallback below at all.
+      const res = await api.get<ApiEnvelope<Spot[]> & { total?: number }>(`/spots/user/${encodeURIComponent(avitag)}`, {
+        params: { limit: 50 },
+      });
+      if (get().userSpotsAvitag !== avitag) return; // a newer call for a different avitag superseded this one
+      const data = (res.data?.data ?? []).map(normalizeSpot);
+      set({
+        userSpots: data,
+        userSpotsTotal: res.data?.total ?? data.length,
+        userSpotsLoading: false,
+        userSpotsExhausted: data.length === 0,
+      });
+    } catch (err) {
+      if (get().userSpotsAvitag !== avitag) return;
+      set({ userSpotsLoading: false, userSpotsError: apiErrorMessage(err, "Couldn't load Spots") });
+    }
+  },
+
+  loadMoreUserSpots: async (avitag) => {
+    const { userSpots, userSpotsAvitag, userSpotsLoadingMore, userSpotsExhausted } = get();
+    if (userSpotsAvitag !== avitag || userSpotsLoadingMore || userSpotsExhausted) return;
+    const cursor = userSpots[userSpots.length - 1]?.spot_id;
+    if (!cursor) {
+      set({ userSpotsExhausted: true });
+      return;
+    }
+    set({ userSpotsLoadingMore: true });
+    try {
+      const res = await api.get<ApiEnvelope<Spot[]>>(`/spots/user/${encodeURIComponent(avitag)}`, {
+        params: { cursor, limit: 50 },
+      });
+      if (get().userSpotsAvitag !== avitag) return;
+      const data = (res.data?.data ?? []).map(normalizeSpot);
+      set((s) => ({
+        userSpots: [...s.userSpots, ...data],
+        userSpotsLoadingMore: false,
+        userSpotsExhausted: data.length === 0,
+      }));
+    } catch {
+      if (get().userSpotsAvitag !== avitag) return;
+      set({ userSpotsLoadingMore: false });
+    }
+  },
+
+  fetchSpotById: async (spotId) => {
+    try {
+      const res = await api.get<ApiEnvelope<Spot>>(`/spots/${encodeURIComponent(spotId)}`);
+      const spot = res.data?.data;
+      return spot ? normalizeSpot(spot) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  insertSpotIfMissing: (spot) => {
+    set((s) => (s.spots.some((sp) => sp.spot_id === spot.spot_id) ? s : { spots: [spot, ...s.spots] }));
+  },
+
+  insertUserSpotIfMissing: (spot) => {
+    set((s) => (s.userSpots.some((sp) => sp.spot_id === spot.spot_id) ? s : { userSpots: [spot, ...s.userSpots] }));
   },
 
   toggleLike: async (spotId) => {

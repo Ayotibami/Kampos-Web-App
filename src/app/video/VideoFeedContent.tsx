@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
-import { Heart, MessageCircle, ShareIconFill, FlagIconFill, VolumeIconFill, MuteIconFill, Plus, RefreshCw } from "@/components/ui/icons";
+import { Heart, MessageCircle, ShareIconFill, FlagIconFill, VolumeIconFill, MuteIconFill, Plus, RefreshCw, ChevronLeft } from "@/components/ui/icons";
 import { useAnyModalOpen } from "@/stores/modalStore";
 import { CreateVideoSheet } from "@/components/video/CreateVideoSheet";
 import { SpotCommentSheet } from "@/components/video/SpotCommentSheet";
@@ -703,14 +704,47 @@ async function shareSpot(spotId: string, caption: string | null, onShared: (plat
   }
 }
 
-export function VideoFeedContent() {
+function VideoFeedContentInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Profile mode — reached by tapping a cell in ProfileView's Spot grid
+  // (`/video?spot=<id>&user=<avitag>&back=<path>`). While `user` is present,
+  // this screen scrolls through THAT profile's own Spots instead of the
+  // global feed — the grid tap opens a real vertical feed scoped to one
+  // person, not just a single clip with nowhere to swipe. `back`, when
+  // present, is where the top-right arrow returns to (see below); its
+  // absence is also how a plain global-feed deep link (an external share
+  // link — see shareSpot's own `/video?spot=...` URL) is told apart from a
+  // grid tap, since a share link never carries `back`.
+  const profileAvitag = searchParams.get("user");
+  const isProfileMode = !!profileAvitag;
+  const deepLinkSpotId = searchParams.get("spot");
+  const backHref = searchParams.get("back");
+
   const viewportHeight = useRealViewportHeight();
-  const spots = useSpotStore((s) => s.spots);
-  const loading = useSpotStore((s) => s.loading);
-  const error = useSpotStore((s) => s.error);
-  const exhausted = useSpotStore((s) => s.exhausted);
+  const globalSpots = useSpotStore((s) => s.spots);
+  const globalLoading = useSpotStore((s) => s.loading);
+  const globalError = useSpotStore((s) => s.error);
+  const globalExhausted = useSpotStore((s) => s.exhausted);
+  const userSpots = useSpotStore((s) => s.userSpots);
+  const userSpotsLoading = useSpotStore((s) => s.userSpotsLoading);
+  const userSpotsError = useSpotStore((s) => s.userSpotsError);
+  const userSpotsExhausted = useSpotStore((s) => s.userSpotsExhausted);
+  // Whichever list this screen is actually showing — every render below
+  // (windowing, active-card tracking, infinite scroll) reads only these
+  // four, with zero further isProfileMode branching needed downstream.
+  const spots = isProfileMode ? userSpots : globalSpots;
+  const loading = isProfileMode ? userSpotsLoading : globalLoading;
+  const error = isProfileMode ? userSpotsError : globalError;
+  const exhausted = isProfileMode ? userSpotsExhausted : globalExhausted;
+
   const fetchFeed = useSpotStore((s) => s.fetchFeed);
   const loadMore = useSpotStore((s) => s.loadMore);
+  const fetchUserSpots = useSpotStore((s) => s.fetchUserSpots);
+  const loadMoreUserSpots = useSpotStore((s) => s.loadMoreUserSpots);
+  const fetchSpotById = useSpotStore((s) => s.fetchSpotById);
+  const insertSpotIfMissing = useSpotStore((s) => s.insertSpotIfMissing);
+  const insertUserSpotIfMissing = useSpotStore((s) => s.insertUserSpotIfMissing);
   const toggleLike = useSpotStore((s) => s.toggleLike);
   const shareAction = useSpotStore((s) => s.share);
   const reportAction = useSpotStore((s) => s.report);
@@ -729,17 +763,95 @@ export function VideoFeedContent() {
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const lastViewedRef = useRef<string>("");
+  // Guards both the "jump to a deep-linked clip" effect and its
+  // fetchSpotById fallback below against re-running for the same id once
+  // either has already handled it — without it, a spot that never resolves
+  // (bad id, deleted) would otherwise retry the fetch on every unrelated
+  // spots-array update.
+  const deepLinkHandledRef = useRef<string | null>(null);
 
   useEffect(() => {
-    void fetchFeed();
-    // Only ever the initial load — loadMore (triggered by the sentinel
-    // below) handles every page after this one.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (isProfileMode && profileAvitag) void fetchUserSpots(profileAvitag);
+    else if (!isProfileMode) void fetchFeed();
+    // loadMore/loadMoreUserSpots (triggered by the sentinel below) handle
+    // every page after this first one — this effect only ever fires the
+    // FIRST fetch for whichever mode/avitag is currently active, and reruns
+    // if that mode or avitag itself changes (e.g. one profile's grid to
+    // another's, without a full page remount).
+  }, [isProfileMode, profileAvitag, fetchUserSpots, fetchFeed]);
 
+  // Resolves activeId to a deep-linked spot (a grid tap or a share link)
+  // whenever the URL's OWN target changes, falling back to the first item
+  // only when there's no deep link at all. Driven by comparing
+  // deepLinkSpotId itself against deepLinkHandledRef — NOT by "has activeId
+  // ever been set" (an earlier version's bug): Next's App Router does not
+  // necessarily remount this component just because `/video`'s search
+  // params changed, so tapping one grid cell, hitting back, then tapping a
+  // DIFFERENT cell can reuse the exact same mounted instance. A guard keyed
+  // on activeId alone would see it already truthy (from the first tap) and
+  // never re-resolve to the second tap's spot at all — confirmed live: a
+  // second tap kept showing whatever the first tap had already landed on.
+  // Keying on deepLinkSpotId itself means a genuinely new target always
+  // gets picked up, while an unrelated re-render (a like toggling, spots
+  // reference changing) correctly does nothing once already resolved.
   useEffect(() => {
-    if (!activeId && spots[0]) setActiveId(spots[0].spot_id);
-  }, [spots, activeId]);
+    if (spots.length === 0) return;
+    if (deepLinkSpotId) {
+      if (deepLinkHandledRef.current === deepLinkSpotId) return; // already resolved (or being fetched, see the fallback effect below) for this exact target
+      if (spots.some((s) => s.spot_id === deepLinkSpotId)) {
+        deepLinkHandledRef.current = deepLinkSpotId;
+        setActiveId(deepLinkSpotId);
+      }
+      return; // not found yet — the fallback fetch effect below owns this case, sharing the same ref
+    }
+    if (!activeId) setActiveId(spots[0].spot_id);
+  }, [spots, deepLinkSpotId, activeId]);
+
+  // Scrolls to a deep-linked spot's exact position once activeId has
+  // resolved to it AND viewportHeight is known — its own effect, separate
+  // from the one above, specifically because those two conditions don't
+  // reliably become true at the same time: viewportHeight starts out null
+  // (see useRealViewportHeight's own doc) and is very often still null on
+  // the very first render where spots finish loading. Keyed on
+  // deepLinkSpotId itself (scrolledForDeepLinkRef), same reasoning as the
+  // resolve effect above — a plain "have we EVER scrolled" boolean would
+  // block a second tap's scroll just as surely as the old activeId-keyed
+  // guard blocked its activeId resolution.
+  const scrolledForDeepLinkRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!deepLinkSpotId || !viewportHeight) return;
+    if (scrolledForDeepLinkRef.current === deepLinkSpotId) return;
+    if (activeId !== deepLinkSpotId) return; // not resolved to this spot yet
+    const idx = spots.findIndex((s) => s.spot_id === deepLinkSpotId);
+    if (idx === -1) return;
+    scrolledForDeepLinkRef.current = deepLinkSpotId;
+    requestAnimationFrame(() => {
+      containerRef.current?.scrollTo({ top: idx * viewportHeight, behavior: "instant" as ScrollBehavior });
+    });
+  }, [activeId, deepLinkSpotId, spots, viewportHeight]);
+
+  // Fallback for a deep-linked spot that ISN'T on the loaded list's first
+  // page (an old clip past the 50-item cap, or a share link to something
+  // outside whatever the global feed's ranking surfaced) — fetches it
+  // individually and splices it in at the front, same "no scroll-up, but
+  // scroll-down still works" shape a brand-new share link already had
+  // before profile mode existed. Waits for the primary load to finish
+  // (`loading` false) so it never races the list's own fetch replacing the
+  // array wholesale.
+  useEffect(() => {
+    if (!deepLinkSpotId || loading || deepLinkHandledRef.current === deepLinkSpotId) return;
+    if (spots.some((s) => s.spot_id === deepLinkSpotId)) return; // handled by the effect above instead
+    deepLinkHandledRef.current = deepLinkSpotId;
+    void fetchSpotById(deepLinkSpotId).then((spot) => {
+      if (!spot) return;
+      if (isProfileMode) insertUserSpotIfMissing(spot);
+      else insertSpotIfMissing(spot);
+      setActiveId(spot.spot_id);
+      requestAnimationFrame(() => {
+        containerRef.current?.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      });
+    });
+  }, [deepLinkSpotId, loading, spots, isProfileMode, fetchSpotById, insertSpotIfMissing, insertUserSpotIfMissing]);
 
   // Which card is "active" (the one actually playing) — the same
   // threshold-based IntersectionObserver-on-each-card pattern this screen
@@ -765,23 +877,24 @@ export function VideoFeedContent() {
   // Infinite scroll — same sentinel-in-the-scroll-container pattern
   // FeedContent.tsx's Gist feed already uses: a nearly-invisible div near
   // the end of the loaded list, watched by its own IntersectionObserver,
-  // firing loadMore() (which reads the last spot's own _feed_cursor) the
-  // moment it scrolls into view. Not rendered at all once the feed is
-  // exhausted, so a spent feed stops re-triggering fetches for content
-  // that isn't there.
+  // firing loadMore()/loadMoreUserSpots() the moment it scrolls into view.
+  // Not rendered at all once the feed is exhausted, so a spent feed stops
+  // re-triggering fetches for content that isn't there.
   useEffect(() => {
     const el = sentinelRef.current;
     const root = containerRef.current;
     if (!el || !root || exhausted) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting) void loadMore();
+        if (!entries[0]?.isIntersecting) return;
+        if (isProfileMode && profileAvitag) void loadMoreUserSpots(profileAvitag);
+        else if (!isProfileMode) void loadMore();
       },
       { root, rootMargin: "0px 0px 200% 0px" },
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [loadMore, exhausted, spots.length]);
+  }, [loadMore, loadMoreUserSpots, isProfileMode, profileAvitag, exhausted, spots.length]);
 
   // One /view call per genuine activation — fires when a card transitions
   // INTO being the active one, not on every intersection flicker or re-
@@ -796,13 +909,20 @@ export function VideoFeedContent() {
     (post: Spot) => {
       prependSpot(post);
       setComposeOpen(false);
+      // A brand-new post belongs on the real global feed, not spliced into
+      // someone else's profile-scoped list — hop back to the plain feed so
+      // it lands where it actually makes sense.
+      if (isProfileMode) {
+        router.push("/video");
+        return;
+      }
       // Jump the newly-posted clip into view once it's actually in the DOM.
       requestAnimationFrame(() => {
         containerRef.current?.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
         setActiveId(post.spot_id);
       });
     },
-    [prependSpot],
+    [prependSpot, isProfileMode, router],
   );
 
   const activeSpot = spots.find((s) => s.spot_id === commentsSpotId);
@@ -824,6 +944,35 @@ export function VideoFeedContent() {
         // useRealViewportHeight's own doc).
         style={{ height: viewportHeight ? `${viewportHeight}px` : "100dvh" }}
       >
+        {/* Only shown when this screen was reached from a profile's Spot
+            grid (see the `back` query param's own doc above) — a plain
+            global-feed visit or an external share link never carries it, so
+            this never shows there. `fixed`, not `absolute` — this needs to
+            stay pinned to the true viewport corner regardless of which
+            card's own (per-card `relative`) box happens to be the nearest
+            positioned ancestor. Left side, mirroring where a back control
+            sits everywhere else in the app (ProfileView's own header,
+            Settings) — the top-right corner is already the mute button's
+            spot. router.back(), not router.push(backHref): the grid tap
+            that opens this screen is always a real forward navigation (see
+            ProfileSpotGrid's own <Link>), so the grid is guaranteed to
+            already be the previous history entry — going back to it lets
+            Next restore that already-rendered page instantly instead of
+            treating `backHref` as a brand-new destination and re-running
+            the profile page's own server fetch from scratch (visible as a
+            fresh loading flash). `backHref` itself is still read only to
+            decide whether to show this button at all. */}
+        {backHref && (
+          <button
+            type="button"
+            onClick={() => router.back()}
+            aria-label="Back to grid"
+            className="fixed left-3 top-[calc(1.25rem+env(safe-area-inset-top,0px))] z-30 flex h-9 w-9 items-center justify-center rounded-full bg-black/40 text-white"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+        )}
+
         {loading && spots.length === 0 ? (
           // Never a bare spinner — loading starts true in spotStore's own
           // initial state (not just once fetchFeed's effect fires), so
@@ -840,7 +989,7 @@ export function VideoFeedContent() {
             <span className="font-nunito text-sm font-bold text-white">Abeg we no fit load Spot — check your connection.</span>
             <button
               type="button"
-              onClick={() => void fetchFeed()}
+              onClick={() => (isProfileMode && profileAvitag ? void fetchUserSpots(profileAvitag) : void fetchFeed())}
               className="mt-1 rounded-full bg-brand px-5 py-2.5 font-nunito text-[13px] font-extrabold text-white"
             >
               Try again
@@ -849,14 +998,21 @@ export function VideoFeedContent() {
         ) : spots.length === 0 ? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-8 text-center">
             <span className="font-nunito text-sm font-bold text-white">No Spots yet</span>
-            <span className="font-nunito text-[12.5px] text-white/60">Be the first to drop one</span>
-            <button
-              type="button"
-              onClick={() => setComposeOpen(true)}
-              className="mt-3 rounded-full bg-brand px-5 py-2.5 font-nunito text-[13px] font-extrabold text-white"
-            >
-              Record a Spot
-            </button>
+            {/* Only makes sense as an invitation on the real global feed —
+                a scoped, empty view into someone else's Spot grid isn't
+                "yours" to fill. */}
+            {!isProfileMode && (
+              <>
+                <span className="font-nunito text-[12.5px] text-white/60">Be the first to drop one</span>
+                <button
+                  type="button"
+                  onClick={() => setComposeOpen(true)}
+                  className="mt-3 rounded-full bg-brand px-5 py-2.5 font-nunito text-[13px] font-extrabold text-white"
+                >
+                  Record a Spot
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <div
@@ -901,5 +1057,27 @@ export function VideoFeedContent() {
         />
       </div>
     </AppShell>
+  );
+}
+
+/** useSearchParams() (see VideoFeedContentInner's own profile-mode doc) needs
+ * a Suspense boundary around whatever reads it — same pattern
+ * ResetPasswordForm.tsx already uses. VideoFeedSkeleton as the fallback, not
+ * null — this screen already has a purpose-built loading skeleton, so the
+ * brief gap before searchParams resolves shows that instead of a blank
+ * flash. */
+export function VideoFeedContent() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell variant="feed">
+          <div className="flex h-dvh w-full overflow-hidden bg-black">
+            <VideoFeedSkeleton />
+          </div>
+        </AppShell>
+      }
+    >
+      <VideoFeedContentInner />
+    </Suspense>
   );
 }

@@ -50,10 +50,13 @@ export async function generateMetadata({
 
 export default async function ProfilePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ avitag: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const { avitag } = await params;
+  const { tab } = await searchParams;
   // Deliberately NOT gateServer — a profile is public, same reasoning as
   // /gist/[gistId]: a guest (or a share-preview crawler) should see it with
   // no login wall, and the backend's GET /profiles/students/:avitag route
@@ -86,6 +89,7 @@ export default async function ProfilePage({
         isOwnProfile={isOwnProfile}
         initialGists={initialGists}
         initialGistTotal={initialGistTotal}
+        initialTab={tab === "spot" ? "spot" : "gist"}
       />
     </>
   );

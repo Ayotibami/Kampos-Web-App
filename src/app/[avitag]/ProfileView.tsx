@@ -19,6 +19,7 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ProfileGistCard } from "@/components/gist/ProfileGistCard";
 import { ProfileGistCardSkeleton } from "@/components/gist/ProfileGistCardSkeleton";
 import { CommentPanel } from "@/components/comment/CommentPanel";
+import { ProfileSpotGrid } from "@/components/video/ProfileSpotGrid";
 
 // See FeedContent.tsx's identical dynamic() calls for the full reasoning —
 // same controlled-dialog pattern, same split-out-of-the-main-chunk benefit.
@@ -259,6 +260,7 @@ export function ProfileView({
   isOwnProfile,
   initialGists,
   initialGistTotal,
+  initialTab = "gist",
 }: {
   avitag: string;
   profile: Profile;
@@ -267,6 +269,11 @@ export function ProfileView({
   /** The real total behind initialGists' pagination (see gist.repo.ts's
    * countByUser) — undefined only if the server-side fetch itself failed. */
   initialGistTotal?: number;
+  /** Which tab renders first — resolved server-side from `?tab=spot` (see
+   * page.tsx), so a link back from the Spot grid's own player (VideoFeedContent's
+   * "back" query param) lands on the Spot tab instead of always resetting to
+   * Gist. */
+  initialTab?: "gist" | "spot";
 }) {
   const router = useRouter();
   const byUser = useGistStore((s) => s.byUser);
@@ -293,6 +300,24 @@ export function ProfileView({
 
   const [showCreate, setShowCreate] = useState(false);
   const [avatarLightboxOpen, setAvatarLightboxOpen] = useState(false);
+  // Which content shows below the tab strip — Gist's own list (unchanged)
+  // or the Spot grid. Synced to the URL on every tab click via a plain
+  // history.replaceState (see handleTabChange below), NOT router.replace —
+  // going through Next's router would re-invoke this page's Server
+  // Component on every tab click (searchParams changing is a real
+  // navigation dependency for it), refetching profile+gists data that
+  // hasn't actually changed just to flip a client-side toggle. The direct
+  // history call keeps the URL shareable/back-button-correct without that
+  // round trip; a REAL navigation into this page with ?tab=spot (e.g. the
+  // Spot player's own back arrow) still goes through initialTab above,
+  // resolved server-side, same as today's page always has.
+  const [activeTab, setActiveTab] = useState<"gist" | "spot">(initialTab);
+  const handleTabChange = (tab: "gist" | "spot") => {
+    setActiveTab(tab);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", tab === "spot" ? `/${avitag}?tab=spot` : `/${avitag}`);
+    }
+  };
   // Start with server-fetched gists (if any) — no skeleton on first render.
   // Only fall back to a client-side fetch if the server couldn't deliver
   // (backend was down during SSR).
@@ -856,10 +881,17 @@ export function ProfileView({
                 </div>
               ) : (
                 myAvitag && (
+                  // Desktop only now — MobileTabBar's own "You" tab already
+                  // gives mobile a one-tap way back to your own profile (it
+                  // shows on every profile route, not just your own — see
+                  // its own isProfileRoute), which made this genuinely
+                  // redundant there. Desktop has no bottom nav at all
+                  // (MobileTabBar is md:hidden), so this stays the only path
+                  // back on that breakpoint.
                   <Link
                     href={`/${myAvitag}`}
                     aria-label="Your profile"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-line transition hover:ring-brand"
+                    className="hidden h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-line transition hover:ring-brand md:flex"
                   >
                     <Avatar src={myImageUrl} />
                   </Link>
@@ -1134,7 +1166,41 @@ export function ProfileView({
               read any differently here than it does on the gist page. */}
             <div className="flex min-w-0 flex-1 justify-center px-4 pb-8 sm:px-6 md:px-12">
               <div className="w-full max-w-[740px]">
-                {loadingGists ? (
+                {/* Gist | Spot — same "N Gists" heading each branch used to
+                    show unconditionally now lives inside its own branch
+                    (ProfileGistCard's below, ProfileSpotGrid's own), so
+                    switching tabs is the only thing that changes; nothing
+                    about either list's own rendering did. */}
+                <div className="mb-4 inline-flex items-center gap-1 rounded-full bg-brand/[0.06] p-1">
+                  <button
+                    type="button"
+                    onClick={() => handleTabChange("gist")}
+                    aria-pressed={activeTab === "gist"}
+                    className={`rounded-full px-5 py-1.5 font-nunito text-sm font-bold transition ${
+                      activeTab === "gist"
+                        ? "bg-brand text-white shadow-sm shadow-brand/30"
+                        : "text-muted hover:text-brand"
+                    }`}
+                  >
+                    Gist
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTabChange("spot")}
+                    aria-pressed={activeTab === "spot"}
+                    className={`rounded-full px-5 py-1.5 font-nunito text-sm font-bold transition ${
+                      activeTab === "spot"
+                        ? "bg-brand text-white shadow-sm shadow-brand/30"
+                        : "text-muted hover:text-brand"
+                    }`}
+                  >
+                    Spot
+                  </button>
+                </div>
+
+                {activeTab === "spot" ? (
+                  <ProfileSpotGrid avitag={avitag} isOwnProfile={isOwnProfile} />
+                ) : loadingGists ? (
                   <ul className="flex flex-col gap-3">
                     {SKELETON_VARIANTS.map((variant, i) => (
                       <li key={i}>
@@ -1214,7 +1280,8 @@ export function ProfileView({
               it — with only the left column left in the flex row, its own
               flex-1 + justify-center naturally reclaims the full width and
               recenters, no separate "closed" layout to maintain. */}
-            {commentsOpen &&
+            {activeTab === "gist" &&
+              commentsOpen &&
               !loadingGists &&
               !gistsError &&
               gists.length > 0 && (
