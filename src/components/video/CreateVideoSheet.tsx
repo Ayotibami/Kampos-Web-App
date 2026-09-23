@@ -71,6 +71,27 @@ function applyZoom(track: MediaStreamTrack, value: number) {
   void track.applyConstraints({ advanced: [{ zoom: value } as unknown as MediaTrackConstraintSet] }).catch(() => {});
 }
 
+/** Chrome (and other browsers) can leave a <video> pointed at a
+ * MediaRecorder blob in a broken-but-claims-fine state: readyState says 4
+ * and paused says false, but currentTime never advances and
+ * videoWidth/videoHeight report bogus tiny values (2×2, observed here) —
+ * because the blob has no duration/seek index for the demuxer to key off
+ * of, and just calling play() on it directly never resolves that. Seeking
+ * to a huge timestamp and back is the standard, widely-documented fix: it
+ * forces the browser to actually scan the file and fix up its internal
+ * duration/seek table before real playback can start. Harmless no-op for
+ * an already-well-formed file (an uploaded gallery pick already plays
+ * fine without this). */
+function unstickRecordedVideo(video: HTMLVideoElement) {
+  const onTimeUpdate = () => {
+    video.removeEventListener("timeupdate", onTimeUpdate);
+    video.currentTime = 0;
+    void video.play().catch(() => {});
+  };
+  video.addEventListener("timeupdate", onTimeUpdate);
+  video.currentTime = 1e7;
+}
+
 /** First frame of a video blob as a small JPEG data URL — used for the
  * gallery button's thumbnail once someone has picked a clip. Real thing a
  * website can never do is read the actual last photo in someone's camera
@@ -192,7 +213,7 @@ export function CreateVideoSheet({
   const postSpot = useSpotStore((s) => s.postSpot);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const liveVideoRef = useRef<HTMLVideoElement>(null);
-  const previewVideoRef = useRef<HTMLVideoElement>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
 
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -330,6 +351,62 @@ export function CreateVideoSheet({
     const track = streamRef.current?.getVideoTracks()[0];
     if (track) applyZoom(track, value);
   };
+
+  // The preview player is a plain DOM <video> created and inserted here,
+  // not JSX — confirmed empirically, many different ways (ref vs event
+  // target, declarative vs imperative src, with/without a seek-based
+  // unstick, with/without a delay before mounting, counting src
+  // assignments to rule out a double-invoke), that THIS sheet's own
+  // preview element reliably ends up stuck reporting a 2×2 video with a
+  // null duration and a frame frozen at time 0 for a recorded clip —
+  // while a brand-new element pointed at the exact same blob URL, even
+  // one inserted right next to the broken one in the identical live
+  // layout, loads correctly every single time with no exceptions found.
+  // Root mechanism not pinned down; this sidesteps it entirely by only
+  // ever using elements proven to work.
+  useEffect(() => {
+    if (step !== "preview" || !objectUrl) return;
+    const container = previewContainerRef.current;
+    if (!container) return;
+
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.loop = true;
+    // Matches the feed's own object-contain + black bed (see
+    // VideoFeedContent) so this preview is a true WYSIWYG of how the clip
+    // will actually appear once posted — cropping here and letterboxing
+    // there would be a lying preview.
+    video.className = "absolute inset-0 h-full w-full bg-black object-contain";
+    const onLoadedMetadata = () => {
+      unstickRecordedVideo(video);
+      // For a recorded clip, `duration` is already the real measured value
+      // (trustedDurationRef, set in onstop) — skip this rather than let it
+      // overwrite that with whatever a MediaRecorder blob's still-missing
+      // duration header resolves to (commonly null/Infinity, but browsers
+      // vary, and any bogus value here previously made a several-second
+      // recording falsely trip the "over 5 minutes" warning below). An
+      // uploaded file has no such ground truth, so it's the only case this
+      // is trusted for.
+      if (!trustedDurationRef.current && Number.isFinite(video.duration)) {
+        setDuration(video.duration);
+      }
+    };
+    const onTimeUpdate = () => setCurrentTime(video.currentTime);
+    video.addEventListener("loadedmetadata", onLoadedMetadata);
+    video.addEventListener("timeupdate", onTimeUpdate);
+    container.appendChild(video);
+    video.src = objectUrl;
+
+    return () => {
+      video.removeEventListener("loadedmetadata", onLoadedMetadata);
+      video.removeEventListener("timeupdate", onTimeUpdate);
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+      video.remove();
+    };
+  }, [step, objectUrl]);
 
   const handleStartRecording = () => {
     const stream = streamRef.current;
@@ -654,34 +731,14 @@ export function CreateVideoSheet({
           </div>
         ) : (
           <div className="relative h-full w-full bg-black">
-            <video
-              ref={previewVideoRef}
-              src={objectUrl ?? undefined}
-              // Matches the feed's own object-contain + black bed (see
-              // VideoFeedContent) so this preview is a true WYSIWYG of how
-              // the clip will actually appear once posted — cropping here
-              // and letterboxing there would be a lying preview.
-              className="absolute inset-0 h-full w-full bg-black object-contain"
-              autoPlay
-              loop
-              muted
-              playsInline
-              // For a recorded clip, `duration` is already the real
-              // measured value (trustedDurationRef, set in onstop above) —
-              // skip this entirely rather than let it overwrite that with
-              // whatever a MediaRecorder blob's still-missing duration
-              // header resolves to (commonly Infinity, but browsers vary,
-              // and any bogus large-but-finite value here previously made
-              // a several-second recording falsely trip the "over 5
-              // minutes" warning below). An uploaded file has no such
-              // ground truth, so it's the only case this is trusted for.
-              onLoadedMetadata={(e) => {
-                if (trustedDurationRef.current) return;
-                const d = e.currentTarget.duration;
-                if (Number.isFinite(d)) setDuration(d);
-              }}
-              onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-            />
+            {/* Not a JSX <video> — see the effect above for why: this
+                sheet's own preview element reliably got stuck reporting a
+                2×2 video with no duration for a recorded clip (confirmed
+                empirically many different ways), while a brand-new element
+                created fresh and pointed at the exact same blob URL always
+                loaded correctly, every time, no exceptions found. This
+                container just holds whatever that effect creates. */}
+            <div ref={previewContainerRef} className="absolute inset-0 h-full w-full bg-black" />
 
             <div className="absolute inset-x-4 z-10 flex items-center justify-between top-[calc(1rem+env(safe-area-inset-top,0px))]">
               <button
