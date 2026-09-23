@@ -802,7 +802,25 @@ export function CreateVideoSheet({
               </button>
             )}
 
-            <div className="absolute inset-x-4 top-[calc(0.75rem+env(safe-area-inset-top,0px))] z-10">
+            {/* Close sits alone, isolated at the very top — matching where
+                it sits on the camera step, so the same control lands in the
+                same spot across both steps. Playback (the scrub bar) comes
+                next, then Retake/Mute share one row below it — Retake on
+                the left, Mute on the right, layout-guaranteed spacing via
+                justify-between rather than independent absolute offsets. */}
+            <div className="absolute inset-x-4 top-[calc(1rem+env(safe-area-inset-top,0px))] z-10 flex justify-end">
+              <button
+                type="button"
+                onClick={handleClose}
+                disabled={posting}
+                aria-label="Close"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md disabled:opacity-40"
+              >
+                <X className="h-4 w-4" strokeWidth={2.5} />
+              </button>
+            </div>
+
+            <div className="absolute inset-x-4 top-[calc(2.75rem+env(safe-area-inset-top,0px))] z-10">
               <input
                 type="range"
                 min={0}
@@ -821,13 +839,7 @@ export function CreateVideoSheet({
               </div>
             </div>
 
-            {/* One flex row for all three top controls — Retake, Mute,
-                Close share layout-guaranteed spacing via gap/justify-between
-                instead of each being positioned by an independent absolute
-                offset, which is exactly what let the mute button drift
-                into the retake button's space depending on viewport
-                height. */}
-            <div className="absolute inset-x-4 top-[calc(2.75rem+env(safe-area-inset-top,0px))] z-10 flex items-center justify-between">
+            <div className="absolute inset-x-4 top-[calc(4.75rem+env(safe-area-inset-top,0px))] z-10 flex items-center justify-between">
               <button
                 type="button"
                 onClick={discardPreview}
@@ -837,35 +849,24 @@ export function CreateVideoSheet({
                 <RefreshCw className="h-3.5 w-3.5" />
                 Retake
               </button>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={togglePreviewMute}
-                  aria-label={previewMuted ? "Unmute" : "Mute"}
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md"
-                >
-                  {previewMuted ? <MuteIconFill className="h-3.5 w-3.5" weight="fill" /> : <VolumeIconFill className="h-3.5 w-3.5" weight="fill" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleClose}
-                  disabled={posting}
-                  aria-label="Close"
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md disabled:opacity-40"
-                >
-                  <X className="h-3.5 w-3.5" strokeWidth={2.5} />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={togglePreviewMute}
+                aria-label={previewMuted ? "Unmute" : "Mute"}
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md"
+              >
+                {previewMuted ? <MuteIconFill className="h-3.5 w-3.5" weight="fill" /> : <VolumeIconFill className="h-3.5 w-3.5" weight="fill" />}
+              </button>
             </div>
 
             {duration > MAX_DURATION_SECONDS && (
-              <div className="absolute inset-x-4 top-[calc(4.75rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
+              <div className="absolute inset-x-4 top-[calc(6.5rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
                 That's over {MAX_DURATION_SECONDS / 60} minutes — trim it before posting.
               </div>
             )}
 
             {error && (
-              <div className="absolute inset-x-4 top-[calc(4.75rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
+              <div className="absolute inset-x-4 top-[calc(6.5rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
                 {error}
               </div>
             )}
