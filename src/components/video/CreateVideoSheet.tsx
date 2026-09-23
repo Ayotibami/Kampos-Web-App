@@ -1080,7 +1080,7 @@ export function CreateVideoSheet({
 
             {trimEnd - trimStart > MAX_DURATION_SECONDS && (
               <div className="absolute inset-x-4 top-[calc(6rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
-                That's over {MAX_DURATION_SECONDS / 60} minutes — drag the trim handles closer together before posting.
+                That&apos;s over {MAX_DURATION_SECONDS / 60} minutes — drag the trim handles closer together before posting.
               </div>
             )}
 
