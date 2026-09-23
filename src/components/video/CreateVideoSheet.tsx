@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import {
   X,
@@ -24,6 +24,9 @@ const CAPTION_MAX_LEN = 220;
 // same pattern as CommentComposer's COMPOSER_MAX_HEIGHT, just a shorter
 // ceiling since captions here cap out at 220 characters vs. a full comment.
 const CAPTION_MAX_HEIGHT = 120;
+// Floor on the selected trim range — without this, dragging both handles
+// to the same point would select a zero-length (unplayable) clip.
+const MIN_TRIM_SECONDS = 1;
 
 // Heading shown over the live camera before recording starts — picked once
 // per sheet-open, not rotated while it's on screen (same pattern as
@@ -205,6 +208,145 @@ function RecordingProgressRing({ elapsed, max }: { elapsed: number; max: number 
 }
 
 /**
+ * Dual-handle trim range selector, drawn over the clip's full duration.
+ * Dragging either handle live-scrubs the preview to that exact frame (so
+ * you can actually see what you're cutting to, not just watch numbers
+ * change) and pauses playback for the duration of the drag; releasing
+ * resumes play from the new start. The region between the handles is the
+ * part that actually gets posted — everything outside it is dimmed.
+ */
+function TrimBar({
+  duration,
+  trimStart,
+  trimEnd,
+  currentTime,
+  onTrimChange,
+  onScrubPreview,
+  onDragStateChange,
+}: {
+  duration: number;
+  trimStart: number;
+  trimEnd: number;
+  currentTime: number;
+  onTrimChange: (start: number, end: number) => void;
+  onScrubPreview: (time: number) => void;
+  onDragStateChange: (dragging: boolean) => void;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef<"start" | "end" | null>(null);
+
+  const timeFromClientX = useCallback(
+    (clientX: number) => {
+      const rect = trackRef.current?.getBoundingClientRect();
+      if (!rect || !duration) return 0;
+      const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      return frac * duration;
+    },
+    [duration],
+  );
+
+  const handlePointerDown = useCallback(
+    (which: "start" | "end") => (e: React.PointerEvent) => {
+      e.stopPropagation();
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      draggingRef.current = which;
+      onDragStateChange(true);
+    },
+    [onDragStateChange],
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!draggingRef.current) return;
+      e.stopPropagation();
+      const t = timeFromClientX(e.clientX);
+      if (draggingRef.current === "start") {
+        const nextStart = Math.max(0, Math.min(t, trimEnd - MIN_TRIM_SECONDS));
+        onTrimChange(nextStart, trimEnd);
+        onScrubPreview(nextStart);
+      } else {
+        const nextEnd = Math.min(duration, Math.max(t, trimStart + MIN_TRIM_SECONDS));
+        onTrimChange(trimStart, nextEnd);
+        onScrubPreview(nextEnd);
+      }
+    },
+    [duration, trimStart, trimEnd, timeFromClientX, onTrimChange, onScrubPreview],
+  );
+
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (!draggingRef.current) return;
+      e.stopPropagation();
+      draggingRef.current = null;
+      onDragStateChange(false);
+    },
+    [onDragStateChange],
+  );
+
+  const startPct = duration ? (trimStart / duration) * 100 : 0;
+  const endPct = duration ? (trimEnd / duration) * 100 : 100;
+  const playheadPct = duration ? (Math.min(Math.max(currentTime, trimStart), trimEnd) / duration) * 100 : 0;
+
+  return (
+    <div className="select-none">
+      <div
+        ref={trackRef}
+        className="relative h-8 w-full touch-none"
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+      >
+        <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/15" />
+        <div
+          className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-l-full bg-black/55"
+          style={{ left: 0, width: `${startPct}%` }}
+        />
+        <div
+          className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-r-full bg-black/55"
+          style={{ right: 0, width: `${100 - endPct}%` }}
+        />
+        <div
+          className="absolute top-1/2 h-1.5 -translate-y-1/2 bg-gradient-to-r from-brand-accent to-brand"
+          style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}
+        />
+        <div
+          className="pointer-events-none absolute top-0 z-10 h-8 w-[2px] -translate-x-1/2 rounded-full bg-white shadow-[0_0_3px_rgba(0,0,0,0.6)]"
+          style={{ left: `${playheadPct}%` }}
+        />
+        {/* Handles: a generous 28px hit target (touch-friendly, matching
+            this app's other drag controls) around a slimmer visible grip,
+            not a hit area limited to what's actually painted. */}
+        <button
+          type="button"
+          aria-label="Trim start"
+          onPointerDown={handlePointerDown("start")}
+          className="absolute top-0 z-20 flex h-8 w-7 -translate-x-1/2 cursor-ew-resize touch-none items-center justify-center rounded-full bg-white shadow-md"
+          style={{ left: `${startPct}%` }}
+        >
+          <span className="h-3.5 w-[3px] rounded-full bg-brand" />
+        </button>
+        <button
+          type="button"
+          aria-label="Trim end"
+          onPointerDown={handlePointerDown("end")}
+          className="absolute top-0 z-20 flex h-8 w-7 -translate-x-1/2 cursor-ew-resize touch-none items-center justify-center rounded-full bg-white shadow-md"
+          style={{ left: `${endPct}%` }}
+        >
+          <span className="h-3.5 w-[3px] rounded-full bg-brand" />
+        </button>
+      </div>
+      <div className="mt-1.5 flex items-center justify-between">
+        <span className="font-nunito text-[10px] font-bold tabular-nums text-white/60">{formatTime(trimStart)}</span>
+        <span className="rounded-full bg-brand/25 px-2 py-0.5 font-nunito text-[10px] font-extrabold tabular-nums text-brand-accent">
+          {formatTime(trimEnd - trimStart)} selected
+        </span>
+        <span className="font-nunito text-[10px] font-bold tabular-nums text-white/60">{formatTime(trimEnd)}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Posting flow for the Spot tab — a live, in-sheet camera by default (same
  * getUserMedia technique as Gist's WebcamCapture, extended here from a photo
  * snapshot to a real MediaRecorder video capture), with switching to the
@@ -282,6 +424,17 @@ export function CreateVideoSheet({
   // tap to actually hear the clip. Previously there was no way to unmute
   // the preview at all, so there was no way to confirm audio recorded.
   const [previewMuted, setPreviewMuted] = useState(true);
+  // Selected [trimStart, trimEnd] range within the clip — starts as the
+  // full clip (see the reset effect below) until the user actually drags a
+  // handle. Refs mirror these for the imperative video-loop effect further
+  // down, which can't have trimStart/trimEnd in its own dependency array
+  // without recreating the whole <video> element on every drag frame.
+  const [trimStart, setTrimStart] = useState(0);
+  const [trimEnd, setTrimEnd] = useState(0);
+  const [trimming, setTrimming] = useState(false);
+  const trimStartRef = useRef(0);
+  const trimEndRef = useRef(0);
+  const trimReadyForUrlRef = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const [uploadPercent, setUploadPercent] = useState(0);
@@ -296,12 +449,16 @@ export function CreateVideoSheet({
   const discardPreview = () => {
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     trustedDurationRef.current = false;
+    trimReadyForUrlRef.current = null;
     setFile(null);
     setFileName("");
     setObjectUrl(null);
     setCaption("");
     setDuration(0);
     setCurrentTime(0);
+    setTrimStart(0);
+    setTrimEnd(0);
+    setTrimming(false);
     setError(null);
     setPosting(false);
     setUploadPercent(0);
@@ -315,6 +472,26 @@ export function CreateVideoSheet({
     setRecordedSeconds(0);
     setLastPickedThumbUrl(null);
   };
+
+  // Initializes trim to the clip's full range exactly once per NEW clip —
+  // guarded by URL, not just "duration > 0", so it doesn't keep resetting
+  // an in-progress trim selection if `duration` happens to tick again for
+  // the SAME clip (e.g. a later, more accurate value replacing an initial
+  // guess).
+  useEffect(() => {
+    if (!objectUrl || duration <= 0) return;
+    if (trimReadyForUrlRef.current === objectUrl) return;
+    trimReadyForUrlRef.current = objectUrl;
+    setTrimStart(0);
+    setTrimEnd(duration);
+  }, [objectUrl, duration]);
+
+  useEffect(() => {
+    trimStartRef.current = trimStart;
+  }, [trimStart]);
+  useEffect(() => {
+    trimEndRef.current = trimEnd;
+  }, [trimEnd]);
 
   useEffect(() => {
     if (!open) {
@@ -418,7 +595,18 @@ export function CreateVideoSheet({
         setDuration(video.duration);
       }
     };
-    const onTimeUpdate = () => setCurrentTime(video.currentTime);
+    const onTimeUpdate = () => {
+      setCurrentTime(video.currentTime);
+      // Loop within the SELECTED range, not just the clip's full native
+      // end — trimEndRef/trimStartRef (not trimEnd/trimStart directly) so
+      // this handler, defined once per clip, always reads the latest
+      // dragged values without needing this whole effect (and the <video>
+      // element it creates) to be recreated every time a handle moves.
+      const end = trimEndRef.current;
+      if (end > 0 && video.currentTime >= end) {
+        video.currentTime = trimStartRef.current;
+      }
+    };
     const onPlay = () => setPreviewPaused(false);
     const onPause = () => setPreviewPaused(true);
     video.addEventListener("loadedmetadata", onLoadedMetadata);
@@ -459,6 +647,24 @@ export function CreateVideoSheet({
     const video = previewVideoElRef.current;
     if (video) video.currentTime = value;
     setCurrentTime(value);
+  };
+
+  const handleTrimChange = (start: number, end: number) => {
+    setTrimStart(start);
+    setTrimEnd(end);
+  };
+
+  // Pauses for the duration of a handle drag (fighting the loop logic
+  // above while scrubbing would fight the drag itself) and resumes
+  // wherever the drag left the playhead once released — it naturally
+  // loops back to the new trimStart on its own the next time it reaches
+  // trimEnd, so there's no need to force a seek back to the start here.
+  const handleTrimDragStateChange = (dragging: boolean) => {
+    setTrimming(dragging);
+    const video = previewVideoElRef.current;
+    if (!video) return;
+    if (dragging) video.pause();
+    else void video.play().catch(() => {});
   };
 
   // Grows the caption textarea to fit its content, up to CAPTION_MAX_HEIGHT
@@ -594,8 +800,18 @@ export function CreateVideoSheet({
     setPosting(true);
     setError(null);
     setUploadPercent(0);
+    // A tolerance, not an exact-zero check — floats drift, and the goal is
+    // "did the user actually move a handle," not "is this bit-identical to
+    // the untouched default."
+    const isTrimmed = trimStart > 0.05 || trimEnd < duration - 0.05;
     try {
-      const spot = await postSpot(file, fileName || "spot.mp4", caption, setUploadPercent);
+      const spot = await postSpot(
+        file,
+        fileName || "spot.mp4",
+        caption,
+        setUploadPercent,
+        isTrimmed ? { start: trimStart, end: trimEnd } : undefined,
+      );
       onPosted(spot);
       // Ownership of the local preview ends here on success — the feed now
       // has the real, Cloudinary-hosted spot. reset() (via the `open`
@@ -607,6 +823,8 @@ export function CreateVideoSheet({
       setCaption("");
       setDuration(0);
       setCurrentTime(0);
+      setTrimStart(0);
+      setTrimEnd(0);
       setPosting(false);
       setUploadPercent(0);
     } catch (err) {
@@ -860,9 +1078,9 @@ export function CreateVideoSheet({
               </button>
             </div>
 
-            {duration > MAX_DURATION_SECONDS && (
+            {trimEnd - trimStart > MAX_DURATION_SECONDS && (
               <div className="absolute inset-x-4 top-[calc(6rem+env(safe-area-inset-top,0px))] z-10 rounded-xl bg-danger/90 px-3 py-2 font-nunito text-[12px] font-semibold text-white">
-                That's over {MAX_DURATION_SECONDS / 60} minutes — trim it before posting.
+                That's over {MAX_DURATION_SECONDS / 60} minutes — drag the trim handles closer together before posting.
               </div>
             )}
 
@@ -873,24 +1091,20 @@ export function CreateVideoSheet({
             )}
 
             <div className="absolute inset-x-3 bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] z-10 flex flex-col gap-4">
-              <div>
-                <input
-                  type="range"
-                  min={0}
-                  max={Math.max(duration, 0.1)}
-                  step={0.01}
-                  value={Math.min(currentTime, duration || 0)}
-                  onChange={(e) => handleScrub(Number(e.target.value))}
-                  aria-label="Seek"
-                  className="h-1 w-full cursor-pointer accent-brand"
-                />
-                <div className="mt-1 flex items-center justify-between">
-                  <span className="font-nunito text-[10px] font-bold tabular-nums text-white/60">{formatTime(currentTime)}</span>
-                  <span className="font-nunito text-[10px] font-bold tabular-nums text-white/60">
-                    {formatTime(Math.min(duration, MAX_DURATION_SECONDS))}
-                  </span>
-                </div>
-              </div>
+              {trimming && (
+                <span className="self-center rounded-full bg-black/70 px-3 py-1 font-nunito text-[11px] font-extrabold tabular-nums text-white backdrop-blur-md">
+                  {formatTime(currentTime)}
+                </span>
+              )}
+              <TrimBar
+                duration={duration}
+                trimStart={trimStart}
+                trimEnd={trimEnd || duration}
+                currentTime={currentTime}
+                onTrimChange={handleTrimChange}
+                onScrubPreview={handleScrub}
+                onDragStateChange={handleTrimDragStateChange}
+              />
               <div className="flex flex-col gap-1.5 rounded-2xl bg-white/10 px-3.5 py-3 ring-1 ring-white/15 backdrop-blur-md">
                 <textarea
                   ref={captionRef}
@@ -913,7 +1127,7 @@ export function CreateVideoSheet({
               <button
                 type="button"
                 onClick={() => void handlePost()}
-                disabled={duration > MAX_DURATION_SECONDS || posting}
+                disabled={trimEnd - trimStart > MAX_DURATION_SECONDS || posting}
                 className="flex min-w-[136px] items-center justify-center gap-1.5 self-end rounded-full bg-brand px-6 py-2.5 font-nunito text-[13px] font-extrabold text-white shadow-lg shadow-brand/40 disabled:opacity-70"
               >
                 {posting ? (

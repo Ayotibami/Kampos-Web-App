@@ -125,7 +125,13 @@ interface SpotState {
   share: (spotId: string, platform?: string) => Promise<void>;
   report: (spotId: string, reason?: string) => Promise<void>;
   recordView: (spotId: string) => void;
-  postSpot: (file: Blob, filename: string, caption: string, onProgress?: (percent: number) => void) => Promise<Spot>;
+  postSpot: (
+    file: Blob,
+    filename: string,
+    caption: string,
+    onProgress?: (percent: number) => void,
+    trim?: { start: number; end: number },
+  ) => Promise<Spot>;
   prependSpot: (spot: Spot) => void;
 }
 
@@ -323,7 +329,7 @@ export const useSpotStore = create<SpotState>((set, get) => ({
     set((s) => ({ spots: [normalizeSpot(spot), ...s.spots] }));
   },
 
-  postSpot: async (file, filename, caption, onProgress) => {
+  postSpot: async (file, filename, caption, onProgress, trim) => {
     let spotId: string;
     try {
       const res = await api.post<ApiEnvelope<{ spot_id: string }>>("/spots/draft");
@@ -363,6 +369,10 @@ export const useSpotStore = create<SpotState>((set, get) => ({
         width: result.width,
         height: result.height,
         caption: caption.trim() || undefined,
+        // The uploaded bytes are always the untrimmed clip — trim is a
+        // delivery-time Cloudinary transform the backend applies to the
+        // stored media_url, never a second re-encoded upload.
+        ...(trim ? { trim_start: trim.start, trim_end: trim.end } : {}),
       });
       const finalized = res.data?.data;
       if (!finalized) throw new Error("No spot returned");
