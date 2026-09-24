@@ -66,6 +66,7 @@ const SUCCESS_COPY: Record<GistActionSuccess, string> = {
 const FAILURE_COPY: Record<GistActionFailure, string> = {
   created: "We were not able to create your gist, please try again",
   edited: "We were not able to save your changes, please try again",
+  deleted: "We were not able to delete that gist — it's back, please try again",
 };
 
 const SPOT_SUCCESS_COPY: Record<SpotActionSuccess, string> = {

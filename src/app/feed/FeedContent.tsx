@@ -825,6 +825,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                             onDeleted={(gistId) =>
                               setGists((prev) => prev.filter((gg) => gg.gist_id !== gistId))
                             }
+                            onDeleteFailed={(gist) => setGists((prev) => [gist, ...prev])}
                             onEdited={(fresh) =>
                               setGists((prev) =>
                                 prev.map((gg) => (gg.gist_id === fresh.gist_id ? fresh : gg)),

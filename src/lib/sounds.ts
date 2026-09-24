@@ -23,7 +23,6 @@ export type SoundName = keyof typeof SOUND_FILES;
 
 let audioContext: AudioContext | null = null;
 const buffers = new Map<SoundName, AudioBuffer>();
-let loaded = false;
 let loadPromise: Promise<void> | null = null;
 
 function getContext(): AudioContext | null {
@@ -57,7 +56,6 @@ async function loadAll(): Promise<void> {
       }
     }),
   );
-  loaded = true;
 }
 
 /**
@@ -87,22 +85,41 @@ export function playSound(name: SoundName): void {
 
   const ctx = getContext();
   if (!ctx) return;
-  // iOS/Safari start the context suspended until a real user gesture
-  // resumes it — every playSound() call IS one (it only ever fires from a
-  // click/tap handler), so this just makes sure playback actually starts
-  // rather than silently no-op'ing on the very first tap of a session.
-  if (ctx.state === "suspended") void ctx.resume();
 
-  const buffer = buffers.get(name);
-  if (!buffer) {
-    // Not loaded yet (preloadSounds() still in flight, or never called on
-    // this page) — kick off loading so sound still works from here on,
-    // just not on this specific tap.
-    if (!loaded) void loadAll();
-    return;
+  const fireWith = (buffer: AudioBuffer) => {
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start(0);
+  };
+
+  const play = () => {
+    const buffer = buffers.get(name);
+    if (buffer) {
+      fireWith(buffer);
+      return;
+    }
+    // Not decoded yet (preloadSounds() still in flight, or never called on
+    // this page) — chain onto that same load and play the instant it's
+    // ready, rather than silently skipping this specific tap's sound.
+    const promise = loadPromise ?? (loadPromise = loadAll());
+    void promise.then(() => {
+      const ready = buffers.get(name);
+      if (ready) fireWith(ready);
+    });
+  };
+
+  // iOS/Safari (and Chrome, until the first real gesture) leave the
+  // context suspended — scheduling a source with start(0) while it's
+  // still suspended doesn't make it audible until resume() completes, so
+  // its real playback time ends up however long that async round trip
+  // happens to take, not synced to this call at all. Waiting for resume()
+  // to actually finish before scheduling is what closes that gap; once
+  // resumed (true for every tap after the very first one in a session),
+  // this stays fully synchronous, zero added latency.
+  if (ctx.state === "suspended") {
+    void ctx.resume().then(play);
+  } else {
+    play();
   }
-  const source = ctx.createBufferSource();
-  source.buffer = buffer;
-  source.connect(ctx.destination);
-  source.start(0);
 }

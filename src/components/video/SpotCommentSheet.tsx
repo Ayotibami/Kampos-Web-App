@@ -77,10 +77,15 @@ function SpotCommentBubble({
 
   const handleConfirmDelete = async () => {
     setDeleting(true);
+    // removeSpotComment() now removes the bubble optimistically (and rolls
+    // back on failure), so the sound can fire right here instead of
+    // waiting on the network. The confirm modal itself still only closes
+    // on success below, deliberately — see the catch block's own doc on
+    // why it stays open on failure.
+    playSound("delete");
     try {
       await onDelete();
       setShowDeleteConfirm(false);
-      playSound("delete");
     } catch {
       // Failure is surfaced by the sheet's own shared ErrorModal — just
       // stop spinning and leave the confirm modal open so the author/admin
@@ -248,12 +253,16 @@ export function SpotCommentSheet({
     if (!requireAuth("leave a comment")) return;
     setSending(true);
     setSendError(undefined);
+    // spotStore.addComment() now shows the comment optimistically, so the
+    // sound can fire right here, alongside that instant insert, instead of
+    // waiting for the network. The draft itself still only clears on real
+    // success below — same reasoning Gist's CommentComposer gives.
+    playSound("whoosh");
     try {
       await addComment(spotId, trimmed);
       // Clears only on success — a failed send leaves the draft intact so
       // nothing typed is lost, same as Gist's CommentComposer.
       setText("");
-      playSound("whoosh");
     } catch (err) {
       setSendError(apiErrorMessage(err, "Failed to post comment — try again"));
     } finally {
@@ -267,6 +276,12 @@ export function SpotCommentSheet({
   const handleReact = (comment: SpotComment) => {
     if (!requireAuth("react to comments")) return;
     if (!spotId) return;
+    // Same reasoning Gist's own handleCommentReact guard uses: this
+    // comment doesn't have a real id on the server yet (still-pending
+    // optimistic placeholder — see spotStore's buildOptimisticSpotComment),
+    // so reacting to it right now would just 404 against an id that
+    // doesn't exist anywhere but this tab.
+    if (comment.comment_id.startsWith("offline-")) return;
     if (comment.my_reaction) void unreactSpotComment(spotId, comment.comment_id);
     else {
       void reactSpotComment(spotId, comment.comment_id);

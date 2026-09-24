@@ -17,7 +17,7 @@ import { ReportModal } from "./ReportModal";
 import { ShareModal } from "./ShareModal";
 import { ErrorModal, ConfirmModal } from "@/components/ui/FeedbackModal";
 import { apiErrorMessage } from "@/lib/api";
-import { useGistStore, isPendingGistId } from "@/stores/gistStore";
+import { useGistStore, isPendingGistId, notifyActionSucceeded, notifyActionFailed } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { requireAuth } from "@/lib/requireAuth";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -87,6 +87,7 @@ export const FeedGistCard = memo(function FeedGistCard({
   active,
   onToggleComments,
   onDeleted,
+  onDeleteFailed,
   onEdited,
   onReposted,
 }: {
@@ -103,7 +104,15 @@ export const FeedGistCard = memo(function FeedGistCard({
    * panel is open at all and which gist it's showing, this card doesn't
    * track that itself. */
   onToggleComments?: () => void;
+  /** Fires the instant delete is confirmed, before the request even goes
+   * out — this card's own gist_id is no longer in the feed's list from
+   * this point, so this instance unmounts almost immediately after. */
   onDeleted?: (gistId: string) => void;
+  /** Fires if that delete then actually fails — the feed re-inserts the
+   * gist it just optimistically removed. Failure itself is announced via
+   * a global toast (notifyActionFailed), not a local error state, since
+   * this component is already unmounted by the time this fires. */
+  onDeleteFailed?: (gist: Gist) => void;
   onEdited?: (gist: Gist) => void;
   /** Fires with the fresh Yarn back gist once it's actually posted — the
    * feed owns prepending it to what's visible, same reasoning as onEdited
@@ -128,7 +137,6 @@ export const FeedGistCard = memo(function FeedGistCard({
   const [deleting, setDeleting] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [reportError, setReportError] = useState<string>();
-  const [deleteError, setDeleteError] = useState<string>();
   const [reactError, setReactError] = useState<string>();
   const [overlayIndex, setOverlayIndex] = useState<number | null>(null);
   const [overlayStartTime, setOverlayStartTime] = useState(0);
@@ -214,9 +222,11 @@ export const FeedGistCard = memo(function FeedGistCard({
     const isFirstReaction = localReaction === null;
     setLocalReaction(type);
     if (isFirstReaction) setReactionDelta((d) => d + 1);
+    // Fires right alongside the optimistic update above, not after the
+    // network round trip — the tap itself is "the action performed".
+    playSound("pop");
     try {
       await reactGist(gist.gist_id, type);
-      playSound("pop");
     } catch (err) {
       setLocalReaction(gist.my_reaction ?? null);
       if (isFirstReaction) setReactionDelta((d) => d - 1);
@@ -354,13 +364,20 @@ export const FeedGistCard = memo(function FeedGistCard({
 
   const handleDelete = async () => {
     setDeleting(true);
+    // Fires immediately — the feed drops this gist from its list right
+    // away, so this instance unmounts almost immediately after. The sound
+    // fires right alongside it instead of waiting on the network.
+    onDeleted?.(gist.gist_id);
+    playSound("delete");
     try {
       await removeGist(gist.gist_id);
-      setShowDeleteConfirm(false);
-      onDeleted?.(gist.gist_id);
-      playSound("delete");
-    } catch (err) {
-      setDeleteError(apiErrorMessage(err, "Failed to delete this gist"));
+      notifyActionSucceeded("deleted");
+    } catch {
+      // This component is already unmounted (or about to be) by now, so a
+      // local error state would never actually be seen — the feed
+      // re-inserts the gist and a global toast explains what happened.
+      onDeleteFailed?.(gist);
+      notifyActionFailed("deleted");
     } finally {
       setDeleting(false);
     }
@@ -804,11 +821,6 @@ export const FeedGistCard = memo(function FeedGistCard({
         open={!!reportError}
         onClose={() => setReportError(undefined)}
         message={reportError}
-      />
-      <ErrorModal
-        open={!!deleteError}
-        onClose={() => setDeleteError(undefined)}
-        message={deleteError}
       />
       <ErrorModal
         open={!!reactError}

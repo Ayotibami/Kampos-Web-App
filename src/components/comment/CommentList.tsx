@@ -340,8 +340,12 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
     try {
       if (alreadyReacted) await unreactComment(commentId, gistId);
       else {
-        await reactComment(commentId, gistId, "LOVE");
+        // Fires immediately, before the await — reactComment's own
+        // optimistic update happens synchronously the instant it's called
+        // too, so this plays right alongside the tap, not after the
+        // network round trip inside reactComment resolves.
         playSound("pop");
+        await reactComment(commentId, gistId, "LOVE");
       }
     } catch (err) {
       setActionError(apiErrorMessage(err, "Failed to react — try again"));
@@ -354,9 +358,12 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
   // calling CommentBubble too, so its confirm modal knows to stop
   // spinning (and stay open) rather than silently closing on a failure.
   const handleCommentDelete = async (commentId: string, gistId: string) => {
+    // commentStore.remove() now removes the bubble optimistically (and
+    // rolls back on failure), so the sound can fire right here, alongside
+    // that instant removal, instead of waiting for the network.
+    playSound("delete");
     try {
       await remove(commentId, gistId);
-      playSound("delete");
     } catch (err) {
       setActionError(apiErrorMessage(err, "Failed to delete comment"));
       throw err;

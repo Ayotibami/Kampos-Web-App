@@ -498,6 +498,14 @@ export function ProfileView({
     setGists((prev) => prev.filter((g) => g.gist_id !== gistId));
     setGistTotal((t) => Math.max(0, t - 1));
   };
+  // Fires if that delete then actually fails — undoes exactly what
+  // handleGistDeleted just did (re-insert, restore the count), same
+  // "revert this specific call's own change" reasoning every optimistic
+  // action already follows.
+  const handleGistDeleteFailed = (gist: Gist) => {
+    setGists((prev) => [gist, ...prev]);
+    setGistTotal((t) => t + 1);
+  };
   const handleGistEdited = (fresh: Gist) =>
     setGists((prev) =>
       prev.map((g) => (g.gist_id === fresh.gist_id ? fresh : g)),
@@ -1246,6 +1254,7 @@ export function ProfileView({
                               handleToggleComments(g.gist_id)
                             }
                             onDeleted={handleGistDeleted}
+                            onDeleteFailed={handleGistDeleteFailed}
                             onEdited={handleGistEdited}
                             onReposted={handleGistReposted}
                           />

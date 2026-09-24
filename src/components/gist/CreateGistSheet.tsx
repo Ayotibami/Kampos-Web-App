@@ -769,6 +769,9 @@ export function CreateGistSheet({
         const fresh = await getGist(gistId).catch(() => undefined);
         reset();
         if (fresh) onPosted?.(fresh, "edited");
+        // No optimistic UI for an edit — the sheet stays open through the
+        // whole upload/save chain, so the sound waits for it to actually
+        // finish rather than promising "done" while it's still posting.
         playSound("whoosh");
         notifyActionSucceeded("edited");
         onClose();

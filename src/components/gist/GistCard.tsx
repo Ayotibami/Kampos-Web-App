@@ -17,7 +17,7 @@ import { ReportModal } from "./ReportModal";
 import { ShareModal } from "./ShareModal";
 import { ErrorModal, ConfirmModal } from "@/components/ui/FeedbackModal";
 import { apiErrorMessage } from "@/lib/api";
-import { useGistStore, isPendingGistId } from "@/stores/gistStore";
+import { useGistStore, isPendingGistId, notifyActionSucceeded, notifyActionFailed } from "@/stores/gistStore";
 import { useAuthStore } from "@/stores/authStore";
 import { requireAuth } from "@/lib/requireAuth";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -85,6 +85,7 @@ export const GistCard = memo(function GistCard({
   showCampusTag = true,
   onOverlayOpenChange,
   onDeleted,
+  onDeleteFailed,
   onEdited,
   onNext,
   onPrev,
@@ -109,9 +110,16 @@ export const GistCard = memo(function GistCard({
    * the stack above knows to stop treating keyboard/wheel as "switch gist"
    * while it's up — those should drive the overlay's own media instead. */
   onOverlayOpenChange?: (open: boolean) => void;
-  /** Fires after a successful delete — the stack owns the gist list, not
-   * this card, so it has to be told to actually remove it. */
+  /** Fires the instant delete is confirmed, before the request even goes
+   * out — the stack owns the gist list, not this card, so it has to be
+   * told to actually remove it. This card's own instance unmounts almost
+   * immediately after, once its gist_id is no longer in that list. */
   onDeleted?: (gistId: string) => void;
+  /** Fires if that delete then actually fails — the stack re-inserts the
+   * gist it just optimistically removed. Failure itself is announced via
+   * a global toast (notifyActionFailed), not a local error state, since
+   * this component is already unmounted by the time this fires. */
+  onDeleteFailed?: (gist: Gist) => void;
   /** Fires after a successful edit with the fresh gist — same reasoning as
    * onDeleted, the parent's list is what actually needs updating, not this
    * card's own local props. */
@@ -176,7 +184,6 @@ export const GistCard = memo(function GistCard({
   const [deleting, setDeleting] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [reportError, setReportError] = useState<string>();
-  const [deleteError, setDeleteError] = useState<string>();
   const [reactError, setReactError] = useState<string>();
   const actionsRef = useRef<HTMLDivElement>(null);
 
@@ -341,9 +348,12 @@ export const GistCard = memo(function GistCard({
     const isFirstReaction = localReaction === null;
     setLocalReaction(type);
     if (isFirstReaction) setReactionDelta((d) => d + 1);
+    // Fires right alongside the optimistic update above, not after the
+    // network round trip — the tap itself is "the action performed", same
+    // reasoning the pop animation already gets played instantly for.
+    playSound("pop");
     try {
       await reactGist(gist.gist_id, type);
-      playSound("pop");
     } catch (err) {
       setLocalReaction(gist.my_reaction ?? null);
       if (isFirstReaction) setReactionDelta((d) => d - 1);
@@ -437,13 +447,20 @@ export const GistCard = memo(function GistCard({
 
   const handleDelete = async () => {
     setDeleting(true);
+    // Fires immediately — the stack drops this gist from its list right
+    // away, so this instance unmounts almost immediately after. The sound
+    // fires right alongside it instead of waiting on the network.
+    onDeleted?.(gist.gist_id);
+    playSound("delete");
     try {
       await removeGist(gist.gist_id);
-      setShowDeleteConfirm(false);
-      onDeleted?.(gist.gist_id);
-      playSound("delete");
-    } catch (err) {
-      setDeleteError(apiErrorMessage(err, "Failed to delete this gist"));
+      notifyActionSucceeded("deleted");
+    } catch {
+      // This component is already unmounted (or about to be) by now, so a
+      // local error state would never actually be seen — the stack
+      // re-inserts the gist and a global toast explains what happened.
+      onDeleteFailed?.(gist);
+      notifyActionFailed("deleted");
     } finally {
       setDeleting(false);
     }
@@ -829,7 +846,6 @@ export const GistCard = memo(function GistCard({
         onShared={(platform) => shareGist(gist.gist_id, platform)}
       />
       <ErrorModal open={!!reportError} onClose={() => setReportError(undefined)} message={reportError} />
-      <ErrorModal open={!!deleteError} onClose={() => setDeleteError(undefined)} message={deleteError} />
       <ErrorModal open={!!reactError} onClose={() => setReactError(undefined)} message={reactError} />
 
       <AnimatePresence>

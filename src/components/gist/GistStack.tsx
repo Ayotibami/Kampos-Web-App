@@ -68,6 +68,7 @@ export function GistStack({
   initialIndex = 0,
   onCurrentChange,
   onGistDeleted,
+  onGistDeleteFailed,
   onGistEdited,
   onNearEnd,
   exhausted = false,
@@ -86,6 +87,9 @@ export function GistStack({
    * the gist list (the feed page does), so it just passes this straight
    * through. */
   onGistDeleted?: (gistId: string) => void;
+  /** Bubbled up from GistCard's own delete action when it then actually
+   * fails — the parent re-inserts the gist it was just told to remove. */
+  onGistDeleteFailed?: (gist: Gist) => void;
   /** Same reasoning, for a successful edit — carries the fresh gist. */
   onGistEdited?: (gist: Gist) => void;
   /** Fires (repeatedly, whenever still within range) once the front card is
@@ -435,6 +439,7 @@ export function GistStack({
                 canGoPrev={canGoPrevValue}
                 handleOverlayOpenChange={handleOverlayOpenChange}
                 onGistDeleted={onGistDeleted}
+                onGistDeleteFailed={onGistDeleteFailed}
                 onGistEdited={onGistEdited}
                 next={next}
                 prev={prev}
@@ -461,6 +466,7 @@ export function GistStack({
                   canGoPrev={offset === 0 ? canGoPrevValue : true}
                   handleOverlayOpenChange={handleOverlayOpenChange}
                   onGistDeleted={onGistDeleted}
+                  onGistDeleteFailed={onGistDeleteFailed}
                   onGistEdited={onGistEdited}
                   next={next}
                   prev={prev}
@@ -486,6 +492,7 @@ export function GistStack({
                 canGoPrev={canGoPrevValue}
                 handleOverlayOpenChange={handleOverlayOpenChange}
                 onGistDeleted={onGistDeleted}
+                onGistDeleteFailed={onGistDeleteFailed}
                 onGistEdited={onGistEdited}
                 next={next}
                 prev={prev}
@@ -535,6 +542,7 @@ function GistStackCard({
   canGoPrev,
   handleOverlayOpenChange,
   onGistDeleted,
+  onGistDeleteFailed,
   onGistEdited,
   next,
   prev,
@@ -563,6 +571,7 @@ function GistStackCard({
   canGoPrev: boolean;
   handleOverlayOpenChange: (open: boolean) => void;
   onGistDeleted?: (gistId: string) => void;
+  onGistDeleteFailed?: (gist: Gist) => void;
   onGistEdited?: (gist: Gist) => void;
   next: () => void;
   prev: () => void;
@@ -690,6 +699,7 @@ function GistStackCard({
               showCampusTag={showCampusTag}
               onOverlayOpenChange={handleOverlayOpenChange}
               onDeleted={onGistDeleted}
+              onDeleteFailed={onGistDeleteFailed}
               onEdited={onGistEdited}
               onNext={next}
               onPrev={prev}
@@ -748,6 +758,7 @@ function GistStackCard({
             showCampusTag={showCampusTag}
             onOverlayOpenChange={handleOverlayOpenChange}
             onDeleted={onGistDeleted}
+            onDeleteFailed={onGistDeleteFailed}
             onEdited={onGistEdited}
             onNext={isFront ? next : undefined}
             onPrev={isFront ? prev : undefined}

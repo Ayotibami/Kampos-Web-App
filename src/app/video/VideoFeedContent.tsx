@@ -330,10 +330,15 @@ function VideoCard({
   const handleConfirmDelete = async () => {
     setDeleting(true);
     setDeleteError(undefined);
+    // spotStore.removeSpot() now removes the card optimistically (and
+    // rolls back on failure) — the confirm modal closes and the sound
+    // fires right here, alongside that instant removal, instead of both
+    // waiting on the network. A failure still surfaces through the
+    // separate ErrorModal below even though this modal has already closed.
+    setShowDeleteConfirm(false);
+    playSound("delete");
     try {
       await onDelete();
-      setShowDeleteConfirm(false);
-      playSound("delete");
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : "Failed to delete this Spot");
     } finally {

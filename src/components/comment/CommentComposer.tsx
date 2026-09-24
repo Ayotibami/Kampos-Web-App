@@ -97,10 +97,17 @@ export function CommentComposer({
       return;
     }
     setSending(true);
+    // commentStore.create() now shows the comment optimistically (same
+    // placeholder-then-reconcile pattern its offline branch always used),
+    // so the sound can fire right here, alongside that instant insert,
+    // instead of waiting for the network round trip. The draft itself
+    // still only clears on real success below — a failed send leaves your
+    // typed text intact rather than clearing it out from under you only
+    // to have the bubble vanish a moment later.
+    playSound("whoosh");
     try {
       await create({ gist_id: gistId, text: clean });
       setDrafts((prev) => ({ ...prev, [gistId]: "" }));
-      playSound("whoosh");
     } catch (err) {
       // Previously silently ignored — a failed send left the draft intact
       // (fine) but gave zero indication anything had gone wrong, so it

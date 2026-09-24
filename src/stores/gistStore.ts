@@ -249,11 +249,15 @@ export function notifyActionSucceeded(action: GistActionSuccess) {
   window.dispatchEvent(new CustomEvent<GistActionSuccess>("kampos:gist-action-succeeded", { detail: action }));
 }
 
-/** create/edit only — delete/report have nothing to "reopen" on failure,
- *  they just show their own inline error today. Fired by CreateGistSheet
- *  right before it reopens itself with the draft intact, after an
- *  optimistic-close attempt fails online. */
-export type GistActionFailure = "created" | "edited";
+/** "created"/"edited" fire right before CreateGistSheet reopens itself with
+ *  the draft intact, after an optimistic-close attempt fails online.
+ *  "deleted" is different — now that delete removes the card optimistically
+ *  (see GistCard/ProfileGistCard/FeedGistCard's own handleDelete), that
+ *  card's own instance unmounts the moment the parent's list drops it, so
+ *  a locally-shown inline error would never actually be seen. This toast
+ *  is what surfaces a delete failure instead. report still has nothing to
+ *  "reopen" or globally announce — it stays on its own inline error. */
+export type GistActionFailure = "created" | "edited" | "deleted";
 
 export function notifyActionFailed(action: GistActionFailure) {
   if (typeof window === "undefined") return;

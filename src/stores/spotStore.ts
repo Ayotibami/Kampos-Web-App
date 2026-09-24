@@ -2,6 +2,7 @@ import { create } from "zustand";
 import axios from "axios";
 import { api, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
 import { uploadToCloudinaryDirect, type CloudinarySignature, type CloudinaryUploadResult } from "@/lib/cloudinary";
+import { useAuthStore } from "@/stores/authStore";
 
 export type MediaUploadStage = "draft" | "signature" | "upload" | "finalize";
 export class SpotUploadError extends Error {
@@ -69,6 +70,34 @@ export interface SpotComment {
    * generic `reactions` table (entity_type: 'COMMENT') gist comments
    * already react against. See KamposBackend's spot-comment.repo.ts. */
   my_reaction: string | null;
+}
+
+/** Builds a realistic placeholder comment from the viewer's own already-
+ * known profile data (first_name/campus_tag/major_tag/image_url — the same
+ * fields myImageUrl/the compose button already pull from authStore
+ * elsewhere), so addComment can show it immediately instead of waiting on
+ * the server's own profile join. Mirrors commentStore's own
+ * buildOfflineComment (Gist's equivalent) almost exactly — comment_id gets
+ * the same "offline-" prefix convention so anything that already guards
+ * against acting on a not-yet-synced comment (e.g. reacting) just works
+ * here too, unchanged. */
+function buildOptimisticSpotComment(spotId: string, text: string, tempId: string): SpotComment {
+  const { avitag, profiles } = useAuthStore.getState();
+  const myProfile = profiles.find((p) => p.avitag === avitag);
+  return {
+    comment_id: `offline-${tempId}`,
+    spot_id: spotId,
+    avitag: avitag ?? "",
+    text,
+    commented_at: new Date().toISOString(),
+    first_name: (myProfile?.first_name as string | undefined) ?? null,
+    last_name: (myProfile?.last_name as string | undefined) ?? null,
+    campus_tag: (myProfile?.campus_tag as string | undefined) ?? null,
+    major_tag: (myProfile?.major_tag as string | undefined) ?? null,
+    image_url: (myProfile?.image_url as string | undefined) ?? null,
+    reactions_count: 0,
+    my_reaction: null,
+  };
 }
 
 // node-postgres returns COUNT(*)::BIGINT as a string (BIGINT overflows JS
@@ -399,24 +428,38 @@ export const useSpotStore = create<SpotState>((set, get) => ({
   },
 
   addComment: async (spotId, text) => {
-    // Bumps the visible count optimistically (same reasoning as every other
-    // Spot action here) — the real comment gets prepended once the request
-    // resolves, not before, since it needs the server's own profile join
-    // (first_name/image_url) to render correctly.
+    // Optimistic now, not just the count — buildOptimisticSpotComment pulls
+    // the same first_name/campus_tag/major_tag/image_url the server's own
+    // profile join would have returned from authStore instead, which is
+    // already sitting in memory client-side, so there's nothing left to
+    // actually wait on before showing it.
+    const tempId = crypto.randomUUID();
+    const optimistic = buildOptimisticSpotComment(spotId, text, tempId);
     set((s) => ({
       spots: s.spots.map((sp) => (sp.spot_id === spotId ? { ...sp, comments_count: sp.comments_count + 1 } : sp)),
+      commentsBySpot: { ...s.commentsBySpot, [spotId]: [optimistic, ...(s.commentsBySpot[spotId] ?? [])] },
     }));
     try {
       const res = await api.post<ApiEnvelope<SpotComment>>("/spot-comments", { spot_id: spotId, text });
       const created = res.data?.data;
-      if (created) {
-        set((s) => ({
-          commentsBySpot: { ...s.commentsBySpot, [spotId]: [created, ...(s.commentsBySpot[spotId] ?? [])] },
-        }));
-      }
+      set((s) => ({
+        commentsBySpot: {
+          ...s.commentsBySpot,
+          [spotId]: (s.commentsBySpot[spotId] ?? []).map((c) =>
+            c.comment_id === optimistic.comment_id ? (created ?? c) : c,
+          ),
+        },
+      }));
     } catch (err) {
+      // Roll back both the count and the placeholder — same "undo exactly
+      // this call's own change" reasoning every other optimistic action
+      // here already follows.
       set((s) => ({
         spots: s.spots.map((sp) => (sp.spot_id === spotId ? { ...sp, comments_count: Math.max(0, sp.comments_count - 1) } : sp)),
+        commentsBySpot: {
+          ...s.commentsBySpot,
+          [spotId]: (s.commentsBySpot[spotId] ?? []).filter((c) => c.comment_id !== optimistic.comment_id),
+        },
       }));
       throw new Error(apiErrorMessage(err, "Couldn't post your comment"));
     }
@@ -485,17 +528,37 @@ export const useSpotStore = create<SpotState>((set, get) => ({
   },
 
   removeSpotComment: async (spotId, commentId) => {
-    try {
-      await api.delete(`/spot-comments/${encodeURIComponent(commentId)}`);
-      set((s) => ({
-        commentsBySpot: {
-          ...s.commentsBySpot,
-          [spotId]: (s.commentsBySpot[spotId] ?? []).filter((c) => c.comment_id !== commentId),
-        },
+    // Optimistic — commentsBySpot is what SpotCommentSheet actually
+    // renders from, so removing it here is enough on its own. Captured
+    // before removing so a failure can restore it at its exact original
+    // position.
+    let removed: { item: SpotComment; index: number } | undefined;
+    set((s) => {
+      const list = s.commentsBySpot[spotId] ?? [];
+      const idx = list.findIndex((c) => c.comment_id === commentId);
+      if (idx !== -1) removed = { item: list[idx], index: idx };
+      return {
+        commentsBySpot: { ...s.commentsBySpot, [spotId]: list.filter((c) => c.comment_id !== commentId) },
         // Mirrors the bump addComment gives this same counter on the way in.
         spots: s.spots.map((sp) => (sp.spot_id === spotId ? { ...sp, comments_count: Math.max(0, sp.comments_count - 1) } : sp)),
-      }));
+      };
+    });
+    try {
+      await api.delete(`/spot-comments/${encodeURIComponent(commentId)}`);
     } catch (err) {
+      if (removed) {
+        const restore = removed;
+        set((s) => {
+          const list = s.commentsBySpot[spotId] ?? [];
+          return {
+            commentsBySpot: {
+              ...s.commentsBySpot,
+              [spotId]: [...list.slice(0, restore.index), restore.item, ...list.slice(restore.index)],
+            },
+            spots: s.spots.map((sp) => (sp.spot_id === spotId ? { ...sp, comments_count: sp.comments_count + 1 } : sp)),
+          };
+        });
+      }
       throw new Error(apiErrorMessage(err, "Failed to delete comment"));
     }
   },
@@ -512,21 +575,49 @@ export const useSpotStore = create<SpotState>((set, get) => ({
   },
 
   removeSpot: async (spotId) => {
+    // Optimistic — both `spots` (global feed) and `userSpots` (profile
+    // grid) ARE what VideoFeedContent/ProfileSpotGrid actually render
+    // (unlike Gist's own `items`, which neither the feed nor a profile
+    // page reads from directly), so removing it here immediately is
+    // enough on its own — no separate parent-list callback needed.
+    // Captured before removing so a failure can restore it at its exact
+    // original position rather than just at the front.
+    let removedFromSpots: { item: Spot; index: number } | undefined;
+    let removedFromUserSpots: { item: Spot; index: number } | undefined;
+    set((s) => {
+      const spotsIdx = s.spots.findIndex((sp) => sp.spot_id === spotId);
+      if (spotsIdx !== -1) removedFromSpots = { item: s.spots[spotsIdx], index: spotsIdx };
+      const userSpotsIdx = s.userSpots.findIndex((sp) => sp.spot_id === spotId);
+      if (userSpotsIdx !== -1) removedFromUserSpots = { item: s.userSpots[userSpotsIdx], index: userSpotsIdx };
+      return {
+        spots: s.spots.filter((sp) => sp.spot_id !== spotId),
+        userSpots: s.userSpots.filter((sp) => sp.spot_id !== spotId),
+        userSpotsTotal: removedFromUserSpots ? Math.max(0, s.userSpotsTotal - 1) : s.userSpotsTotal,
+      };
+    });
     try {
       await api.delete(`/spots/${encodeURIComponent(spotId)}`);
-      set((s) => ({
-        spots: s.spots.filter((sp) => sp.spot_id !== spotId),
-        // Also drops it from the profile grid (userSpots) if it's loaded —
-        // unlike report()/toggleLike(), which only ever touch `spots`, a
-        // deleted spot has to disappear everywhere it might already be
-        // rendered, not just wherever the delete was tapped from.
-        userSpots: s.userSpots.filter((sp) => sp.spot_id !== spotId),
-        userSpotsTotal: s.userSpots.some((sp) => sp.spot_id === spotId)
-          ? Math.max(0, s.userSpotsTotal - 1)
-          : s.userSpotsTotal,
-      }));
       notifySpotActionSucceeded("deleted");
     } catch (err) {
+      // Roll back — re-insert into whichever list(s) it actually came out
+      // of, at its original position.
+      set((s) => {
+        const spots = removedFromSpots
+          ? [...s.spots.slice(0, removedFromSpots.index), removedFromSpots.item, ...s.spots.slice(removedFromSpots.index)]
+          : s.spots;
+        const userSpots = removedFromUserSpots
+          ? [
+              ...s.userSpots.slice(0, removedFromUserSpots.index),
+              removedFromUserSpots.item,
+              ...s.userSpots.slice(removedFromUserSpots.index),
+            ]
+          : s.userSpots;
+        return {
+          spots,
+          userSpots,
+          userSpotsTotal: removedFromUserSpots ? s.userSpotsTotal + 1 : s.userSpotsTotal,
+        };
+      });
       throw new Error(apiErrorMessage(err, "Failed to delete this Spot"));
     }
   },

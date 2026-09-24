@@ -50,10 +50,13 @@ function SpotGridCell({
   const handleConfirmDelete = async () => {
     setDeleting(true);
     setDeleteError(undefined);
+    // removeSpot() now removes the tile optimistically (and rolls back on
+    // failure) — the confirm modal closes and the sound fires right here,
+    // instead of both waiting on the network.
+    setShowDeleteConfirm(false);
+    playSound("delete");
     try {
       await removeSpot(spot.spot_id);
-      setShowDeleteConfirm(false);
-      playSound("delete");
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : "Failed to delete this Spot");
     } finally {

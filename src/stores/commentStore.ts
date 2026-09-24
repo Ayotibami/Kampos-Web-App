@@ -247,6 +247,21 @@ export const useCommentStore = create<CommentState>((set, get) => ({
       }));
       return optimistic;
     }
+    // Online, but optimistic too now — same placeholder shape/helper the
+    // offline branch above already uses (same "offline-" id prefix, so the
+    // existing "can't react to a not-yet-synced comment" guards elsewhere
+    // just work), inserted before the request rather than after it. A
+    // comment has nothing else waiting on it (see the offline branch's own
+    // reasoning above), so there's nothing lost by showing it immediately
+    // and quietly reconciling once the real one comes back.
+    const tempId = crypto.randomUUID();
+    const optimistic = buildOfflineComment(payload.gist_id, payload.text, tempId, Date.now());
+    set((s) => ({
+      itemsByGist: {
+        ...s.itemsByGist,
+        [payload.gist_id]: [optimistic, ...(s.itemsByGist[payload.gist_id] ?? [])],
+      },
+    }));
     try {
       const res = await api.post<ApiEnvelope<Comment>>("/comments", payload);
       const created = res.data?.data;
@@ -255,39 +270,71 @@ export const useCommentStore = create<CommentState>((set, get) => ({
         // even sends this REST response back (see comment.controller.ts) —
         // a plain WS push reaching the browser is typically faster than a
         // full HTTP response round trip, so the module-level subscriber
-        // below can easily insert this exact comment first. Its own dedup
-        // check only protects that direction; without the same check
-        // here too, whichever of the two arrives second re-inserts the
-        // same comment_id a second time — a real duplicate in the list,
-        // not just a technicality.
+        // below can easily insert this exact comment (by its REAL id)
+        // before this ever resolves. This reconciliation has to handle
+        // both: drop OUR OWN optimistic placeholder wherever it now sits
+        // in the list (not necessarily still at index 0, if anything else
+        // arrived in the meantime), and skip re-inserting the real comment
+        // if the WS push already beat us to it.
         set((s) => {
-          const existing = s.itemsByGist[payload.gist_id] ?? [];
-          if (existing.some((c) => c.comment_id === created.comment_id)) return s;
+          const withoutPlaceholder = (s.itemsByGist[payload.gist_id] ?? []).filter(
+            (c) => c.comment_id !== optimistic.comment_id,
+          );
+          const alreadyPresent = withoutPlaceholder.some((c) => c.comment_id === created.comment_id);
           return {
             itemsByGist: {
               ...s.itemsByGist,
-              [payload.gist_id]: [created, ...existing],
+              [payload.gist_id]: alreadyPresent ? withoutPlaceholder : [created, ...withoutPlaceholder],
             },
           };
         });
       }
       return created;
     } catch (err) {
-      set({ error: apiErrorMessage(err, "Failed to create comment") });
+      // Roll back — drop the placeholder, same "undo exactly this call's
+      // own change" reasoning every other optimistic action in this app
+      // already follows.
+      set((s) => ({
+        itemsByGist: {
+          ...s.itemsByGist,
+          [payload.gist_id]: (s.itemsByGist[payload.gist_id] ?? []).filter(
+            (c) => c.comment_id !== optimistic.comment_id,
+          ),
+        },
+        error: apiErrorMessage(err, "Failed to create comment"),
+      }));
       throw err;
     }
   },
 
   remove: async (commentId, gistId) => {
+    // Optimistic — itemsByGist is what CommentList actually renders from,
+    // so removing it here is enough on its own. Captured before removing
+    // so a failure can restore it at its exact original position.
+    let removed: { item: Comment; index: number } | undefined;
+    set((s) => {
+      const list = s.itemsByGist[gistId] ?? [];
+      const idx = list.findIndex((c) => c.comment_id === commentId);
+      if (idx !== -1) removed = { item: list[idx], index: idx };
+      return {
+        itemsByGist: { ...s.itemsByGist, [gistId]: list.filter((c) => c.comment_id !== commentId) },
+      };
+    });
     try {
       await api.delete(`/comments/${encodeURIComponent(commentId)}`);
-      set((s) => ({
-        itemsByGist: {
-          ...s.itemsByGist,
-          [gistId]: (s.itemsByGist[gistId] ?? []).filter((c) => c.comment_id !== commentId),
-        },
-      }));
     } catch (err) {
+      if (removed) {
+        const restore = removed;
+        set((s) => {
+          const list = s.itemsByGist[gistId] ?? [];
+          return {
+            itemsByGist: {
+              ...s.itemsByGist,
+              [gistId]: [...list.slice(0, restore.index), restore.item, ...list.slice(restore.index)],
+            },
+          };
+        });
+      }
       set({ error: apiErrorMessage(err, "Failed to delete comment") });
       throw err;
     }
@@ -389,13 +436,31 @@ if (typeof window !== "undefined") {
     // Not cached at all — whoever visits this gist next will fetch fresh
     // and get it naturally, nothing to do here.
     if (!existing) return;
-    // Dedup: our own post already lands in the cache via `create`'s own
-    // optimistic update before this broadcast (which includes our own
-    // comments too) ever arrives.
+    // Dedup against a comment already fully reconciled (either an earlier
+    // delivery of this same broadcast, or create()'s own await already won
+    // the race and finished reconciling first).
     if (existing.some((c) => c.comment_id === comment.comment_id)) return;
 
+    // This broadcast fires before the REST response even comes back (see
+    // create()'s own comment on this), so it can easily arrive WHILE our
+    // own optimistic placeholder (a different, temporary "offline-" id —
+    // see buildOfflineComment) is still sitting in the list. If this is
+    // that same comment coming back around — same author, still exactly
+    // one of our own not-yet-reconciled placeholders present — swap the
+    // placeholder for the real thing instead of appending both, which
+    // would otherwise flash a visible duplicate for the brief window
+    // until create()'s own reconciliation runs.
+    const myAvitag = useAuthStore.getState().avitag;
+    const ownPlaceholder =
+      comment.avitag && comment.avitag === myAvitag
+        ? existing.find((c) => c.comment_id.startsWith("offline-"))
+        : undefined;
+    const withoutPlaceholder = ownPlaceholder
+      ? existing.filter((c) => c.comment_id !== ownPlaceholder.comment_id)
+      : existing;
+
     useCommentStore.setState((s) => ({
-      itemsByGist: { ...s.itemsByGist, [comment.gist_id]: [comment, ...existing] },
+      itemsByGist: { ...s.itemsByGist, [comment.gist_id]: [comment, ...withoutPlaceholder] },
       recentlyLiveIds: { ...s.recentlyLiveIds, [comment.comment_id]: true },
     }));
     setTimeout(() => {
