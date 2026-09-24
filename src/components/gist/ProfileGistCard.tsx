@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/icons";
 import type { Gist, ReactionType } from "@/types";
 import { friendlyDateTime, compactNumber } from "@/lib/format";
+import { playSound } from "@/lib/sounds";
 
 // A single photo/video keeps its own real proportions instead of being
 // force-cropped — max-h-[420px] below (on both the image and video tiles)
@@ -260,6 +261,7 @@ export const ProfileGistCard = memo(function ProfileGistCard({
     if (isFirstReaction) setReactionDelta((d) => d + 1);
     try {
       await reactGist(gist.gist_id, type);
+      playSound("pop");
     } catch (err) {
       setLocalReaction(gist.my_reaction ?? null);
       if (isFirstReaction) setReactionDelta((d) => d - 1);
@@ -438,6 +440,7 @@ export const ProfileGistCard = memo(function ProfileGistCard({
       await removeGist(gist.gist_id);
       setShowDeleteConfirm(false);
       onDeleted?.(gist.gist_id);
+      playSound("delete");
     } catch (err) {
       setDeleteError(apiErrorMessage(err, "Failed to delete this gist"));
     } finally {

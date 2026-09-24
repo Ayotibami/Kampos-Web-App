@@ -21,6 +21,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { LIMITS, GIST_CARD_PALETTE, GIST_COLOR_KEYS, type GistColorKey } from "@/lib/brand";
 import { fitHeroTextarea } from "@/lib/heroText";
 import { stripInvisibleChars, sanitizeForSubmit, sanitizeFileName } from "@/lib/sanitize";
+import { playSound } from "@/lib/sounds";
 import { QuotedGistPreview } from "./GistCard";
 import {
   ALLOWED_MEDIA_TYPES,
@@ -768,6 +769,7 @@ export function CreateGistSheet({
         const fresh = await getGist(gistId).catch(() => undefined);
         reset();
         if (fresh) onPosted?.(fresh, "edited");
+        playSound("whoosh");
         notifyActionSucceeded("edited");
         onClose();
       } catch (err) {
@@ -808,6 +810,7 @@ export function CreateGistSheet({
     };
     const tempId = optimistic.gist_id;
     onPosted?.(optimistic, "created");
+    playSound("whoosh");
     onClose();
     setPosting(false);
 

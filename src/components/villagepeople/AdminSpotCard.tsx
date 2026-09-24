@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
-import { Modal } from "@/components/ui/Modal";
 import { ConfirmReasonModal, ErrorModal } from "@/components/ui/FeedbackModal";
+import { AdminSpotVideoTile } from "./AdminSpotVideoTile";
 import {
   Heart,
   CommentIconFill,
@@ -13,16 +13,10 @@ import {
   ShareIconFill,
   FlagIconFill,
   EyeOff,
-  X,
-  PlayIconFill,
-  VolumeIconFill,
-  MuteIconFill,
-  ExpandIconFill,
   DeleteIconFill,
 } from "@/components/ui/icons";
 import { apiErrorMessage } from "@/lib/api";
 import { friendlyDateTime, compactNumber } from "@/lib/format";
-import { cloudinaryVideo } from "@/lib/cloudinary";
 import { useAllSpotsStore } from "@/stores/allSpotsStore";
 import { PROFILE_TYPE_PATH } from "@/lib/profileEditFields";
 import type { AdminSpot, AdminSpotStatus } from "@/lib/serverSpotsAdmin";
@@ -47,15 +41,9 @@ const STATUS_LABEL: Record<AdminSpotStatus, string> = {
  * AdminGistCard's own doc comment: the consumer-facing VideoCard is built
  * for one autoplaying full-screen swipe-feed slot with an engagement rail
  * meant for a VIEWER (like/comment/share/report), none of which fits a
- * dense admin browse list or an admin's own actions. Video plays inline at
- * a real, sizeable box — big enough to actually review at a glance while
- * scrolling — muted, looping, and driven by an IntersectionObserver so it
- * only autoplays while this specific card is actually on screen (pauses the
- * instant it scrolls away, same "don't keep a dozen clips silently playing
- * at once" reasoning the consumer feed's own windowing follows, just via
- * play/pause here instead of unmounting). A small mute toggle sits on the
- * video itself for real audio without leaving the list; the expand icon
- * still opens VideoPreviewModal for a bigger, controls-based look.
+ * dense admin browse list or an admin's own actions. The video itself is
+ * AdminSpotVideoTile — see that file's own doc comment for the autoplay-
+ * on-scroll/mute/expand reasoning, shared with SpotReportsTab's rows too.
  *
  * Spot has no approval queue (see spot.repo.ts's own migration comment —
  * it goes straight to ACTIVE on finalize), so unlike Gist's three-way
@@ -90,37 +78,7 @@ export function AdminSpotCard({
   const [busy, setBusy] = useState(false);
   const [showTakeDownConfirm, setShowTakeDownConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
   const [actionError, setActionError] = useState<string>();
-  const [muted, setMuted] = useState(true);
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  // Autoplay-on-scroll — plays this card's own video once it's
-  // meaningfully on screen, pauses the moment it isn't. threshold: 0.5 (at
-  // least half the clip visible) matches how "scrolled into view" reads
-  // intuitively in a plain vertical list, not the consumer feed's stricter
-  // 0.6 (that one gates which single card is "the" active one in a snap
-  // feed; this just gates whether THIS card should be playing at all,
-  // several of which could in principle be half-visible at once during a
-  // fast scroll — each decides for itself).
-  useEffect(() => {
-    const el = videoRef.current;
-    if (!el || !spot.media_url) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) el.play().catch(() => {});
-        else el.pause();
-      },
-      { threshold: 0.5 },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [spot.media_url]);
-
-  useEffect(() => {
-    const el = videoRef.current;
-    if (el) el.muted = muted;
-  }, [muted]);
 
   const isActive = spot.status === "ACTIVE";
   const isRejected = spot.status === "REJECTED";
@@ -211,50 +169,10 @@ export function AdminSpotCard({
         </div>
       </div>
 
-      {/* Body — a real, sizeable video (see this card's own doc comment for
-          the autoplay-on-scroll/mute reasoning) + caption. */}
+      {/* Body — a real, sizeable autoplaying video (see AdminSpotVideoTile's
+          own doc comment) + caption. */}
       <div className="flex gap-3">
-        <div className="relative h-64 w-36 shrink-0 overflow-hidden rounded-xl bg-black ring-1 ring-black/5">
-          {spot.media_url ? (
-            <video
-              ref={videoRef}
-              src={cloudinaryVideo(spot.media_url)}
-              poster={spot.thumbnail_url ?? undefined}
-              muted={muted}
-              loop
-              playsInline
-              preload="metadata"
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-brand/20 to-brand/5">
-              <PlayIconFill className="h-6 w-6 text-brand/50" weight="fill" />
-            </div>
-          )}
-          {spot.media_url && (
-            <>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMuted((m) => !m);
-                }}
-                aria-label={muted ? "Unmute" : "Mute"}
-                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white"
-              >
-                {muted ? <MuteIconFill className="h-4 w-4" weight="fill" /> : <VolumeIconFill className="h-4 w-4" weight="fill" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowPreview(true)}
-                aria-label="Open a bigger preview"
-                className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white"
-              >
-                <ExpandIconFill className="h-4 w-4" weight="bold" />
-              </button>
-            </>
-          )}
-        </div>
+        <AdminSpotVideoTile mediaUrl={spot.media_url} thumbnailUrl={spot.thumbnail_url} />
         <p className="min-w-0 flex-1 whitespace-pre-wrap break-words font-nunito text-sm text-ink">
           {spot.caption || <span className="text-faint">No caption</span>}
         </p>
@@ -291,41 +209,46 @@ export function AdminSpotCard({
           split. REJECTED swaps the disabled status label for a real,
           enabled Reactivate button; DRAFT/REMOVED keep the plain disabled
           label (nothing to undo for either). Delete stays available
-          regardless. */}
+          regardless. Icon-only on mobile (text back from sm: up), same
+          compacting the admin profile pages already got — three buttons'
+          worth of text pills was cramped on a narrow screen here too. */}
       <div className="flex flex-wrap gap-2 pt-1">
         {isRejected ? (
           <Button
             variant="secondary"
             fullWidth={false}
-            className="!border-success !px-5 !py-2 text-sm !text-success hover:!bg-success/10"
+            aria-label="Reactivate"
+            className="!px-3 !py-2 text-sm !border-success !text-success hover:!bg-success/10 sm:!px-5"
             loading={busy}
             disabled={busy}
             onClick={handleReactivate}
           >
             <ViewIconFill className="h-4 w-4" weight="fill" />
-            Reactivate
+            <span className="hidden sm:inline">Reactivate</span>
           </Button>
         ) : (
           <Button
             variant="secondary"
             fullWidth={false}
-            className="!border-warning !px-5 !py-2 text-sm !text-warning hover:!bg-warning/10"
+            aria-label={isActive ? "Take Down" : STATUS_LABEL[spot.status]}
+            className="!px-3 !py-2 text-sm !border-warning !text-warning hover:!bg-warning/10 sm:!px-5"
             disabled={busy || !isActive}
             onClick={() => setShowTakeDownConfirm(true)}
           >
             <EyeOff className="h-4 w-4" />
-            {isActive ? "Take Down" : STATUS_LABEL[spot.status]}
+            <span className="hidden sm:inline">{isActive ? "Take Down" : STATUS_LABEL[spot.status]}</span>
           </Button>
         )}
         <Button
           variant="secondary"
           fullWidth={false}
-          className="!border-danger !px-5 !py-2 text-sm !text-danger hover:!bg-danger/5"
+          aria-label="Delete"
+          className="!px-3 !py-2 text-sm !border-danger !text-danger hover:!bg-danger/5 sm:!px-5"
           disabled={busy}
           onClick={() => setShowDeleteConfirm(true)}
         >
           <DeleteIconFill className="h-4 w-4" weight="fill" />
-          Delete
+          <span className="hidden sm:inline">Delete</span>
         </Button>
       </div>
 
@@ -348,42 +271,6 @@ export function AdminSpotCard({
         loading={busy}
       />
       <ErrorModal open={!!actionError} onClose={() => setActionError(undefined)} message={actionError} />
-
-      <VideoPreviewModal
-        open={showPreview}
-        src={spot.media_url}
-        onClose={() => setShowPreview(false)}
-      />
     </div>
-  );
-}
-
-/** A real, controllable preview of the actual clip — same "an admin needs
- * to see the real thing to judge it" reasoning AdminGistCard's own
- * GistMediaOverlay reuse follows, just for video. Built directly on Modal
- * rather than reusing the consumer feed's VideoCard, which comes with an
- * entire swipe-feed/autoplay/mute-state apparatus this single-clip review
- * dialog has no use for. */
-export function VideoPreviewModal({ open, src, onClose }: { open: boolean; src: string | null; onClose: () => void }) {
-  return (
-    <Modal open={open} onClose={onClose} className="relative flex max-h-[85vh] w-[min(92vw,420px)] items-center justify-center">
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close"
-        className="absolute -right-2 -top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80"
-      >
-        <X className="h-4 w-4" />
-      </button>
-      {open && src && (
-        <video
-          src={cloudinaryVideo(src)}
-          controls
-          autoPlay
-          playsInline
-          className="max-h-[85vh] w-full rounded-2xl bg-black"
-        />
-      )}
-    </Modal>
   );
 }

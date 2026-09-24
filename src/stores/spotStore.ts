@@ -17,7 +17,7 @@ export class SpotUploadError extends Error {
  * infrequent enough to deserve real confirmation, unlike like/comment/share
  * which stay silent. Named/typed separately from GistActionSuccess (not
  * reusing the "gist" event) since this genuinely isn't a gist action. */
-export type SpotActionSuccess = "reported" | "posted";
+export type SpotActionSuccess = "reported" | "posted" | "deleted";
 export function notifySpotActionSucceeded(action: SpotActionSuccess) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent<SpotActionSuccess>("kampos:spot-action-succeeded", { detail: action }));
@@ -64,6 +64,11 @@ export interface SpotComment {
   campus_tag: string | null;
   major_tag: string | null;
   image_url: string | null;
+  reactions_count: number;
+  /** 'LOVE' or null — a single tap-to-like, same shape and same reused
+   * generic `reactions` table (entity_type: 'COMMENT') gist comments
+   * already react against. See KamposBackend's spot-comment.repo.ts. */
+  my_reaction: string | null;
 }
 
 // node-postgres returns COUNT(*)::BIGINT as a string (BIGINT overflows JS
@@ -151,8 +156,25 @@ interface SpotState {
   toggleLike: (spotId: string) => Promise<void>;
   fetchComments: (spotId: string) => Promise<void>;
   addComment: (spotId: string, text: string) => Promise<void>;
+  /** Single tap-to-like on a Spot comment — same "always 'LOVE', never a
+   * toggle-between-types picker" shape commentStore's own reactComment
+   * uses for Gist comments, against the exact same generic /reactions
+   * endpoint (entity_type: 'COMMENT'). unreactSpotComment is the toggle-off. */
+  reactSpotComment: (spotId: string, commentId: string) => Promise<void>;
+  unreactSpotComment: (spotId: string, commentId: string) => Promise<void>;
+  /** Own-comment or admin delete — same DELETE /spot-comments/:id endpoint
+   * either way (the backend branches on role), matching Gist's own
+   * commentStore.remove(): waits for the request to succeed before dropping
+   * the row (no optimistic removal to revert), rethrows on failure so the
+   * caller's confirm modal knows to stay open and show the error. */
+  removeSpotComment: (spotId: string, commentId: string) => Promise<void>;
   share: (spotId: string, platform?: string) => Promise<void>;
   report: (spotId: string, reason?: string) => Promise<void>;
+  /** Owner self-delete — DELETE /spots/:id, same real hard delete + server-
+   * side Cloudinary cleanup as Gist's own remove(). No optimistic removal
+   * to revert: waits for the request to succeed, then drops the row, same
+   * as removeSpotComment. */
+  removeSpot: (spotId: string) => Promise<void>;
   recordView: (spotId: string) => void;
   postSpot: (
     file: Blob,
@@ -400,6 +422,84 @@ export const useSpotStore = create<SpotState>((set, get) => ({
     }
   },
 
+  // Optimistic, same as every other Spot action here — flips locally before
+  // the request resolves. reactSpotComment/unreactSpotComment intentionally
+  // don't chain requests per-comment the way toggleLike does for a whole
+  // Spot (likeRequestChains) — a double-tap race on a single comment's own
+  // reaction is a much lower-stakes/lower-frequency thing to get slightly
+  // out of order than a Spot's own like count.
+  reactSpotComment: async (spotId, commentId) => {
+    set((s) => ({
+      commentsBySpot: {
+        ...s.commentsBySpot,
+        [spotId]: (s.commentsBySpot[spotId] ?? []).map((c) =>
+          c.comment_id === commentId
+            ? { ...c, my_reaction: "LOVE", reactions_count: c.reactions_count + (c.my_reaction ? 0 : 1) }
+            : c,
+        ),
+      },
+    }));
+    try {
+      await api.post("/reactions", { entity_type: "COMMENT", entity_id: commentId, type: "LOVE" });
+    } catch {
+      // Revert — same "undo exactly this call's own delta" reasoning
+      // toggleLike's own catch block already follows.
+      set((s) => ({
+        commentsBySpot: {
+          ...s.commentsBySpot,
+          [spotId]: (s.commentsBySpot[spotId] ?? []).map((c) =>
+            c.comment_id === commentId
+              ? { ...c, my_reaction: null, reactions_count: Math.max(0, c.reactions_count - 1) }
+              : c,
+          ),
+        },
+      }));
+    }
+  },
+
+  unreactSpotComment: async (spotId, commentId) => {
+    set((s) => ({
+      commentsBySpot: {
+        ...s.commentsBySpot,
+        [spotId]: (s.commentsBySpot[spotId] ?? []).map((c) =>
+          c.comment_id === commentId
+            ? { ...c, my_reaction: null, reactions_count: Math.max(0, c.reactions_count - (c.my_reaction ? 1 : 0)) }
+            : c,
+        ),
+      },
+    }));
+    try {
+      await api.delete(`/reactions/entity/COMMENT/${encodeURIComponent(commentId)}`);
+    } catch {
+      set((s) => ({
+        commentsBySpot: {
+          ...s.commentsBySpot,
+          [spotId]: (s.commentsBySpot[spotId] ?? []).map((c) =>
+            c.comment_id === commentId
+              ? { ...c, my_reaction: "LOVE", reactions_count: c.reactions_count + 1 }
+              : c,
+          ),
+        },
+      }));
+    }
+  },
+
+  removeSpotComment: async (spotId, commentId) => {
+    try {
+      await api.delete(`/spot-comments/${encodeURIComponent(commentId)}`);
+      set((s) => ({
+        commentsBySpot: {
+          ...s.commentsBySpot,
+          [spotId]: (s.commentsBySpot[spotId] ?? []).filter((c) => c.comment_id !== commentId),
+        },
+        // Mirrors the bump addComment gives this same counter on the way in.
+        spots: s.spots.map((sp) => (sp.spot_id === spotId ? { ...sp, comments_count: Math.max(0, sp.comments_count - 1) } : sp)),
+      }));
+    } catch (err) {
+      throw new Error(apiErrorMessage(err, "Failed to delete comment"));
+    }
+  },
+
   share: async (spotId, platform) => {
     set((s) => ({
       spots: s.spots.map((sp) => (sp.spot_id === spotId ? { ...sp, shares_count: sp.shares_count + 1 } : sp)),
@@ -408,6 +508,26 @@ export const useSpotStore = create<SpotState>((set, get) => ({
       await api.post(`/spots/${encodeURIComponent(spotId)}/share`, platform ? { platform } : {});
     } catch {
       /* a failed share-log doesn't need to roll back the optimistic count or surface an error — the share itself already happened on the user's device */
+    }
+  },
+
+  removeSpot: async (spotId) => {
+    try {
+      await api.delete(`/spots/${encodeURIComponent(spotId)}`);
+      set((s) => ({
+        spots: s.spots.filter((sp) => sp.spot_id !== spotId),
+        // Also drops it from the profile grid (userSpots) if it's loaded —
+        // unlike report()/toggleLike(), which only ever touch `spots`, a
+        // deleted spot has to disappear everywhere it might already be
+        // rendered, not just wherever the delete was tapped from.
+        userSpots: s.userSpots.filter((sp) => sp.spot_id !== spotId),
+        userSpotsTotal: s.userSpots.some((sp) => sp.spot_id === spotId)
+          ? Math.max(0, s.userSpotsTotal - 1)
+          : s.userSpotsTotal,
+      }));
+      notifySpotActionSucceeded("deleted");
+    } catch (err) {
+      throw new Error(apiErrorMessage(err, "Failed to delete this Spot"));
     }
   },
 

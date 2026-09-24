@@ -8,6 +8,7 @@ import { requireAuth } from "@/lib/requireAuth";
 import { LIMITS } from "@/lib/brand";
 import { stripInvisibleChars, sanitizeForSubmit } from "@/lib/sanitize";
 import { apiErrorMessage } from "@/lib/api";
+import { playSound } from "@/lib/sounds";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
 import type { Gist } from "@/types";
 
@@ -99,6 +100,7 @@ export function CommentComposer({
     try {
       await create({ gist_id: gistId, text: clean });
       setDrafts((prev) => ({ ...prev, [gistId]: "" }));
+      playSound("whoosh");
     } catch (err) {
       // Previously silently ignored — a failed send left the draft intact
       // (fine) but gave zero indication anything had gone wrong, so it

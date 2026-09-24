@@ -6,6 +6,7 @@ import { SettingsPageShell } from "@/components/settings/SettingsPageShell";
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { LogoutAction } from "@/components/settings/LogoutAction";
 import { KornerLink } from "@/components/settings/KornerLink";
+import { SoundToggle } from "@/components/ui/SoundToggle";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { useAuthStore } from "@/stores/authStore";
 import {
@@ -13,6 +14,7 @@ import {
   AccountIconFill,
   LegalIconFill,
   SupportIconFill,
+  VolumeIconFill,
   XLogoFill,
   InstagramLogoFill,
 } from "@/components/ui/icons";
@@ -89,6 +91,20 @@ export function SettingsHub() {
           {ROWS.map((row) => (
             <SettingsRow key={row.href} {...row} />
           ))}
+          {/* Not a SettingsRow — that one always navigates (it's a Link),
+              this row ends in a switch instead. Same visual language
+              (icon chip, title, subtitle) so it doesn't read as a
+              different kind of row, just a different kind of action. */}
+          <div className="flex items-center gap-3.5 rounded-2xl px-1 py-2">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand/10 text-brand">
+              <VolumeIconFill className="h-5 w-5" weight="regular" />
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="font-nunito text-[15px] font-semibold text-ink">Sound Effects</span>
+              <span className="truncate font-nunito text-xs text-muted">Taps, likes, comments &amp; more</span>
+            </span>
+            <SoundToggle />
+          </div>
         </div>
 
         <div className="flex flex-col items-center gap-6 pt-10">

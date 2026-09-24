@@ -10,6 +10,7 @@ import { GistActionToast } from "@/components/gist/GistActionToast";
 import { AuthToast } from "@/components/auth/AuthToast";
 import { AdminNotificationToast } from "@/components/villagepeople/AdminNotificationToast";
 import { ThemeRouteSync } from "@/components/theme/ThemeRouteSync";
+import { SoundPreload } from "@/components/theme/SoundPreload";
 import { FeedScrollLock } from "@/components/layout/FeedScrollLock";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { InputModalitySync } from "@/components/layout/InputModalitySync";
@@ -186,6 +187,7 @@ export default function RootLayout({
         <WebVitals />
         <SessionWatcher />
         <ThemeRouteSync />
+        <SoundPreload />
         <FeedScrollLock />
         <InputModalitySync />
         <OfflineSync />

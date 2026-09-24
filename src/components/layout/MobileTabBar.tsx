@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { MessageCircle, VideoTabIconFill } from "@/components/ui/icons";
 import { useAuthStore } from "@/stores/authStore";
 import { Avatar } from "@/components/ui/Avatar";
+import { playSound } from "@/lib/sounds";
 
 // Every top-level static route — anything else single-segment (e.g.
 // "/tobi_waves") is a profile, matching how [avitag]/page.tsx itself
@@ -68,6 +69,7 @@ export function MobileTabBar() {
       <Link
         href="/feed"
         aria-current={onFeed ? "page" : undefined}
+        onClick={() => !onFeed && playSound("tap")}
         className={`flex flex-1 flex-col items-center gap-0.5 rounded-full py-2 font-nunito text-[10.5px] font-bold transition ${
           onFeed ? "bg-brand/10 text-brand" : "text-faint"
         }`}
@@ -78,6 +80,7 @@ export function MobileTabBar() {
       <Link
         href="/video"
         aria-current={onVideo ? "page" : undefined}
+        onClick={() => !onVideo && playSound("tap")}
         className={`flex flex-1 flex-col items-center gap-0.5 rounded-full py-2 font-nunito text-[10.5px] font-bold transition ${
           onVideo ? "bg-brand/10 text-brand" : "text-faint"
         }`}
@@ -88,6 +91,7 @@ export function MobileTabBar() {
       <Link
         href={profileHref}
         aria-current={onOwnProfile ? "page" : undefined}
+        onClick={() => !onOwnProfile && playSound("tap")}
         className={`flex flex-1 flex-col items-center gap-0.5 rounded-full py-2 font-nunito text-[10.5px] font-bold transition ${
           onOwnProfile ? "bg-brand/10 text-brand" : "text-faint"
         }`}

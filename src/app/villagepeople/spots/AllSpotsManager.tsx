@@ -136,6 +136,17 @@ export function AllSpotsManager({
   };
 
   const handleChanged = (updated: AdminSpot) => {
+    // If a status filter is active and this row's new status no longer
+    // matches it (Take Down under an "Active" filter, Reactivate under a
+    // "Taken down" filter, ...), remove it from view instead of leaving a
+    // stale row sitting in a list it wouldn't appear in on a fresh fetch —
+    // same "the list reflects what its own filter promises" reasoning
+    // handleDeleted already gets for free from a hard delete.
+    if (status && updated.status !== status) {
+      setSpots((prev) => prev.filter((s) => s.spot_id !== updated.spot_id));
+      setTotal((t) => (t !== undefined ? Math.max(0, t - 1) : t));
+      return;
+    }
     setSpots((prev) => prev.map((s) => (s.spot_id === updated.spot_id ? { ...s, ...updated } : s)));
   };
 

@@ -11,7 +11,7 @@
 // current one) — without this, a browser that's already got the old,
 // stale-served HTML sitting in its cache wouldn't get a clean slate just
 // from this file changing.
-const STATIC = "kampos-static-v3";
+const STATIC = "kampos-static-v4";
 const IMAGES = "kampos-images-v1";
 
 // A small, deliberately conservative app shell, precached at install time
@@ -31,6 +31,15 @@ const APP_SHELL = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/icon-180.png",
+  // The four UI sound effects (see src/lib/sounds.ts) — tiny, static,
+  // identical for every visitor, so they belong here for the same reason
+  // the icons above do: precached at install time so even a fresh install
+  // that goes offline immediately still has them, not just a browser that
+  // happened to already visit while online.
+  "/sounds/tap.mp3",
+  "/sounds/pop.mp3",
+  "/sounds/whoosh.mp3",
+  "/sounds/delete.mp3",
 ];
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -94,7 +103,7 @@ self.addEventListener("fetch", (e) => {
 
   // ── Static assets → cache-first ───────────────────────────────────────
   if (
-    /\.(js|mjs|cjs|css|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|otf|json|webp|avif|webm|mp4|xml|txt|rsc)$/.test(
+    /\.(js|mjs|cjs|css|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|otf|json|webp|avif|webm|mp4|mp3|xml|txt|rsc)$/.test(
       url.pathname,
     )
   ) {

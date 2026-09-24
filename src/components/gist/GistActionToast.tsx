@@ -71,6 +71,7 @@ const FAILURE_COPY: Record<GistActionFailure, string> = {
 const SPOT_SUCCESS_COPY: Record<SpotActionSuccess, string> = {
   reported: "Thanks! We go review am",
   posted: "Your Spot don land",
+  deleted: "We don commot am",
 };
 
 type ToastState =

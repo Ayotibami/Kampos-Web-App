@@ -46,6 +46,7 @@ import { wasProfileRecentlyUpdated } from "@/lib/profileFreshness";
 import { HOBBY_EMOJI } from "@/lib/hobbies";
 import { apiErrorMessage } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
+import { playSound } from "@/lib/sounds";
 import { useIsMobile } from "@/lib/useIsMobile";
 import type { Gist, Profile } from "@/types";
 
@@ -313,6 +314,7 @@ export function ProfileView({
   // resolved server-side, same as today's page always has.
   const [activeTab, setActiveTab] = useState<"gist" | "spot">(initialTab);
   const handleTabChange = (tab: "gist" | "spot") => {
+    if (tab !== activeTab) playSound("tap");
     setActiveTab(tab);
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", tab === "spot" ? `/${avitag}?tab=spot` : `/${avitag}`);

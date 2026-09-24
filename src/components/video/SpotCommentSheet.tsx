@@ -7,13 +7,15 @@ import { Modal } from "@/components/ui/Modal";
 import { Avatar } from "@/components/ui/Avatar";
 import { Illustration } from "@/components/brand/illustrations";
 import { CommentSkeletonItem } from "@/components/comment/CommentList";
-import { X, RefreshCw, SendIconFill } from "@/components/ui/icons";
-import { ErrorModal } from "@/components/ui/FeedbackModal";
+import { X, RefreshCw, SendIconFill, Heart, DeleteIconFill } from "@/components/ui/icons";
+import { ConfirmModal, ErrorModal } from "@/components/ui/FeedbackModal";
 import { useSpotStore, type SpotComment } from "@/stores/spotStore";
+import { useAuthStore, useIsAdmin } from "@/stores/authStore";
 import { requireAuth } from "@/lib/requireAuth";
 import { apiErrorMessage } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { gistColorFor } from "@/lib/brand";
+import { playSound } from "@/lib/sounds";
 
 const COMMENT_MAX_LEN = 500;
 const COMMENT_TRUNCATE_LENGTH = 200;
@@ -44,14 +46,49 @@ function SpotCommentBody({ text }: { text: string }) {
 }
 
 /** A single comment bubble — same chat-bubble shape (tail, rounded-tl-none,
- * shadow) and staggered pop-in entrance as Gist's CommentBubble, minus the
- * reaction/delete row (Spot comments are deliberately plain text for v1 —
- * see spotStore's own doc). `key={comment_id}` on the wrapping motion.li is
- * what makes framer-motion's `initial` play once per real comment instead
- * of replaying on unrelated re-renders. */
-function SpotCommentBubble({ comment: c, index }: { comment: SpotComment; index: number }) {
+ * shadow), staggered pop-in entrance, tap-to-like row, and own/admin delete
+ * as Gist's own CommentBubble. `key={comment_id}` on the wrapping motion.li
+ * is what makes framer-motion's `initial` play once per real comment
+ * instead of replaying on unrelated re-renders. */
+function SpotCommentBubble({
+  comment: c,
+  index,
+  onReact,
+  onDelete,
+}: {
+  comment: SpotComment;
+  index: number;
+  onReact: () => void;
+  /** Resolves/rejects with the real delete outcome — SpotCommentSheet's own
+   * handleDelete does the actual store call and surfaces a failure through
+   * the shared ErrorModal; this bubble only needs to know whether to stop
+   * its own spinner and close its own confirm modal. */
+  onDelete: () => Promise<void>;
+}) {
   const avatarColor = gistColorFor(c.avitag);
   const schoolInfo = [c.major_tag, c.campus_tag].filter(Boolean).join(" ");
+  const reacted = !!c.my_reaction;
+  const avitag = useAuthStore((s) => s.avitag);
+  const isOwn = c.avitag === avitag;
+  const isAdmin = useIsAdmin();
+  const canDelete = isOwn || isAdmin;
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleConfirmDelete = async () => {
+    setDeleting(true);
+    try {
+      await onDelete();
+      setShowDeleteConfirm(false);
+      playSound("delete");
+    } catch {
+      // Failure is surfaced by the sheet's own shared ErrorModal — just
+      // stop spinning and leave the confirm modal open so the author/admin
+      // can see the error behind it and retry or cancel.
+    } finally {
+      setDeleting(false);
+    }
+  };
   return (
     <motion.li
       className="relative ml-3 rounded-2xl"
@@ -93,17 +130,74 @@ function SpotCommentBubble({ comment: c, index }: { comment: SpotComment; index:
         <div className="mt-4">
           <SpotCommentBody text={c.text} />
         </div>
+        {/* Tap-to-like on the left (heart icon, scale-pop-on-react
+            animation, count shown only once it's non-zero), Delete on the
+            right when this bubble is either the viewer's own comment or the
+            viewer is an admin moderating someone else's — same layout as
+            Gist's own CommentBubble. */}
+        <div className="mt-2 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={onReact}
+            aria-label={reacted ? "Remove reaction" : "React"}
+            className="flex items-center gap-1 rounded-full py-0.5 pr-1 transition active:scale-90"
+          >
+            <motion.span
+              className="flex"
+              animate={reacted ? { scale: [1, 1.3, 1] } : {}}
+              transition={{ duration: 0.3 }}
+            >
+              <Heart
+                fill={reacted ? "currentColor" : "none"}
+                className={`h-[18px] w-[18px] transition ${
+                  reacted ? "text-brand" : "text-muted dark:text-white/60"
+                }`}
+              />
+            </motion.span>
+            {!!c.reactions_count && (
+              <span
+                className={`font-nunito text-xs ${
+                  reacted ? "text-brand" : "text-muted dark:text-white/60"
+                }`}
+              >
+                {c.reactions_count}
+              </span>
+            )}
+          </button>
+
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              aria-label="Delete comment"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-danger transition hover:bg-danger/10 active:scale-90"
+            >
+              <DeleteIconFill className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
+
+      {canDelete && (
+        <ConfirmModal
+          open={showDeleteConfirm}
+          onClose={() => (deleting ? undefined : setShowDeleteConfirm(false))}
+          onConfirm={handleConfirmDelete}
+          loading={deleting}
+          title={isOwn ? "Delete your comment?" : `Delete @${c.avitag}'s comment?`}
+          message={isOwn ? "This can't be undone." : "This can't be undone — you're deleting this as an admin."}
+          confirmLabel="Delete"
+          icon={<DeleteIconFill size={26} weight="fill" />}
+        />
+      )}
     </motion.li>
   );
 }
 
 /**
  * Spot's own comment surface — same loading skeleton, empty state, bubble
- * shape/entrance animation, and animated send button as Gist's
- * CommentSheet/CommentList/CommentComposer, deliberately without the
- * reaction/delete row (Spot comments are plain text only, see the
- * backend's own scope decision).
+ * shape/entrance animation, tap-to-like, own/admin delete, and animated
+ * send button as Gist's CommentSheet/CommentList/CommentComposer.
  */
 export function SpotCommentSheet({
   open,
@@ -120,6 +214,9 @@ export function SpotCommentSheet({
   const errorBySpot = useSpotStore((s) => s.commentsErrorBySpot);
   const fetchComments = useSpotStore((s) => s.fetchComments);
   const addComment = useSpotStore((s) => s.addComment);
+  const reactSpotComment = useSpotStore((s) => s.reactSpotComment);
+  const unreactSpotComment = useSpotStore((s) => s.unreactSpotComment);
+  const removeSpotComment = useSpotStore((s) => s.removeSpotComment);
 
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -156,10 +253,40 @@ export function SpotCommentSheet({
       // Clears only on success — a failed send leaves the draft intact so
       // nothing typed is lost, same as Gist's CommentComposer.
       setText("");
+      playSound("whoosh");
     } catch (err) {
       setSendError(apiErrorMessage(err, "Failed to post comment — try again"));
     } finally {
       setSending(false);
+    }
+  };
+
+  // No try/catch — reactSpotComment/unreactSpotComment revert optimistic
+  // state silently on failure, same as toggleLike, so there's nothing here
+  // to catch (see spotStore's own doc on why).
+  const handleReact = (comment: SpotComment) => {
+    if (!requireAuth("react to comments")) return;
+    if (!spotId) return;
+    if (comment.my_reaction) void unreactSpotComment(spotId, comment.comment_id);
+    else {
+      void reactSpotComment(spotId, comment.comment_id);
+      playSound("pop");
+    }
+  };
+
+  // removeSpotComment already sets its own store-level error and rethrows on
+  // failure — caught here purely to surface it through this sheet's shared
+  // ErrorModal and let it propagate back up to the calling SpotCommentBubble
+  // too, so its confirm modal knows to stop spinning (and stay open) rather
+  // than silently closing on a failure. Same shape as CommentList's own
+  // handleCommentDelete.
+  const handleDelete = async (commentId: string) => {
+    if (!spotId) throw new Error("Missing spot");
+    try {
+      await removeSpotComment(spotId, commentId);
+    } catch (err) {
+      setSendError(apiErrorMessage(err, "Failed to delete comment"));
+      throw err;
     }
   };
 
@@ -214,7 +341,13 @@ export function SpotCommentSheet({
           ) : (
             <ul className="space-y-4 py-1">
               {items.map((c, i) => (
-                <SpotCommentBubble key={c.comment_id} comment={c} index={i} />
+                <SpotCommentBubble
+                  key={c.comment_id}
+                  comment={c}
+                  index={i}
+                  onReact={() => handleReact(c)}
+                  onDelete={() => handleDelete(c.comment_id)}
+                />
               ))}
             </ul>
           )}

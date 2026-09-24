@@ -10,6 +10,7 @@ import { useCommentStore } from "@/stores/commentStore";
 import { useAuthStore, useIsAdmin } from "@/stores/authStore";
 import { requireAuth } from "@/lib/requireAuth";
 import { timeAgo } from "@/lib/format";
+import { playSound } from "@/lib/sounds";
 import { apiErrorMessage } from "@/lib/api";
 import { ConfirmModal, ErrorModal } from "@/components/ui/FeedbackModal";
 import type { Comment, Gist } from "@/types";
@@ -338,7 +339,10 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
     }
     try {
       if (alreadyReacted) await unreactComment(commentId, gistId);
-      else await reactComment(commentId, gistId, "LOVE");
+      else {
+        await reactComment(commentId, gistId, "LOVE");
+        playSound("pop");
+      }
     } catch (err) {
       setActionError(apiErrorMessage(err, "Failed to react — try again"));
     }
@@ -352,6 +356,7 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
   const handleCommentDelete = async (commentId: string, gistId: string) => {
     try {
       await remove(commentId, gistId);
+      playSound("delete");
     } catch (err) {
       setActionError(apiErrorMessage(err, "Failed to delete comment"));
       throw err;

@@ -1,9 +1,10 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
-import { Heart, MessageCircle, ShareIconFill, FlagIconFill, VolumeIconFill, MuteIconFill, Plus, RefreshCw, ChevronLeft } from "@/components/ui/icons";
+import { Heart, MessageCircle, ShareIconFill, FlagIconFill, DeleteIconFill, VolumeIconFill, MuteIconFill, Plus, RefreshCw, ChevronLeft } from "@/components/ui/icons";
 import { useAnyModalOpen } from "@/stores/modalStore";
 import { CreateVideoSheet } from "@/components/video/CreateVideoSheet";
 import { SpotCommentSheet } from "@/components/video/SpotCommentSheet";
@@ -12,9 +13,11 @@ import { useAuthStore } from "@/stores/authStore";
 import { useSpotStore, type Spot } from "@/stores/spotStore";
 import { gistColorFor } from "@/lib/brand";
 import { ReportModal } from "@/components/gist/ReportModal";
-import { ErrorModal } from "@/components/ui/FeedbackModal";
+import { ConfirmModal, ErrorModal } from "@/components/ui/FeedbackModal";
 import { env } from "@/lib/env";
 import { cloudinaryVideo } from "@/lib/cloudinary";
+import { timeAgo } from "@/lib/format";
+import { playSound } from "@/lib/sounds";
 
 function formatCount(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(n % 1000 >= 100 ? 1 : 0)}k`;
@@ -133,6 +136,7 @@ function VideoCard({
   onOpenComments,
   onShare,
   onFlag,
+  onDelete,
 }: {
   video: Spot;
   active: boolean;
@@ -157,6 +161,10 @@ function VideoCard({
    * silently swallowing it, now that there's an actual surface to show one
    * on (there wasn't, before this modal existed). */
   onFlag: (reason: string) => Promise<void>;
+  /** Rejects on failure (spotStore.removeSpot's own contract) — this card's
+   * own delete confirm modal awaits it directly to show a real error and
+   * stay open, same reasoning onFlag above already gives. */
+  onDelete: () => Promise<void>;
 }) {
   const renderVideo = distance <= WINDOW_RADIUS;
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -166,6 +174,14 @@ function VideoCard({
   const [showReportModal, setShowReportModal] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [reportError, setReportError] = useState<string>();
+  const viewerAvitag = useAuthStore((s) => s.avitag);
+  // Own content swaps the Report slot for Delete — reporting yourself makes
+  // no sense (the backend already rejects it), and this rail only has room
+  // for one of the two per card.
+  const isOwn = video.avitag === viewerAvitag;
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string>();
   const [pop, setPop] = useState(false);
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -308,6 +324,20 @@ function VideoCard({
       setReportError(err instanceof Error ? err.message : "Failed to report this Spot");
     } finally {
       setReporting(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    setDeleting(true);
+    setDeleteError(undefined);
+    try {
+      await onDelete();
+      setShowDeleteConfirm(false);
+      playSound("delete");
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete this Spot");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -478,13 +508,30 @@ function VideoCard({
           a pill lifted off the edge instead of a flush full-width bar. */}
       <div className="absolute bottom-[104px] left-4 right-[70px] z-10">
         <div className="flex items-center gap-1.5 font-nunito text-[13px] font-extrabold text-white">
-          <span
-            className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full text-[9.5px] font-extrabold text-white ring-2 ring-white/80"
-            style={{ backgroundColor: avatarColor }}
+          {/* stopPropagation — without it this bubbles up to the card's own
+              onClick={handleTap} (tap-to-pause), same reasoning every other
+              in-card control here (mute, report, the caption's own "…more")
+              already needs it for. */}
+          <Link
+            href={`/${video.avitag}`}
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1.5"
           >
-            {video.image_url ? <Avatar src={video.image_url} /> : initials}
-          </span>
-          {video.avitag}
+            <span
+              className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full text-[9.5px] font-extrabold text-white ring-2 ring-white/80"
+              style={{ backgroundColor: avatarColor }}
+            >
+              {video.image_url ? <Avatar src={video.image_url} /> : initials}
+            </span>
+            {video.avitag}
+          </Link>
+          {/* Same "@handle · time" convention every other card in this app
+              already uses (AdminGistCard, ProfileGistCard, ...) — just
+              inline here rather than a separate line, since this card's
+              handle is already the only identity line (no separate display
+              name above it). Lighter weight than the handle itself so it
+              reads as secondary metadata, not competing for attention. */}
+          <span className="font-semibold text-white/70">· {timeAgo(video.created_at)}</span>
         </div>
 
         {(video.campus_tag || video.major_tag || video.level) && (
@@ -555,7 +602,10 @@ function VideoCard({
           onClick={(e) => {
             e.stopPropagation();
             onLike();
-            if (!liked) popHeart();
+            if (!liked) {
+              popHeart();
+              playSound("pop");
+            }
           }}
           className="flex flex-col items-center gap-1"
         >
@@ -592,34 +642,66 @@ function VideoCard({
             {formatCount(video.shares_count)}
           </span>
         </button>
-        {/* No count shown here, deliberately — reports aren't a public
-            metric. Opens the same reason-picker dialog Gist uses (just
-            re-worded for video), not an instant one-tap report — a report
-            is a deliberate, considered action. Icon fills brand-colored
-            once already flagged (my_report, persisted server-side),
-            disabled from then on so a second tap is a no-op instead of a
-            second, wasted request. */}
-        <button
-          type="button"
-          aria-label={video.my_report ? "Reported" : "Report"}
-          disabled={video.my_report}
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowReportModal(true);
-          }}
-          className="flex flex-col items-center gap-1 disabled:opacity-70"
-        >
-          <FlagIconFill
-            className="h-6 w-6"
-            weight={video.my_report ? "fill" : "regular"}
-            // #165abf mirrors globals.css's --color-brand — this file
-            // already reaches for raw hex on every other rail icon (the
-            // liked heart, the share glyph) rather than a Tailwind class,
-            // since these are SVG color props, not classNames.
-            style={{ color: video.my_report ? "#165abf" : "#fff" }}
-          />
-        </button>
+        {/* Own content swaps this same slot for Delete instead of Report —
+            reporting yourself isn't a real action, and deleting your own
+            Spot is exactly as deliberate/infrequent as reporting someone
+            else's, so it earns the same real-estate. */}
+        {isOwn ? (
+          <button
+            type="button"
+            aria-label="Delete Spot"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowDeleteConfirm(true);
+            }}
+            className="flex flex-col items-center gap-1"
+          >
+            <DeleteIconFill className="h-6 w-6" weight="regular" style={{ color: "#fff" }} />
+          </button>
+        ) : (
+          // No count shown here, deliberately — reports aren't a public
+          // metric. Opens the same reason-picker dialog Gist uses (just
+          // re-worded for video), not an instant one-tap report — a report
+          // is a deliberate, considered action. Icon fills brand-colored
+          // once already flagged (my_report, persisted server-side),
+          // disabled from then on so a second tap is a no-op instead of a
+          // second, wasted request.
+          <button
+            type="button"
+            aria-label={video.my_report ? "Reported" : "Report"}
+            disabled={video.my_report}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowReportModal(true);
+            }}
+            className="flex flex-col items-center gap-1 disabled:opacity-70"
+          >
+            <FlagIconFill
+              className="h-6 w-6"
+              weight={video.my_report ? "fill" : "regular"}
+              // #165abf mirrors globals.css's --color-brand — this file
+              // already reaches for raw hex on every other rail icon (the
+              // liked heart, the share glyph) rather than a Tailwind class,
+              // since these are SVG color props, not classNames.
+              style={{ color: video.my_report ? "#165abf" : "#fff" }}
+            />
+          </button>
+        )}
       </div>
+
+      {isOwn && (
+        <ConfirmModal
+          open={showDeleteConfirm}
+          onClose={() => (deleting ? undefined : setShowDeleteConfirm(false))}
+          onConfirm={handleConfirmDelete}
+          loading={deleting}
+          title="Delete this Spot?"
+          message="This can't be undone."
+          confirmLabel="Delete"
+          icon={<DeleteIconFill size={26} weight="fill" />}
+        />
+      )}
+      <ErrorModal open={!!deleteError} onClose={() => setDeleteError(undefined)} message={deleteError} />
 
       <ReportModal
         open={showReportModal}
@@ -748,6 +830,7 @@ function VideoFeedContentInner() {
   const toggleLike = useSpotStore((s) => s.toggleLike);
   const shareAction = useSpotStore((s) => s.share);
   const reportAction = useSpotStore((s) => s.report);
+  const removeSpot = useSpotStore((s) => s.removeSpot);
   const recordView = useSpotStore((s) => s.recordView);
   const prependSpot = useSpotStore((s) => s.prependSpot);
   // Same lookup MobileTabBar's own "You" tab avatar uses — the compose
@@ -1041,6 +1124,7 @@ function VideoFeedContentInner() {
                   // (e.g. "You cannot report your own spot"), so this no
                   // longer needs to swallow it itself.
                   onFlag={(reason) => reportAction(v.spot_id, reason)}
+                  onDelete={() => removeSpot(v.spot_id)}
                 />
               </div>
             ))}

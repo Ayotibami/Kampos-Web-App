@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { ConfirmReasonModal } from "@/components/ui/FeedbackModal";
-import { VideoPreviewModal } from "@/components/villagepeople/AdminSpotCard";
-import { PlayIconFill } from "@/components/ui/icons";
+import { AdminSpotVideoTile } from "@/components/villagepeople/AdminSpotVideoTile";
 import { apiErrorMessage } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { useModerationStore } from "@/stores/moderationStore";
@@ -17,10 +16,11 @@ const PAGE_SIZE = 20;
  * Spot Reports tab — same accept (takes the underlying Spot down too) /
  * reject (dismiss, Spot untouched) shape as ReportsTab.tsx's own gist
  * version, against spot/report.repo.ts's endpoints instead. Each row shows
- * the reporter's own reason plus a thumbnail of the reported clip (tap to
- * open a real preview — see AdminSpotCard's own VideoPreviewModal, reused
- * here rather than duplicated) so an admin can judge without navigating
- * away to find the Spot itself.
+ * the reporter's own reason plus the reported clip itself, via the same
+ * AdminSpotVideoTile the All Spots browse screen uses — autoplaying muted
+ * as it scrolls into view, not a static click-to-preview thumbnail, so an
+ * admin can actually review reported clips while scrolling through the
+ * queue instead of tapping into each one individually.
  *
  * "Load more" re-fetches from offset 0 with a bigger limit — same reasoning
  * as ReportsTab's identical comment: this queue shrinks as an admin works
@@ -47,7 +47,6 @@ export function SpotReportsTab({
   const [actioningId, setActioningId] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<PendingSpotReport | null>(null);
   const [rejecting, setRejecting] = useState(false);
-  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const [limit, setLimit] = useState(Math.max(PAGE_SIZE, initialReports.length));
   const [hasMore, setHasMore] = useState(initialReports.length >= PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -121,7 +120,6 @@ export function SpotReportsTab({
         confirmLabel="Dismiss"
         loading={rejecting}
       />
-      <VideoPreviewModal open={!!previewSrc} src={previewSrc} onClose={() => setPreviewSrc(null)} />
 
       <ul className="flex flex-col gap-3">
         {reports.map((report) => {
@@ -141,37 +139,20 @@ export function SpotReportsTab({
                 </p>
               )}
 
-              <div className="flex gap-3 rounded-2xl bg-surface-2 p-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line">
-                  <Avatar src={report.image_url} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="min-w-0 truncate font-nunito text-xs font-semibold text-ink">
+              <div className="flex flex-col gap-3 rounded-2xl bg-surface-2 p-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 ring-1 ring-line">
+                    <Avatar src={report.image_url} />
+                  </div>
+                  <p className="min-w-0 flex-1 truncate font-nunito text-xs font-semibold text-ink">
                     {report.display_name || `@${report.spot_avitag}`}
                   </p>
-                  <p className="mt-0.5 whitespace-pre-wrap break-words font-nunito text-sm text-muted">
+                </div>
+                <div className="flex gap-3">
+                  <AdminSpotVideoTile mediaUrl={report.spot_media_url} thumbnailUrl={report.spot_thumbnail_url} />
+                  <p className="min-w-0 flex-1 whitespace-pre-wrap break-words font-nunito text-sm text-muted">
                     {report.spot_caption || <span className="text-faint">No caption</span>}
                   </p>
-                  {report.spot_media_url && (
-                    <button
-                      type="button"
-                      onClick={() => setPreviewSrc(report.spot_media_url)}
-                      aria-label="Preview this Spot"
-                      className="relative mt-2 h-20 w-14 overflow-hidden rounded-xl bg-line/30 ring-1 ring-black/5 transition active:scale-95"
-                    >
-                      {report.spot_thumbnail_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element -- same plain <img> AdminSpotCard uses for a Cloudinary-hosted thumbnail.
-                        <img src={report.spot_thumbnail_url} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-brand/20 to-brand/5">
-                          <PlayIconFill className="h-4 w-4 text-brand/50" weight="fill" />
-                        </div>
-                      )}
-                      <span className="absolute inset-0 flex items-center justify-center bg-black/20">
-                        <PlayIconFill className="h-4 w-4 text-white drop-shadow" weight="fill" />
-                      </span>
-                    </button>
-                  )}
                 </div>
               </div>
 

@@ -6,7 +6,12 @@ export function formatCountdown(totalSeconds: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
-/** Compact relative time, e.g. "now", "5m", "3h", "2d", else a short date. */
+/** Compact relative time, e.g. "now", "5m", "3h", "2d", else a short date
+ * ("Sep 24") — with the year appended ("Sep 24, 2025") once the post is
+ * old enough to no longer be from the current year, same "drop it when it's
+ * obvious, show it when it isn't" rule friendlyDateTime below already
+ * follows. Without this, a post from a year ago and one from today were
+ * indistinguishable ("Sep 24" either way). */
 export function timeAgo(iso?: string): string {
   if (!iso) return "";
   const then = new Date(iso).getTime();
@@ -19,7 +24,13 @@ export function timeAgo(iso?: string): string {
   if (hours < 24) return `${hours}h`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d`;
-  return new Date(then).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const date = new Date(then);
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: sameYear ? undefined : "numeric",
+  });
 }
 
 /**

@@ -37,6 +37,7 @@ import type { Gist, ReactionType } from "@/types";
 import { gistColorForGist } from "@/lib/brand";
 import { fitHeroBlock, HERO_TEXT_NOMINAL_REM } from "@/lib/heroText";
 import { timeAgo, friendlyDateTime, compactNumber } from "@/lib/format";
+import { playSound } from "@/lib/sounds";
 
 // Controlled dialog, same reasoning as FeedContent.tsx's own dynamic()
 // calls — pulls the compose sheet (+ its nested GiphyPicker/WebcamCapture)
@@ -342,6 +343,7 @@ export const GistCard = memo(function GistCard({
     if (isFirstReaction) setReactionDelta((d) => d + 1);
     try {
       await reactGist(gist.gist_id, type);
+      playSound("pop");
     } catch (err) {
       setLocalReaction(gist.my_reaction ?? null);
       if (isFirstReaction) setReactionDelta((d) => d - 1);
@@ -439,6 +441,7 @@ export const GistCard = memo(function GistCard({
       await removeGist(gist.gist_id);
       setShowDeleteConfirm(false);
       onDeleted?.(gist.gist_id);
+      playSound("delete");
     } catch (err) {
       setDeleteError(apiErrorMessage(err, "Failed to delete this gist"));
     } finally {

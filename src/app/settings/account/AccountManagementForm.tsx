@@ -6,7 +6,8 @@ import { SettingsPageShell } from "@/components/settings/SettingsPageShell";
 import { TextInput } from "@/components/ui/TextInput";
 import { Button } from "@/components/ui/Button";
 import { ErrorModal, SuccessModal, ConfirmModal } from "@/components/ui/FeedbackModal";
-import { AlertTriangle, DeleteIconFill } from "@/components/ui/icons";
+import { AlertTriangle, DeleteIconFill, VolumeIconFill } from "@/components/ui/icons";
+import { SoundToggle } from "@/components/ui/SoundToggle";
 import { PasswordChecklist, isPasswordValid } from "@/components/ui/PasswordChecklist";
 import { validatePassword, passwordsMatch, sanitizeInput } from "@/lib/validation";
 import { apiErrorMessage } from "@/lib/api";
@@ -142,6 +143,23 @@ export function AccountManagementForm() {
             {user?.created_at && (
               <span className="font-nunito text-xs text-muted">Joined {monthYear(user.created_at)}</span>
             )}
+          </section>
+
+          {/* Desktop-only here — hidden md:flex. Mobile already has this
+              exact row on the Settings hub itself (SettingsHub.tsx), one
+              tap in; showing it again here too would just be a duplicate.
+              Desktop never sees that hub screen at all (SettingsHub
+              redirects it straight to /settings/profile), so Account is
+              the only place left for it to live there. */}
+          <section className="hidden items-center gap-3.5 border-b border-line/70 pb-8 md:flex">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand/10 text-brand">
+              <VolumeIconFill className="h-5 w-5" weight="regular" />
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="font-nunito text-sm font-bold text-ink">Sound Effects</span>
+              <span className="font-nunito text-sm text-muted">Taps, likes, comments &amp; more</span>
+            </span>
+            <SoundToggle />
           </section>
 
           <section className="flex flex-col gap-5">
