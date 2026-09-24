@@ -37,6 +37,7 @@ import { useCommentStore } from "@/stores/commentStore";
 import { useAuthStore, useIsAdmin } from "@/stores/authStore";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { timeAgo } from "@/lib/format";
+import { playSound } from "@/lib/sounds";
 import type { Gist } from "@/types";
 
 // "Gist" | "Amebo" | a campus_tag (one of the trending-school pills) — a
@@ -720,6 +721,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                 <button
                   type="button"
                   onClick={() => {
+                    playSound("tap");
                     setComposePlaceholder(pickRandomPrompt());
                     setShowCreate(true);
                     dismissComposeHint();
@@ -905,6 +907,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
 
       <FloatingComposeButton
         onClick={() => {
+          playSound("tap");
           setComposePlaceholder(pickRandomPrompt());
           setShowCreate(true);
           dismissComposeHint();

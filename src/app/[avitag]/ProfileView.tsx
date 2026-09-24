@@ -866,7 +866,10 @@ export function ProfileView({
                     page, never true on someone else's. */}
                   <button
                     type="button"
-                    onClick={() => setShowCreate(true)}
+                    onClick={() => {
+                      playSound("tap");
+                      setShowCreate(true);
+                    }}
                     aria-label="Create a gist"
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95"
                   >

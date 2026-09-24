@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/icons";
 import type { Gist, ReactionType } from "@/types";
 import { timeAgo, compactNumber } from "@/lib/format";
+import { playSound } from "@/lib/sounds";
 
 // Same controlled-dialog reasoning as ProfileGistCard/FeedContent's own
 // dynamic() calls.
@@ -215,6 +216,7 @@ export const FeedGistCard = memo(function FeedGistCard({
     if (isFirstReaction) setReactionDelta((d) => d + 1);
     try {
       await reactGist(gist.gist_id, type);
+      playSound("pop");
     } catch (err) {
       setLocalReaction(gist.my_reaction ?? null);
       if (isFirstReaction) setReactionDelta((d) => d - 1);
@@ -356,6 +358,7 @@ export const FeedGistCard = memo(function FeedGistCard({
       await removeGist(gist.gist_id);
       setShowDeleteConfirm(false);
       onDeleted?.(gist.gist_id);
+      playSound("delete");
     } catch (err) {
       setDeleteError(apiErrorMessage(err, "Failed to delete this gist"));
     } finally {
