@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { createHash } from "crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { env } from "./env";
@@ -7,6 +8,8 @@ import { isAdminRole } from "./roles";
 import type { AuthGateState } from "@/stores/authStore";
 import type { AccountProfileResponse, ProfileSummary } from "@/stores/authStore";
 import type { Account } from "@/types";
+
+type ResolvedAuthState = { state: AuthGateState; account: Account | null; profiles: ProfileSummary[] };
 
 /**
  * Server-side counterpart to authStore's resolveAuthState — same "who is
@@ -91,6 +94,98 @@ export async function gateServer(allow: AuthGateState[]) {
     redirect(destinationFor(result.state));
   }
   return result;
+}
+
+const TAB_AUTH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+// Module-level, in-memory, per-process — correct for this app's
+// single-instance deployment (a multi-instance/edge deployment would need
+// a shared store instead). Keyed by a hash of the FULL cookie header
+// (access + refresh token both), not just the session id, so a token
+// refresh — middleware.ts silently rotates the access token roughly every
+// 15 minutes — naturally produces a fresh cache entry too, layered on top
+// of the explicit TTL below. Hashed rather than keyed by the raw cookie
+// string purely so a session token never ends up sitting in a Map key
+// that could get logged/inspected during debugging.
+const tabAuthCache = new Map<string, { result: ResolvedAuthState; expiresAt: number }>();
+
+// Opportunistic, not a timer — runs only when the cache has grown past a
+// small threshold, so a long-running process doesn't accumulate entries
+// for sessions that leave and never come back, without needing a
+// setInterval (and its own cleanup) just to bound memory.
+function sweepExpiredTabAuthCache() {
+  const now = Date.now();
+  for (const [key, entry] of tabAuthCache) {
+    if (entry.expiresAt <= now) tabAuthCache.delete(key);
+  }
+}
+
+async function resolveServerAuthStateCached(): Promise<ResolvedAuthState> {
+  const cookieStore = await cookies();
+  const cookieHeader = cookieStore.toString();
+  const key = createHash("sha256").update(cookieHeader).digest("hex");
+
+  const cached = tabAuthCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.result;
+
+  const result = await resolveServerAuthState();
+  // "unknown" (backend unreachable) is deliberately never cached — caching
+  // a transient failure would mean a cold-starting backend that recovers
+  // 10 seconds later still reads as unreachable for the rest of the
+  // window on these routes, defeating the whole point of "unknown" being
+  // a soft, retry-next-time fallback in the first place.
+  if (result.state !== "unknown") {
+    if (tabAuthCache.size > 500) sweepExpiredTabAuthCache();
+    tabAuthCache.set(key, { result, expiresAt: Date.now() + TAB_AUTH_CACHE_TTL_MS });
+  }
+  return result;
+}
+
+/**
+ * Same question gateServer() answers, same redirect behavior — but
+ * tolerates an answer up to 5 minutes stale, cached per session. Scoped
+ * deliberately to just the three bottom-tab routes (/feed, /video, and a
+ * profile page use this or resolveServerAuthStateForTabs below); every
+ * other gated route keeps calling gateServer() itself, always fresh. This
+ * is not a blanket change to how auth is checked — see the full writeup
+ * this came out of for the reasoning, short version:
+ *
+ * Switching tabs used to re-verify "is this session still allowed" fully,
+ * fresh, from the backend, on literally every single tap — the direct
+ * cause of navigation feeling slow whenever the backend is cold (see
+ * middleware.ts's own doc on Render free-tier cold starts). Caching this
+ * check specifically is safe because it only ever gates whether a PAGE
+ * renders — every actual mutating action (react, comment, post, delete)
+ * still hits the real backend fresh on every call, completely
+ * independent of this cache. So the real exposure of a stale "active"
+ * result is "can keep viewing for a few minutes," never "can keep
+ * acting."
+ *
+ * The risky direction — a user whose status just became MORE permissive
+ * (finished OTP verification or profile setup) getting stuck behind a
+ * stale LESS-permissive cached result — structurally can't happen here:
+ * those transitions happen on /verify-otp and /setup-profile, which are
+ * outside this cache's scope entirely, and a not-yet-active user would
+ * have been redirected away from these three routes (by this same
+ * function) before ever successfully rendering — and therefore caching —
+ * anything on them in the first place.
+ */
+export async function gateServerForTabs(allow: AuthGateState[]) {
+  const result = await resolveServerAuthStateCached();
+  if (result.state === "unknown") return result;
+  if (!allow.includes(result.state)) {
+    redirect(destinationFor(result.state));
+  }
+  return result;
+}
+
+/**
+ * Same cache as gateServerForTabs, no redirect — for the profile page,
+ * which never gates on auth state at all (a profile is public; this is
+ * only ever used to know whether the viewer is looking at their own page).
+ */
+export async function resolveServerAuthStateForTabs(): Promise<ResolvedAuthState> {
+  return resolveServerAuthStateCached();
 }
 
 /**

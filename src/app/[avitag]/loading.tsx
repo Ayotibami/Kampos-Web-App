@@ -1,16 +1,21 @@
+"use client";
+
 import { AppShell } from "@/components/layout/AppShell";
 import { ProfileGistCardSkeleton } from "@/components/gist/ProfileGistCardSkeleton";
 import { CommentPanelSkeleton } from "@/components/comment/CommentPanelSkeleton";
 import { ArrowLeft } from "@/components/ui/icons";
+import { getFreshProfileSnapshot } from "@/stores/profileSnapshotStore";
+import { ProfileView } from "./ProfileView";
 
 // Mirrors ProfileView's real structure exactly (same fixed header, same
 // avatar/name/tag-pill block, same three colored info boards, same bio
 // shape, same gist-list/comment-panel split) so there's no visible reflow
 // once the real profile streams in — just the same shapes filling in with
-// real content. `avitag`/name/bio text can't be known here (loading.tsx
-// gets no params), so those become plain bars; the three board tones
-// (blue/gold/mint) and the bio's lavender ARE always the same regardless of
-// whose profile this is, so those render in their real colors already.
+// real content. `avitag`/name/bio text can't be known here when this
+// renders as Next's own file-convention loading.tsx (no params) — those
+// become plain bars; the three board tones (blue/gold/mint) and the bio's
+// lavender ARE always the same regardless of whose profile this is, so
+// those render in their real colors already.
 const SKELETON_VARIANTS = ["media", "text", "hero", "text"] as const;
 
 function BoardSkeleton({ tone }: { tone: "blue" | "gold" | "mint" }) {
@@ -23,7 +28,29 @@ function BoardSkeleton({ tone }: { tone: "blue" | "gold" | "mint" }) {
   );
 }
 
-export default function Loading() {
+export default function Loading({ avitag }: { avitag?: string }) {
+  // Only ever passed when [avitag]/layout.tsx renders this as its manual
+  // Suspense fallback (it has real params access, unlike the plain
+  // loading.tsx file convention) — see that file's own comment. A fresh
+  // snapshot for THIS avitag means real, already-known content exists, so
+  // skip the generic skeleton entirely and render the real profile
+  // immediately, same reasoning as feed/loading.tsx's own bypass.
+  // ProfileView re-derives/re-validates everything from the store itself
+  // (see its own getFreshProfileSnapshot seeding), so these props are only
+  // ever the fallback for its very first paint.
+  const snapshot = avitag ? getFreshProfileSnapshot(avitag) : null;
+  if (avitag && snapshot) {
+    return (
+      <ProfileView
+        avitag={avitag}
+        profile={snapshot.profile}
+        isOwnProfile={snapshot.isOwnProfile}
+        initialGists={snapshot.gists}
+        initialGistTotal={snapshot.gistTotal}
+        initialTab="gist"
+      />
+    );
+  }
   return (
     <AppShell variant="panel">
       <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto pt-[calc(60px+env(safe-area-inset-top,0px))]">

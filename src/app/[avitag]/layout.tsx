@@ -10,7 +10,20 @@ import Loading from "./loading";
  * most visible: tapping into a profile from anywhere else used to show
  * nothing (or the root's generic skeleton) instead of this page's own
  * pixel-matched one.
+ *
+ * Unlike loading.tsx (no params, ever), a layout DOES get its segment's
+ * params — so this is also where the profile snapshot fast-path (see
+ * profileSnapshotStore.ts) plugs in: passing avitag down lets Loading
+ * check for a fresh snapshot and, when one exists, skip the skeleton and
+ * render the real profile immediately as the Suspense fallback itself.
  */
-export default function AvitagLayout({ children }: { children: ReactNode }) {
-  return <Suspense fallback={<Loading />}>{children}</Suspense>;
+export default async function AvitagLayout({
+  children,
+  params,
+}: {
+  children: ReactNode;
+  params: Promise<{ avitag: string }>;
+}) {
+  const { avitag } = await params;
+  return <Suspense fallback={<Loading avitag={avitag} />}>{children}</Suspense>;
 }

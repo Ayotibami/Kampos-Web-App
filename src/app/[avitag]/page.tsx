@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { HydrateAuth } from "@/components/auth/HydrateAuth";
-import { resolveServerAuthState } from "@/lib/serverAuth";
+import { resolveServerAuthStateForTabs } from "@/lib/serverAuth";
 import { fetchStudentProfileByAvitag, normalizeStudentProfile } from "@/lib/serverProfile";
 import { fetchUserGists } from "@/lib/serverGist";
 import { ProfileView } from "./ProfileView";
@@ -65,9 +65,14 @@ export default async function ProfilePage({
   // Auth state, profile data, and the profile's first page of gists all
   // fetched in parallel — no added latency. If the profile doesn't exist,
   // notFound() takes over regardless of what the other two returned.
+  // resolveServerAuthStateForTabs, not resolveServerAuthState — this is
+  // one of the three bottom-tab routes (the "You" tab, when it's your
+  // own avitag), so the auth check itself tolerates a few minutes of
+  // staleness instead of re-verifying fresh on every single tap. See
+  // serverAuth.ts's own doc on why that's safe specifically here.
   const [{ state, account, profiles }, profile, { gists: initialGists, total: initialGistTotal }] =
     await Promise.all([
-      resolveServerAuthState(),
+      resolveServerAuthStateForTabs(),
       fetchStudentProfileByAvitag(avitag),
       fetchUserGists(avitag),
     ]);

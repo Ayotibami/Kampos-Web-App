@@ -6,6 +6,7 @@ import { CheckCircle } from "@/components/ui/icons";
 import { useGistStore } from "@/stores/gistStore";
 import { requireAuth } from "@/lib/requireAuth";
 import { compactNumber } from "@/lib/format";
+import { playSound } from "@/lib/sounds";
 import type { GistPoll } from "@/types";
 
 /**
@@ -84,6 +85,10 @@ export function PollBlock({ gistId, poll }: { gistId: string; poll: GistPoll }) 
         return o;
       }),
     );
+    // Fires right alongside the optimistic fill above, not after the
+    // network round trip — same reasoning every reaction in the app
+    // already follows.
+    playSound("pop");
     try {
       await votePoll(gistId, optionId);
     } catch {

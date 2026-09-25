@@ -41,6 +41,10 @@ import {
   LevelIconFill,
 } from "@/components/ui/icons";
 import { useGistStore, patchGistPoll } from "@/stores/gistStore";
+import {
+  useProfileSnapshotStore,
+  getFreshProfileSnapshot,
+} from "@/stores/profileSnapshotStore";
 import { useAuthStore } from "@/stores/authStore";
 import { wasProfileRecentlyUpdated } from "@/lib/profileFreshness";
 import { HOBBY_EMOJI } from "@/lib/hobbies";
@@ -257,7 +261,7 @@ function AvatarLightbox({
  */
 export function ProfileView({
   avitag,
-  profile,
+  profile: initialProfile,
   isOwnProfile,
   initialGists,
   initialGistTotal,
@@ -299,6 +303,16 @@ export function ProfileView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Seeded from a fresh client-side snapshot (a repeat visit within the
+  // last few minutes) when one exists for this avitag, otherwise from the
+  // server-rendered prop — same "show something real instantly, let the
+  // real data settle in behind it" reasoning as FeedContent's own
+  // feedSnapshot. See profileSnapshotStore.ts.
+  const [profile, setProfile] = useState<Profile>(
+    () => getFreshProfileSnapshot(avitag)?.profile ?? initialProfile,
+  );
+  const saveProfileSnapshot = useProfileSnapshotStore((s) => s.saveProfileSnapshot);
+
   const [showCreate, setShowCreate] = useState(false);
   const [avatarLightboxOpen, setAvatarLightboxOpen] = useState(false);
   // Which content shows below the tab strip — Gist's own list (unchanged)
@@ -323,7 +337,9 @@ export function ProfileView({
   // Start with server-fetched gists (if any) — no skeleton on first render.
   // Only fall back to a client-side fetch if the server couldn't deliver
   // (backend was down during SSR).
-  const [gists, setGists] = useState<Gist[]>(initialGists);
+  const [gists, setGists] = useState<Gist[]>(
+    () => getFreshProfileSnapshot(avitag)?.gists ?? initialGists,
+  );
   // Mirrors `gists` for the moderation-rejection listener below, which
   // deliberately has an empty dependency array (see its own comment) and
   // so would otherwise only ever see the `gists` value from first mount.
@@ -336,7 +352,9 @@ export function ProfileView({
   // only if a total was never available at all (e.g. the very first
   // server-side fetch failed), so the count still shows *something*
   // sensible rather than blanking out.
-  const [gistTotal, setGistTotal] = useState<number>(initialGistTotal ?? initialGists.length);
+  const [gistTotal, setGistTotal] = useState<number>(
+    () => getFreshProfileSnapshot(avitag)?.gistTotal ?? (initialGistTotal ?? initialGists.length),
+  );
   const [gistsError, setGistsError] = useState<string | null>(null);
   // Which avitag `gists`/`gistsError` actually reflect — lets "loading" be
   // derived instead of an explicit synchronous reset at the top of the
@@ -345,9 +363,10 @@ export function ProfileView({
   // profile straight to another without a full remount.
   // If the server already delivered gists for this avitag, mark it as
   // loaded so loadingGists is false on the very first render.
-  const [loadedAvitag, setLoadedAvitag] = useState<string | null>(
-    initialGists.length > 0 ? avitag : null,
-  );
+  const [loadedAvitag, setLoadedAvitag] = useState<string | null>(() => {
+    if (getFreshProfileSnapshot(avitag)) return avitag;
+    return initialGists.length > 0 ? avitag : null;
+  });
   const loadingGists = loadedAvitag !== avitag;
   // byUser defaults to a 20-gist page server-side (see gist.repo.ts's
   // listByUser) — without this, anyone with more than 20 gists just had
@@ -363,11 +382,41 @@ export function ProfileView({
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Already showing this avitag's data — whether that came from the
+    // initial snapshot/props seeding above or a previous run of this same
+    // effect, there's nothing left to do.
+    if (loadedAvitag === avitag) return;
+
+    // Landed on a NEW avitag (navigated from one profile straight to
+    // another without a full remount) — a fresh snapshot for it wins over
+    // both the real server fetch below AND the now-stale initialProfile/
+    // initialGists props, same reasoning as the initial-state seeding.
+    const snap = getFreshProfileSnapshot(avitag);
+    if (snap) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setProfile(snap.profile);
+      setGists(snap.gists);
+      setGistTotal(snap.gistTotal);
+      setGistsError(null);
+      setLoadedAvitag(avitag);
+      setExhausted(false);
+      return;
+    }
+
+    setProfile(initialProfile);
+
     // Skip the client-side fetch if the server already delivered gists
-    // for this avitag — they're already in state from the initial props.
+    // for this avitag — they're already fresh in initialGists.
     // Only fetch if the server couldn't deliver (backend was down during
     // SSR, so initialGists is empty).
-    if (initialGists.length > 0 && loadedAvitag === avitag) return;
+    if (initialGists.length > 0) {
+      setGists(initialGists);
+      setGistTotal(initialGistTotal ?? initialGists.length);
+      setGistsError(null);
+      setLoadedAvitag(avitag);
+      setExhausted(false);
+      return;
+    }
 
     let cancelled = false;
     byUser(avitag, { limit: 30 })
@@ -387,7 +436,18 @@ export function ProfileView({
     return () => {
       cancelled = true;
     };
-  }, [avitag, byUser, initialGists, loadedAvitag]);
+  }, [avitag, byUser, initialGists, initialGistTotal, initialProfile, loadedAvitag]);
+
+  // Keeps this avitag's snapshot current as the user browses — read back by
+  // the initial-state seeding above on a later visit (within
+  // PROFILE_SNAPSHOT_TTL_MS) and by [avitag]/layout.tsx's own Suspense
+  // fallback. Gated on loadedAvitag === avitag so a still-loading/stale
+  // render never overwrites a good snapshot with incomplete data — mirrors
+  // FeedContent's own saveFeedSnapshot effect.
+  useEffect(() => {
+    if (loadedAvitag !== avitag) return;
+    saveProfileSnapshot(avitag, { profile, isOwnProfile, gists, gistTotal });
+  }, [avitag, loadedAvitag, profile, isOwnProfile, gists, gistTotal, saveProfileSnapshot]);
 
   // Same live counts/moderation-removal wiring as the main feed — see
   // FeedContent's own version of this for the full reasoning. This page
