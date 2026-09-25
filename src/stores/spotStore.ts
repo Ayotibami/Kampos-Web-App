@@ -138,9 +138,34 @@ let feedFetchSeq = 0;
 // ordering underneath it.
 const likeRequestChains: Record<string, Promise<void>> = {};
 
+// Matches FEED_SNAPSHOT_TTL_MS/PROFILE_SNAPSHOT_TTL_MS — same "how stale is
+// tolerable" window the other two tabs already use. Unlike those, `spots`
+// itself already lives in this global store and survives a tab switch on
+// its own (Zustand state isn't tied to VideoFeedContent's mount lifecycle);
+// the only thing missing was a way to tell "is what's already here still
+// good enough" from "empty because we've never fetched" — that's this
+// timestamp's whole job. See isSpotFeedFresh below and its call site in
+// VideoFeedContent's mount effect.
+export const SPOT_FEED_TTL_MS = 5 * 60 * 1000;
+
+/** Whether the global feed already sitting in this store is still within
+ * SPOT_FEED_TTL_MS — a stale or never-fetched feed reads exactly like "not
+ * fresh" to every caller, same as getFreshFeedSnapshot/
+ * getFreshProfileSnapshot's own contract. Plain function, not a hook — read
+ * once at mount/decision time (VideoFeedContent's mount effect,
+ * video/loading.tsx's bypass check), not subscribed to. */
+export function isSpotFeedFresh(): boolean {
+  const { lastFetchedAt } = useSpotStore.getState();
+  if (lastFetchedAt === null) return false;
+  return Date.now() - lastFetchedAt <= SPOT_FEED_TTL_MS;
+}
+
 interface SpotState {
   spots: Spot[];
   loading: boolean;
+  /** Set on every successful fetchFeed() completion; null until the first
+   * one ever resolves. See isSpotFeedFresh. */
+  lastFetchedAt: number | null;
   loadingMore: boolean;
   exhausted: boolean;
   error: string | null;
@@ -234,6 +259,7 @@ export const useSpotStore = create<SpotState>((set, get) => ({
   // reason "No Spots yet" used to flash before the actual fetch ever
   // started.
   loading: true,
+  lastFetchedAt: null,
   loadingMore: false,
   exhausted: false,
   error: null,
@@ -256,7 +282,7 @@ export const useSpotStore = create<SpotState>((set, get) => ({
       const res = await api.get<ApiEnvelope<Spot[]>>("/spots", { params: { limit: 10 } });
       if (seq !== feedFetchSeq) return; // a newer fetchFeed() call superseded this one — drop it
       const data = (res.data?.data ?? []).map(normalizeSpot);
-      set({ spots: data, loading: false, exhausted: data.length === 0 });
+      set({ spots: data, loading: false, exhausted: data.length === 0, lastFetchedAt: Date.now() });
     } catch (err) {
       if (seq !== feedFetchSeq) return;
       set({ loading: false, error: apiErrorMessage(err, "Couldn't load Spot") });

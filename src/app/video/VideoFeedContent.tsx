@@ -10,7 +10,7 @@ import { CreateVideoSheet } from "@/components/video/CreateVideoSheet";
 import { SpotCommentSheet } from "@/components/video/SpotCommentSheet";
 import { Avatar } from "@/components/ui/Avatar";
 import { useAuthStore } from "@/stores/authStore";
-import { useSpotStore, type Spot } from "@/stores/spotStore";
+import { useSpotStore, isSpotFeedFresh, type Spot } from "@/stores/spotStore";
 import { gistColorFor } from "@/lib/brand";
 import { ReportModal } from "@/components/gist/ReportModal";
 import { ConfirmModal, ErrorModal } from "@/components/ui/FeedbackModal";
@@ -860,7 +860,14 @@ function VideoFeedContentInner() {
 
   useEffect(() => {
     if (isProfileMode && profileAvitag) void fetchUserSpots(profileAvitag);
-    else if (!isProfileMode) void fetchFeed();
+    // Skip re-fetching the global feed if what's already sitting in the
+    // store is still within SPOT_FEED_TTL_MS — same "trust it, don't
+    // refetch" window /feed and profile already give their own snapshots.
+    // Unlike those two, `spots` lives in this global store rather than
+    // component state, so it never actually disappeared on the previous
+    // unmount — this check is purely about not throwing it away and
+    // re-showing a loading spinner for data that's still good.
+    else if (!isProfileMode && !isSpotFeedFresh()) void fetchFeed();
     // loadMore/loadMoreUserSpots (triggered by the sentinel below) handle
     // every page after this first one — this effect only ever fires the
     // FIRST fetch for whichever mode/avitag is currently active, and reruns
