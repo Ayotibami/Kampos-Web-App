@@ -2,10 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { MessageCircle, VideoTabIconFill } from "@/components/ui/icons";
 import { useAuthStore } from "@/stores/authStore";
 import { Avatar } from "@/components/ui/Avatar";
 import { playSound } from "@/lib/sounds";
+
+type TabId = "feed" | "video" | "profile";
 
 // Every top-level static route — anything else single-segment (e.g.
 // "/tobi_waves") is a profile, matching how [avitag]/page.tsx itself
@@ -48,12 +51,56 @@ export function MobileTabBar() {
   const onFeed = pathname === "/feed";
   const onVideo = pathname.startsWith("/video");
   const onProfile = isProfileRoute(pathname);
+
+  // Real navigation only ever confirms itself once `pathname` actually
+  // changes — which can lag well behind the tap on a cold cache hit, since
+  // it's a genuine network+render round trip. playSound("tap") has no such
+  // floor (it's pure local playback), so without this, the tap sound was
+  // the ONLY thing that happened at tap-time — the highlight pill sat
+  // frozen on the old tab until navigation caught up, reading as "the
+  // sound is out of sync" even though the sound itself was exactly on
+  // time. This optimistically snaps the pill to the tapped tab in the
+  // SAME handler as the sound (see onClick below), then clears itself the
+  // moment the real pathname changes — reconciling automatically whether
+  // that lands on the expected tab or somewhere else entirely (e.g. an
+  // auth redirect).
+  const [pendingTab, setPendingTab] = useState<TabId | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPendingTab(null);
+  }, [pathname]);
+
+  // Mirrors the reaction/poll-vote optimistic pattern elsewhere in the
+  // app: tiny press-state set on pointerdown (not onClick — fires the
+  // instant a finger touches down, before the browser even resolves a
+  // full click) purely to drive a visible "I felt that" scale/opacity
+  // punch. Kept separate from pendingTab because a press that never
+  // completes as a tap (finger dragged off) should still visually
+  // release, without implying a navigation was ever committed to.
+  const [pressedTab, setPressedTab] = useState<TabId | null>(null);
+  const press = (tab: TabId) => ({
+    onPointerDown: () => setPressedTab(tab),
+    onPointerUp: () => setPressedTab(null),
+    onPointerLeave: () => setPressedTab(null),
+    onPointerCancel: () => setPressedTab(null),
+  });
+
   if (!onFeed && !onVideo && !onProfile) return null;
 
   const profileHref = avitag ? `/${avitag}` : "/feed";
   // Active only on YOUR OWN profile, not anyone else's — browsing someone
   // else's page shouldn't light up "You".
   const onOwnProfile = onProfile && !!avitag && pathname === `/${avitag}`;
+
+  const activeTab: TabId | null =
+    pendingTab ?? (onFeed ? "feed" : onVideo ? "video" : onOwnProfile ? "profile" : null);
+  const isActive = {
+    feed: activeTab === "feed",
+    video: activeTab === "video",
+    profile: activeTab === "profile",
+  };
+  const pressClass = (tab: TabId) =>
+    pressedTab === tab ? "scale-90 opacity-70" : "scale-100 opacity-100";
 
   return (
     // Floating dock, not an edge-to-edge bar: 80% width, centered, lifted
@@ -68,37 +115,52 @@ export function MobileTabBar() {
     >
       <Link
         href="/feed"
-        aria-current={onFeed ? "page" : undefined}
-        onClick={() => !onFeed && playSound("tap")}
-        className={`flex flex-1 flex-col items-center gap-0.5 rounded-full py-2 font-nunito text-[10.5px] font-bold transition ${
-          onFeed ? "bg-brand/10 text-brand" : "text-faint"
+        aria-current={isActive.feed ? "page" : undefined}
+        onClick={() => {
+          if (onFeed) return;
+          playSound("tap");
+          setPendingTab("feed");
+        }}
+        {...press("feed")}
+        className={`flex flex-1 flex-col items-center gap-0.5 rounded-full py-2 font-nunito text-[10.5px] font-bold transition ${pressClass("feed")} ${
+          isActive.feed ? "bg-brand/10 text-brand" : "text-faint"
         }`}
       >
-        <MessageCircle className="h-5 w-5" strokeWidth={onFeed ? 2.5 : 2} />
+        <MessageCircle className="h-5 w-5" strokeWidth={isActive.feed ? 2.5 : 2} />
         Gist
       </Link>
       <Link
         href="/video"
-        aria-current={onVideo ? "page" : undefined}
-        onClick={() => !onVideo && playSound("tap")}
-        className={`flex flex-1 flex-col items-center gap-0.5 rounded-full py-2 font-nunito text-[10.5px] font-bold transition ${
-          onVideo ? "bg-brand/10 text-brand" : "text-faint"
+        aria-current={isActive.video ? "page" : undefined}
+        onClick={() => {
+          if (onVideo) return;
+          playSound("tap");
+          setPendingTab("video");
+        }}
+        {...press("video")}
+        className={`flex flex-1 flex-col items-center gap-0.5 rounded-full py-2 font-nunito text-[10.5px] font-bold transition ${pressClass("video")} ${
+          isActive.video ? "bg-brand/10 text-brand" : "text-faint"
         }`}
       >
-        <VideoTabIconFill className="h-5 w-5" weight={onVideo ? "fill" : "regular"} />
+        <VideoTabIconFill className="h-5 w-5" weight={isActive.video ? "fill" : "regular"} />
         Spot
       </Link>
       <Link
         href={profileHref}
-        aria-current={onOwnProfile ? "page" : undefined}
-        onClick={() => !onOwnProfile && playSound("tap")}
-        className={`flex flex-1 flex-col items-center gap-0.5 rounded-full py-2 font-nunito text-[10.5px] font-bold transition ${
-          onOwnProfile ? "bg-brand/10 text-brand" : "text-faint"
+        aria-current={isActive.profile ? "page" : undefined}
+        onClick={() => {
+          if (onOwnProfile) return;
+          playSound("tap");
+          setPendingTab("profile");
+        }}
+        {...press("profile")}
+        className={`flex flex-1 flex-col items-center gap-0.5 rounded-full py-2 font-nunito text-[10.5px] font-bold transition ${pressClass("profile")} ${
+          isActive.profile ? "bg-brand/10 text-brand" : "text-faint"
         }`}
       >
         <span
           className={`flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full ${
-            onOwnProfile ? "ring-2 ring-brand" : "ring-1 ring-faint/60"
+            isActive.profile ? "ring-2 ring-brand" : "ring-1 ring-faint/60"
           }`}
         >
           <Avatar src={myImageUrl} />
