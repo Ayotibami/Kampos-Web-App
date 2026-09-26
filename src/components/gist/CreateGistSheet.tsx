@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { MediaImage, MediaVideo } from "@/components/ui/MediaFrame";
 import { ErrorModal, AnonymousModeModal } from "@/components/ui/FeedbackModal";
+import { TextHighlightOverlay, measuresAsSingleLine } from "@/components/ui/TextHighlightOverlay";
 import { CameraIconFill, ImageIconFill, PaletteIconFill, PollIconFill, AnonymousIconFill, X, Video, Sticker, Plus as PlusIcon } from "@/components/ui/icons";
 import {
   useGistStore,
@@ -258,6 +259,10 @@ export function CreateGistSheet({
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const heroBoxRef = useRef<HTMLDivElement>(null);
+  const textOverlayRef = useRef<HTMLDivElement>(null);
+  // See CommentComposer's identical piece of state for why the highlight
+  // overlay is gated on this — only safe while the draft fits one line.
+  const [textSingleLine, setTextSingleLine] = useState(true);
   const isEditing = !!editGist;
 
   const [text, setText] = useState("");
@@ -367,6 +372,15 @@ export function CreateGistSheet({
   // hero gist does.
   const heroPreviewActive = colorPickerEligible && pickedColor !== null;
   const heroPreviewHex = pickedColor ? GIST_CARD_PALETTE[GIST_COLOR_KEYS.indexOf(pickedColor)] : undefined;
+  // Every textarea property EXCEPT color — shared verbatim with the
+  // highlight overlay below it (see TextHighlightOverlay's own doc) so the
+  // two can never quietly drift out of matching fonts/padding/alignment.
+  // Color is applied separately by each of the two call sites, since the
+  // textarea's own text needs to go transparent while the overlay is
+  // showing (see textSingleLine), which the overlay itself never does.
+  const textareaSharedClassName = heroPreviewActive
+    ? "w-full resize-none overflow-hidden bg-transparent text-center font-nunito font-bold leading-snug outline-none placeholder:text-white/60 no-scrollbar"
+    : "min-h-36 max-h-56 w-full resize-none overflow-y-auto bg-transparent py-2 pr-3 font-nunito text-[15px] leading-relaxed outline-none placeholder:text-faint no-scrollbar md:h-40 md:max-h-none";
 
   // Same shrink-to-fit as the posted card (lib/heroText) — genuinely shows
   // what posting will look like, not a separately-tuned approximation. Runs
@@ -387,11 +401,19 @@ export function CreateGistSheet({
       // to.
       el.style.fontSize = "";
       el.style.height = "";
+      if (textOverlayRef.current) textOverlayRef.current.style.fontSize = "";
+      setTextSingleLine(measuresAsSingleLine(el));
       return;
     }
     const container = heroBoxRef.current;
     if (!container) return;
-    fitHeroTextarea(el, container);
+    // The highlight overlay (see TextHighlightOverlay's own doc) has no
+    // dynamic sizing of its own — it needs this same fitted size mirrored
+    // onto it directly, the same way its className otherwise just copies
+    // the textarea's static Tailwind classes.
+    const fittedRem = fitHeroTextarea(el, container);
+    if (textOverlayRef.current) textOverlayRef.current.style.fontSize = `${fittedRem}rem`;
+    setTextSingleLine(measuresAsSingleLine(el));
   }, [text, heroPreviewActive]);
 
   // Picking a color swaps the textarea into the colored hero layout — jump
@@ -1025,11 +1047,11 @@ export function CreateGistSheet({
               )}
               <div
                 ref={heroBoxRef}
-                className={
+                className={`relative ${
                   heroPreviewActive
                     ? "flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden rounded-3xl p-4"
-                    : "relative min-w-0 flex-1"
-                }
+                    : "min-w-0 flex-1"
+                }`}
                 // Composer-only height bump (460, not the 160 ShortGist uses
                 // on the real feed card) — width and the avatar-beside-box
                 // layout stay exactly as they were, just taller while
@@ -1043,7 +1065,11 @@ export function CreateGistSheet({
                 {/* One persistent element regardless of mode — swapping in a
                     second, differently-styled textarea on toggle would
                     remount it and drop focus/cursor position mid-keystroke
-                    right as someone crosses the length threshold. */}
+                    right as someone crosses the length threshold. Color is
+                    handled separately below (transparent/caret while the
+                    highlight overlay is showing) — textColorClassName covers
+                    every other property, shared with the overlay so the two
+                    can never drift out of sync with each other. */}
                 <textarea
                   ref={textareaRef}
                   autoFocus
@@ -1051,11 +1077,35 @@ export function CreateGistSheet({
                   onChange={(e) => setText(stripInvisibleChars(e.target.value).slice(0, textMax))}
                   onScroll={updateScrollThumb}
                   placeholder={typedPlaceholder}
-                  className={
-                    heroPreviewActive
-                      ? "w-full resize-none overflow-hidden bg-transparent text-center font-nunito font-bold leading-snug text-white outline-none placeholder:text-white/60 no-scrollbar"
-                      : "min-h-36 max-h-56 w-full resize-none overflow-y-auto bg-transparent py-2 pr-3 font-nunito text-[15px] leading-relaxed text-ink outline-none placeholder:text-faint no-scrollbar md:h-40 md:max-h-none"
-                  }
+                  // A plain <textarea> defaults to rows=2 (a browser-level
+                  // sizing floor, separate from and in addition to any CSS
+                  // min-height) when this isn't set — which was silently
+                  // making every draft here measure as "at least 2 lines
+                  // tall" for the highlight overlay's own single-line check
+                  // (see measuresAsSingleLine), even a single short word.
+                  // CSS (min-h-36/max-h-56) already governs the actual
+                  // visible box size regardless, so this has no visual
+                  // effect — it only fixes what scrollHeight reports.
+                  rows={1}
+                  className={`${textareaSharedClassName} ${
+                    textSingleLine
+                      ? heroPreviewActive
+                        ? "text-transparent caret-white"
+                        : "text-transparent caret-ink"
+                      : heroPreviewActive
+                        ? "text-white"
+                        : "text-ink"
+                  }`}
+                />
+                {/* Only mounted while the draft fits one line — see
+                    TextHighlightOverlay's own doc on why a wrapped draft
+                    falls back to the real textarea's own plain text
+                    instead of trying to stay visually in sync with it. */}
+                <TextHighlightOverlay
+                  text={text}
+                  overlayRef={textOverlayRef}
+                  active={textSingleLine}
+                  className={`${textareaSharedClassName} ${heroPreviewActive ? "text-white" : "text-ink"}`}
                 />
                 {/* A sleeker stand-in for the native scrollbar (hidden via
                     no-scrollbar above) — same idea, just styled to match.

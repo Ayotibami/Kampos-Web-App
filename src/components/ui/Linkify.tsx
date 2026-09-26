@@ -34,6 +34,34 @@ function trimTrailingPunctuation(url: string): string {
 
 let linkKeySeq = 0;
 
+interface LinkMatch {
+  /** Index into the original string where the (trimmed) match starts. */
+  start: number;
+  /** Index where it ends — text.slice(start, end) is the link's own text. */
+  end: number;
+  /** Real navigation target — "www.…" gets "https://" prepended; an
+   * explicit "http(s)://…" match is used as-is. */
+  href: string;
+}
+
+/** The one shared detection pass both render modes (real `<a>` for viewing,
+ * plain highlighted `<span>` for the still-being-typed compose preview)
+ * build on — a single source of truth for "what counts as a link" and
+ * "exactly which characters belong to it", so the two can never quietly
+ * disagree about where a link starts/ends. See the module doc above for the
+ * matching/trimming rules this applies. */
+function findLinkMatches(text: string): LinkMatch[] {
+  const matches: LinkMatch[] = [];
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const start = match.index;
+    const trimmed = trimTrailingPunctuation(match[0]);
+    if (!trimmed) continue;
+    const href = /^www\./i.test(trimmed) ? `https://${trimmed}` : trimmed;
+    matches.push({ start, end: start + trimmed.length, href });
+  }
+  return matches;
+}
+
 /** Splits `text` into a mix of plain strings and real, tappable `<a>`
  * elements wherever a URL appears — the shared engine behind <Linkify>.
  * Exported separately (not just the component) so a caller that needs to
@@ -46,20 +74,8 @@ export function linkifyText(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let lastIndex = 0;
 
-  for (const match of text.matchAll(URL_PATTERN)) {
-    const start = match.index;
-    const raw = match[0];
-    const trimmed = trimTrailingPunctuation(raw);
-    if (!trimmed) continue;
-    const end = start + trimmed.length;
-
+  for (const { start, end, href } of findLinkMatches(text)) {
     if (start > lastIndex) nodes.push(text.slice(lastIndex, start));
-
-    // A bare "www.example.com" has no scheme — the href needs one or the
-    // browser resolves it as a path relative to the current page (e.g.
-    // "/www.example.com") instead of actually leaving the app.
-    const href = /^www\./i.test(trimmed) ? `https://${trimmed}` : trimmed;
-
     nodes.push(
       <a
         key={`linkify-${linkKeySeq++}`}
@@ -74,10 +90,9 @@ export function linkifyText(text: string): ReactNode[] {
         onClick={(e) => e.stopPropagation()}
         className="break-all text-blue-600 underline underline-offset-2 dark:text-blue-400"
       >
-        {trimmed}
+        {text.slice(start, end)}
       </a>,
     );
-
     lastIndex = end;
   }
 
@@ -92,4 +107,36 @@ export function linkifyText(text: string): ReactNode[] {
  * detection/trimming rules this renders. */
 export function Linkify({ text }: { text: string }) {
   return <>{linkifyText(text)}</>;
+}
+
+/**
+ * Same detection as <Linkify>, but for text that ISN'T postable/tappable
+ * yet — the live compose preview overlay (see TextHighlightOverlay). Plain
+ * `<span>`s, not `<a>`s: nothing here is a real destination while you're
+ * still typing (there's nothing to navigate to inside a hidden, overlaid
+ * copy of the text), it should just visually read as "this will become a
+ * link" so composing gives an honest preview of how the post will render.
+ * Reuses findLinkMatches so the highlighted span always covers EXACTLY the
+ * same characters linkifyText would turn into a real link once posted —
+ * critical, since a compose-time preview that disagrees with the real
+ * render (even by one trailing character) would be a genuine, confusing
+ * bug rather than a nice-to-have.
+ */
+export function linkifyAsHighlightSpans(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  let key = 0;
+
+  for (const { start, end } of findLinkMatches(text)) {
+    if (start > lastIndex) nodes.push(text.slice(lastIndex, start));
+    nodes.push(
+      <span key={`linkify-preview-${key++}`} className="text-blue-600 underline underline-offset-2 dark:text-blue-400">
+        {text.slice(start, end)}
+      </span>,
+    );
+    lastIndex = end;
+  }
+
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes.length > 0 ? nodes : [text];
 }

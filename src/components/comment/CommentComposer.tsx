@@ -10,6 +10,7 @@ import { stripInvisibleChars, sanitizeForSubmit } from "@/lib/sanitize";
 import { apiErrorMessage } from "@/lib/api";
 import { playSound } from "@/lib/sounds";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
+import { TextHighlightOverlay, measuresAsSingleLine } from "@/components/ui/TextHighlightOverlay";
 import type { Gist } from "@/types";
 
 const COMMENT_WARN_THRESHOLD = 20;
@@ -46,6 +47,12 @@ export function CommentComposer({
   const [sendError, setSendError] = useState<string>();
   const text = (gist?.gist_id && drafts[gist.gist_id]) || "";
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  // Whether the draft still fits on one line — the highlight overlay (see
+  // TextHighlightOverlay's own doc on why) only ever renders while this is
+  // true; the instant a draft wraps, this flips false and the real
+  // textarea's own plain-colored text takes back over.
+  const [singleLine, setSingleLine] = useState(true);
 
   // Custom scroll-position indicator, replacing the native scrollbar (hidden
   // via no-scrollbar) once the grown textarea hits its ceiling and starts
@@ -77,6 +84,7 @@ export function CommentComposer({
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+    setSingleLine(measuresAsSingleLine(el));
     updateScrollThumb();
   }, [text, updateScrollThumb]);
 
@@ -136,7 +144,19 @@ export function CommentComposer({
           disabled={!gist}
           rows={1}
           style={{ maxHeight: COMPOSER_MAX_HEIGHT }}
-          className="w-full resize-none overflow-y-auto rounded-3xl border-0 bg-[#A9C9F85C] px-4 py-3 pr-14 font-nunito text-sm text-ink outline-none transition placeholder:text-ink/50 focus:ring-2 focus:ring-brand/40 disabled:opacity-50 no-scrollbar dark:bg-white/10 dark:text-white dark:placeholder:text-white/40 dark:focus:bg-white/[0.14] dark:focus:ring-white/20"
+          className={`w-full resize-none overflow-y-auto rounded-3xl border-0 bg-[#A9C9F85C] px-4 py-3 pr-14 font-nunito text-sm outline-none transition placeholder:text-ink/50 focus:ring-2 focus:ring-brand/40 disabled:opacity-50 no-scrollbar dark:bg-white/10 dark:placeholder:text-white/40 dark:focus:bg-white/[0.14] dark:focus:ring-white/20 ${
+            singleLine ? "text-transparent caret-ink dark:caret-white" : "text-ink dark:text-white"
+          }`}
+        />
+        {/* Only ever mounted while the draft fits on one line — see
+            TextHighlightOverlay's own doc on why a wrapped, multi-line
+            draft falls back to the real textarea's own plain text instead
+            of trying to keep this in visual sync with it. */}
+        <TextHighlightOverlay
+          text={text}
+          overlayRef={overlayRef}
+          active={singleLine}
+          className="rounded-3xl px-4 py-3 pr-14 font-nunito text-sm text-ink dark:text-white"
         />
         {scrollThumb && (
           <div className="pointer-events-none absolute bottom-3 right-1.5 top-3 w-1 rounded-full bg-black/10 dark:bg-white/15">

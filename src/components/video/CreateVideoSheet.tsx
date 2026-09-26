@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
+import { TextHighlightOverlay, measuresAsSingleLine } from "@/components/ui/TextHighlightOverlay";
 import {
   X,
   SwitchCamera,
@@ -374,6 +375,10 @@ export function CreateVideoSheet({
   // reach it, since it isn't a ref-attached JSX element.
   const previewVideoElRef = useRef<HTMLVideoElement | null>(null);
   const captionRef = useRef<HTMLTextAreaElement>(null);
+  const captionOverlayRef = useRef<HTMLDivElement>(null);
+  // See CommentComposer's identical piece of state for why this gates the
+  // highlight overlay — only safe while the caption still fits one line.
+  const [captionSingleLine, setCaptionSingleLine] = useState(true);
 
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -675,6 +680,7 @@ export function CreateVideoSheet({
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, CAPTION_MAX_HEIGHT)}px`;
+    setCaptionSingleLine(measuresAsSingleLine(el));
   }, [caption]);
 
   const handleStartRecording = () => {
@@ -1106,16 +1112,30 @@ export function CreateVideoSheet({
                 onDragStateChange={handleTrimDragStateChange}
               />
               <div className="flex flex-col gap-1.5 rounded-2xl bg-white/10 px-3.5 py-3 ring-1 ring-white/15 backdrop-blur-md">
-                <textarea
-                  ref={captionRef}
-                  value={caption}
-                  onChange={(e) => setCaption(e.target.value.slice(0, CAPTION_MAX_LEN))}
-                  placeholder="Add a caption… (optional)"
-                  rows={1}
-                  disabled={posting}
-                  style={{ maxHeight: CAPTION_MAX_HEIGHT }}
-                  className="resize-none overflow-y-auto bg-transparent font-nunito text-[13px] font-medium text-white placeholder:text-white/50 focus:outline-none disabled:opacity-60"
-                />
+                <div className="relative">
+                  <textarea
+                    ref={captionRef}
+                    value={caption}
+                    onChange={(e) => setCaption(e.target.value.slice(0, CAPTION_MAX_LEN))}
+                    placeholder="Add a caption… (optional)"
+                    rows={1}
+                    disabled={posting}
+                    style={{ maxHeight: CAPTION_MAX_HEIGHT }}
+                    className={`w-full resize-none overflow-y-auto bg-transparent font-nunito text-[13px] font-medium placeholder:text-white/50 focus:outline-none disabled:opacity-60 ${
+                      captionSingleLine ? "text-transparent caret-white" : "text-white"
+                    }`}
+                  />
+                  {/* Only mounted while the caption fits one line — see
+                      TextHighlightOverlay's own doc on why a wrapped
+                      caption falls back to the real textarea's plain text
+                      instead. */}
+                  <TextHighlightOverlay
+                    text={caption}
+                    overlayRef={captionOverlayRef}
+                    active={captionSingleLine}
+                    className="font-nunito text-[13px] font-medium text-white"
+                  />
+                </div>
                 <span
                   className={`self-end font-nunito text-[10px] font-bold tabular-nums ${
                     CAPTION_MAX_LEN - caption.length <= 20 ? "text-danger" : "text-white/40"
