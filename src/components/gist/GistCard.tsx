@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { motion, AnimatePresence, type MotionValue } from "framer-motion";
 import { REACTION_ANIMATIONS } from "@/lib/reactionAnimations";
 import { Avatar } from "@/components/ui/Avatar";
+import { Linkify } from "@/components/ui/Linkify";
 import { MediaImage } from "@/components/ui/MediaFrame";
 import { SHORT_TEXT, ExpandableText, MediaBlock } from "./GistMediaGrid";
 import { GistMediaOverlay } from "./GistMediaOverlay";
@@ -712,7 +713,7 @@ export const GistCard = memo(function GistCard({
             <ShortGist text={gist.gist_text} colorKey={gist.color_key} fallbackSeed={gist.gist_id} />
           ) : (
             <p className="w-full whitespace-pre-wrap break-words font-nunito text-[15px] leading-relaxed text-ink text-justify">
-              {gist.gist_text}
+              <Linkify text={gist.gist_text} />
             </p>
           )}
         </div>
@@ -988,7 +989,7 @@ export function ShortGist({
         className="min-w-0 break-words font-nunito font-bold leading-snug text-white"
         style={{ fontSize: `${fontSizeRem}rem` }}
       >
-        {text}
+        <Linkify text={text} />
       </p>
     </div>
   );
@@ -1027,7 +1028,7 @@ function QuotedGistBody({ gist, mediaVariant = "full" }: { gist: Gist; mediaVari
     <>
       {gist.gist_text && (
         <p className="line-clamp-6 font-nunito text-[13px] leading-snug text-ink/80">
-          {gist.gist_text}
+          <Linkify text={gist.gist_text} />
         </p>
       )}
       {hasPoll && <PollBlock gistId={gist.gist_id} poll={gist.poll!} />}

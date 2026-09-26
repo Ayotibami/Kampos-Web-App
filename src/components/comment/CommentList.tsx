@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { Heart, RefreshCw, DeleteIconFill } from "@/components/ui/icons";
 import { Illustration } from "@/components/brand/illustrations";
 import { Avatar } from "@/components/ui/Avatar";
+import { Linkify } from "@/components/ui/Linkify";
 import { useCommentStore } from "@/stores/commentStore";
 import { useAuthStore, useIsAdmin } from "@/stores/authStore";
 import { requireAuth } from "@/lib/requireAuth";
@@ -68,7 +69,7 @@ function CommentBody({ text }: { text: string }) {
 
   return (
     <p className="break-words font-nunito text-sm leading-relaxed text-ink/90 dark:text-white/90">
-      {shown}
+      <Linkify text={shown} />
       {isLong && !expanded && "… "}
       {isLong && (
         <button

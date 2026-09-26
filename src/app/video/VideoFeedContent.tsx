@@ -9,6 +9,7 @@ import { useAnyModalOpen } from "@/stores/modalStore";
 import { CreateVideoSheet } from "@/components/video/CreateVideoSheet";
 import { SpotCommentSheet } from "@/components/video/SpotCommentSheet";
 import { Avatar } from "@/components/ui/Avatar";
+import { Linkify } from "@/components/ui/Linkify";
 import { useAuthStore } from "@/stores/authStore";
 import { useSpotStore, isSpotFeedFresh, type Spot } from "@/stores/spotStore";
 import { gistColorFor } from "@/lib/brand";
@@ -563,7 +564,13 @@ function VideoCard({
               captionExpanded ? "" : "line-clamp-2"
             } ${!captionExpanded && caption.length > CAPTION_TRUNCATE_AT ? "cursor-pointer" : ""}`}
           >
-            {captionExpanded || caption.length <= CAPTION_TRUNCATE_AT ? caption : caption.slice(0, CAPTION_TRUNCATE_AT).trimEnd()}
+            <Linkify
+              text={
+                captionExpanded || caption.length <= CAPTION_TRUNCATE_AT
+                  ? caption
+                  : caption.slice(0, CAPTION_TRUNCATE_AT).trimEnd()
+              }
+            />
             {!captionExpanded && caption.length > CAPTION_TRUNCATE_AT && (
               <span className="pl-0.5 font-extrabold text-white">&hellip;</span>
             )}

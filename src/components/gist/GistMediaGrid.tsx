@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { MediaImage, MediaVideo } from "@/components/ui/MediaFrame";
+import { Linkify } from "@/components/ui/Linkify";
 import {
   PlayIconFill,
   PauseIconFill,
@@ -59,7 +60,7 @@ export function ExpandableText({ text }: { text: string }) {
           needsClamp && !expanded ? "line-clamp-5" : ""
         }`}
       >
-        {text}
+        <Linkify text={text} />
       </p>
       {needsClamp && !expanded && (
         <button
