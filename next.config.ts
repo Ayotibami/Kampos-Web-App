@@ -76,6 +76,24 @@ const nextConfig: NextConfig = {
     return config;
   },
 
+  // The Spot tab's route used to live at /video before it was renamed to
+  // match the product's own name for it. Any link already shared out there
+  // — the app's own shareSpot() puts real /video?spot=<id> URLs in front of
+  // real people — has to keep working, not 404 the moment this ships. Next
+  // forwards query params to the destination automatically (confirmed via
+  // its own redirects() docs), so a share link's ?spot=... survives this
+  // untouched. 308 (permanent) tells browsers/search engines to cache the
+  // redirect rather than re-checking it on every visit.
+  async redirects() {
+    return [
+      {
+        source: "/video",
+        destination: "/spot",
+        permanent: true,
+      },
+    ];
+  },
+
   async headers() {
     return [
       {

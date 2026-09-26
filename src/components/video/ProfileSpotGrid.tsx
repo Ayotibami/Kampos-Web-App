@@ -236,7 +236,7 @@ export function ProfileSpotGrid({ avitag, isOwnProfile }: { avitag: string; isOw
           <SpotGridCell
             key={spot.spot_id}
             spot={spot}
-            href={`/video?spot=${spot.spot_id}&user=${avitag}&back=${encodeURIComponent(backHref)}`}
+            href={`/spot?spot=${spot.spot_id}&user=${avitag}&back=${encodeURIComponent(backHref)}`}
             isOwnProfile={isOwnProfile}
           />
         ))}

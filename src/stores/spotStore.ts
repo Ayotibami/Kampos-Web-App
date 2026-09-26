@@ -201,7 +201,7 @@ interface SpotState {
   fetchUserSpots: (avitag: string) => Promise<void>;
   loadMoreUserSpots: (avitag: string) => Promise<void>;
   /** A single spot by id, regardless of feed membership — used to fill in a
-   * deep link (`/video?spot=...`) to a clip that isn't on whichever list's
+   * deep link (`/spot?spot=...`) to a clip that isn't on whichever list's
    * first page happened to load. Returns null on any failure (not found,
    * not visible to this viewer, network error) — callers just skip the
    * deep-link jump rather than surfacing an error for what's a best-effort

@@ -18,7 +18,7 @@ type TabId = "feed" | "video" | "profile";
 // generally (not just your own) — mirrors the "light" route list the
 // theme-init script in layout.tsx already keeps for the same reason.
 const RESERVED_TOP_LEVEL = new Set([
-  "feed", "video", "settings", "villagepeople", "gist", "api",
+  "feed", "spot", "settings", "villagepeople", "gist", "api",
   "login", "signup", "signup-success", "verify-otp",
   "forgot-password", "reset-password", "setup-profile", "welcome",
 ]);
@@ -34,11 +34,8 @@ function isProfileRoute(pathname: string): boolean {
  * to be the third stop, swapped back out for Profile since that's the
  * pattern every major app actually uses (Instagram/TikTok/X all put Profile
  * on the bar and nest Settings inside it, never the other way around).
- * "Spot" is the settled name for the video tab; the route itself still
- * lives at /video.
- *
  * Route-gated like FeedScrollLock/ThemeRouteSync (renders null outside its
- * own routes) rather than mounted per-page, so /feed, /video, and any
+ * own routes) rather than mounted per-page, so /feed, /spot, and any
  * profile page share one instance and can never drift out of sync with
  * each other.
  */
@@ -49,7 +46,7 @@ export function MobileTabBar() {
     (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null,
   );
   const onFeed = pathname === "/feed";
-  const onVideo = pathname.startsWith("/video");
+  const onVideo = pathname.startsWith("/spot");
   const onProfile = isProfileRoute(pathname);
 
   // Real navigation only ever confirms itself once `pathname` actually
@@ -130,7 +127,7 @@ export function MobileTabBar() {
         Gist
       </Link>
       <Link
-        href="/video"
+        href="/spot"
         aria-current={isActive.video ? "page" : undefined}
         onClick={() => {
           if (onVideo) return;

@@ -779,7 +779,7 @@ function useRealViewportHeight(): number | null {
  * button was tapped — matching the backend's own "log a share when it
  * actually completes" contract (see spot.controller.ts's `share` doc). */
 async function shareSpot(spotId: string, caption: string | null, onShared: (platform: string) => void) {
-  const url = `${window.location.origin}/video?spot=${spotId}`;
+  const url = `${window.location.origin}/spot?spot=${spotId}`;
   if (navigator.share) {
     try {
       await navigator.share({ title: caption || "Check this out on Kampos Spot", url });
@@ -802,13 +802,13 @@ function VideoFeedContentInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Profile mode — reached by tapping a cell in ProfileView's Spot grid
-  // (`/video?spot=<id>&user=<avitag>&back=<path>`). While `user` is present,
+  // (`/spot?spot=<id>&user=<avitag>&back=<path>`). While `user` is present,
   // this screen scrolls through THAT profile's own Spots instead of the
   // global feed — the grid tap opens a real vertical feed scoped to one
   // person, not just a single clip with nowhere to swipe. `back`, when
   // present, is where the top-right arrow returns to (see below); its
   // absence is also how a plain global-feed deep link (an external share
-  // link — see shareSpot's own `/video?spot=...` URL) is told apart from a
+  // link — see shareSpot's own `/spot?spot=...` URL) is told apart from a
   // grid tap, since a share link never carries `back`.
   const profileAvitag = searchParams.get("user");
   const isProfileMode = !!profileAvitag;
@@ -887,7 +887,7 @@ function VideoFeedContentInner() {
   // only when there's no deep link at all. Driven by comparing
   // deepLinkSpotId itself against deepLinkHandledRef — NOT by "has activeId
   // ever been set" (an earlier version's bug): Next's App Router does not
-  // necessarily remount this component just because `/video`'s search
+  // necessarily remount this component just because `/spot`'s search
   // params changed, so tapping one grid cell, hitting back, then tapping a
   // DIFFERENT cell can reuse the exact same mounted instance. A guard keyed
   // on activeId alone would see it already truthy (from the first tap) and
@@ -1015,7 +1015,7 @@ function VideoFeedContentInner() {
       // someone else's profile-scoped list — hop back to the plain feed so
       // it lands where it actually makes sense.
       if (isProfileMode) {
-        router.push("/video");
+        router.push("/spot");
         return;
       }
       // Jump the newly-posted clip into view once it's actually in the DOM.
