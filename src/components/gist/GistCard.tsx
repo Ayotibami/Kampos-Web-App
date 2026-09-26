@@ -986,7 +986,7 @@ export function ShortGist({
     >
       <p
         ref={textRef}
-        className="min-w-0 break-words font-nunito font-bold leading-snug text-white"
+        className="min-w-0 whitespace-pre-wrap break-words font-nunito font-bold leading-snug text-white"
         style={{ fontSize: `${fontSizeRem}rem` }}
       >
         <Linkify text={text} />
@@ -1027,7 +1027,7 @@ function QuotedGistBody({ gist, mediaVariant = "full" }: { gist: Gist; mediaVari
   return (
     <>
       {gist.gist_text && (
-        <p className="line-clamp-6 font-nunito text-[13px] leading-snug text-ink/80">
+        <p className="line-clamp-6 whitespace-pre-wrap font-nunito text-[13px] leading-snug text-ink/80">
           <Linkify text={gist.gist_text} />
         </p>
       )}

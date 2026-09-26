@@ -560,7 +560,7 @@ function VideoCard({
             }}
             role={!captionExpanded && caption.length > CAPTION_TRUNCATE_AT ? "button" : undefined}
             aria-label={!captionExpanded && caption.length > CAPTION_TRUNCATE_AT ? "Show full caption" : undefined}
-            className={`mt-1.5 font-nunito text-[13px] font-semibold text-white/95 ${
+            className={`mt-1.5 whitespace-pre-wrap font-nunito text-[13px] font-semibold text-white/95 ${
               captionExpanded ? "" : "line-clamp-2"
             } ${!captionExpanded && caption.length > CAPTION_TRUNCATE_AT ? "cursor-pointer" : ""}`}
           >

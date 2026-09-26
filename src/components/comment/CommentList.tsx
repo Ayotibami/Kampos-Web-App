@@ -68,7 +68,7 @@ function CommentBody({ text }: { text: string }) {
   const shown = expanded || !isLong ? text : text.slice(0, COMMENT_TRUNCATE_LENGTH).trimEnd();
 
   return (
-    <p className="break-words font-nunito text-sm leading-relaxed text-ink/90 dark:text-white/90">
+    <p className="whitespace-pre-wrap break-words font-nunito text-sm leading-relaxed text-ink/90 dark:text-white/90">
       <Linkify text={shown} />
       {isLong && !expanded && "… "}
       {isLong && (
