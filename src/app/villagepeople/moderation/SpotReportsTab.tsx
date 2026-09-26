@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
+import { Linkify } from "@/components/ui/Linkify";
 import { Button } from "@/components/ui/Button";
 import { ConfirmReasonModal } from "@/components/ui/FeedbackModal";
 import { AdminSpotVideoTile } from "@/components/villagepeople/AdminSpotVideoTile";
@@ -151,7 +152,7 @@ export function SpotReportsTab({
                 <div className="flex gap-3">
                   <AdminSpotVideoTile mediaUrl={report.spot_media_url} thumbnailUrl={report.spot_thumbnail_url} />
                   <p className="min-w-0 flex-1 whitespace-pre-wrap break-words font-nunito text-sm text-muted">
-                    {report.spot_caption || <span className="text-faint">No caption</span>}
+                    {report.spot_caption ? <Linkify text={report.spot_caption} /> : <span className="text-faint">No caption</span>}
                   </p>
                 </div>
               </div>

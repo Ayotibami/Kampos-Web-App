@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/Avatar";
+import { Linkify } from "@/components/ui/Linkify";
 import { Button } from "@/components/ui/Button";
 import { ConfirmReasonModal, ErrorModal } from "@/components/ui/FeedbackModal";
 import { AdminSpotVideoTile } from "./AdminSpotVideoTile";
@@ -174,7 +175,7 @@ export function AdminSpotCard({
       <div className="flex gap-3">
         <AdminSpotVideoTile mediaUrl={spot.media_url} thumbnailUrl={spot.thumbnail_url} />
         <p className="min-w-0 flex-1 whitespace-pre-wrap break-words font-nunito text-sm text-ink">
-          {spot.caption || <span className="text-faint">No caption</span>}
+          {spot.caption ? <Linkify text={spot.caption} /> : <span className="text-faint">No caption</span>}
         </p>
       </div>
 

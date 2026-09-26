@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { TextInput } from "@/components/ui/TextInput";
+import { Linkify } from "@/components/ui/Linkify";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
 import { Search } from "@/components/ui/icons";
 import { apiErrorMessage } from "@/lib/api";
@@ -162,7 +163,13 @@ export function TargetCell({ row }: { row: AuditLogRow }) {
   }
   return (
     <span className="font-nunito text-xs text-muted">
-      {row.target_comment_preview ? `comment: "${row.target_comment_preview}"` : `comment ${row.target_id.slice(0, 8)}`}
+      {row.target_comment_preview ? (
+        <>
+          comment: &ldquo;<Linkify text={row.target_comment_preview} />&rdquo;
+        </>
+      ) : (
+        `comment ${row.target_id.slice(0, 8)}`
+      )}
     </span>
   );
 }

@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { AdminGistCard } from "@/components/villagepeople/AdminGistCard";
 import { CommentPanel } from "@/components/comment/CommentPanel";
 import { TextInput } from "@/components/ui/TextInput";
+import { Linkify } from "@/components/ui/Linkify";
 import { ErrorModal } from "@/components/ui/FeedbackModal";
 import { Search, X } from "@/components/ui/icons";
 import { apiErrorMessage } from "@/lib/api";
@@ -70,7 +71,9 @@ function ActiveGistStrip({ gist, onClose }: { gist: Gist | undefined; onClose: (
     <div className="flex shrink-0 items-start justify-between gap-3 border-b border-line bg-brand/[0.06] px-5 py-3">
       <div className="min-w-0">
         <p className="font-nunito text-[10px] font-bold uppercase tracking-wide text-brand">Commenting on</p>
-        <p className="mt-0.5 line-clamp-2 break-words font-nunito text-xs text-ink">{preview}</p>
+        <p className="mt-0.5 line-clamp-2 break-words font-nunito text-xs text-ink">
+          <Linkify text={preview} />
+        </p>
         <p className="mt-0.5 font-nunito text-[11px] text-faint">{timeAgo(gist.created_at)}</p>
       </div>
       <button

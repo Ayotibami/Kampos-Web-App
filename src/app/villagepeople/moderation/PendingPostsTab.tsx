@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/Avatar";
+import { Linkify } from "@/components/ui/Linkify";
 import { MediaImage } from "@/components/ui/MediaFrame";
 import { Button } from "@/components/ui/Button";
 import { ConfirmReasonModal } from "@/components/ui/FeedbackModal";
@@ -204,7 +205,9 @@ export function PendingPostsTab({
                   </div>
                   <span className="shrink-0 font-nunito text-xs text-faint">{timeAgo(gist.created_at)}</span>
                 </div>
-                <p className="mt-1 whitespace-pre-wrap break-words font-nunito text-sm text-muted">{gist.gist_text}</p>
+                <p className="mt-1 whitespace-pre-wrap break-words font-nunito text-sm text-muted">
+                  <Linkify text={gist.gist_text} />
+                </p>
                 {gist.poll && <AdminPollPreview poll={gist.poll} />}
                 {media && (
                   <MediaImage

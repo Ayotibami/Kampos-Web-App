@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
+import { Linkify } from "@/components/ui/Linkify";
 import { MediaImage } from "@/components/ui/MediaFrame";
 import { Button } from "@/components/ui/Button";
 import { ConfirmReasonModal } from "@/components/ui/FeedbackModal";
@@ -159,7 +160,7 @@ export function ReportsTab({
                     )}
                   </div>
                   <p className="mt-0.5 whitespace-pre-wrap break-words font-nunito text-sm text-muted">
-                    {report.gist_text}
+                    <Linkify text={report.gist_text} />
                   </p>
                   {report.poll && <AdminPollPreview poll={report.poll} />}
                   {media && (
