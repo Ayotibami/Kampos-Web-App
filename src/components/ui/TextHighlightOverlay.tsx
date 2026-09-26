@@ -73,10 +73,19 @@ export function TextHighlightOverlay({
  * always fail this check — scrollHeight floors at min-height regardless of
  * how little text is actually in there, so one short single-line draft
  * would incorrectly measure as "144px tall" and never light up at all.
- * Neutralizing min-height for the instant of measurement (synchronously,
- * inside the same layout-effect tick the caller already runs this from —
- * restored before anything paints, so there's nothing to visibly flicker)
- * gets the real, unconstrained content height instead. */
+ *
+ * The same textarea also sets an EXPLICIT `height` at the md: breakpoint
+ * (md:h-40, 160px) — a fixed height, not just a floor. min-height alone
+ * can't override that (a fixed height wins over min-height regardless of
+ * its value), so on any desktop-width viewport this was reporting a flat
+ * 160px for genuinely single-line drafts and the highlight never lit up —
+ * exactly the "works sometimes, not others" a real user hit, since it
+ * tracked window width, not content. Neutralizing BOTH min-height and
+ * height for the instant of measurement (synchronously, inside the same
+ * layout-effect tick the caller already runs this from — both restored
+ * before anything paints, so there's nothing to visibly flicker) gets the
+ * real, unconstrained content height regardless of which CSS mechanism was
+ * otherwise fixing the box's size. */
 export function measuresAsSingleLine(el: HTMLTextAreaElement): boolean {
   const style = getComputedStyle(el);
   const lineHeight = parseFloat(style.lineHeight);
@@ -85,9 +94,12 @@ export function measuresAsSingleLine(el: HTMLTextAreaElement): boolean {
   const singleLineHeight = lineHeight + paddingTop + paddingBottom;
 
   const priorMinHeight = el.style.minHeight;
+  const priorHeight = el.style.height;
   el.style.minHeight = "0px";
+  el.style.height = "auto";
   const contentHeight = el.scrollHeight;
   el.style.minHeight = priorMinHeight;
+  el.style.height = priorHeight;
 
   return contentHeight <= singleLineHeight + 1;
 }
