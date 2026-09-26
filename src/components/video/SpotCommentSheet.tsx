@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Modal } from "@/components/ui/Modal";
 import { Avatar } from "@/components/ui/Avatar";
+import { Linkify, linkifyAsHighlightSpans } from "@/components/ui/Linkify";
 import { Illustration } from "@/components/brand/illustrations";
 import { CommentSkeletonItem } from "@/components/comment/CommentList";
 import { X, RefreshCw, SendIconFill, Heart, DeleteIconFill } from "@/components/ui/icons";
@@ -30,7 +31,7 @@ function SpotCommentBody({ text }: { text: string }) {
   const shown = expanded || !isLong ? text : text.slice(0, COMMENT_TRUNCATE_LENGTH).trimEnd();
   return (
     <p className="break-words font-nunito text-sm leading-relaxed text-ink/90 dark:text-white/90">
-      {shown}
+      <Linkify text={shown} />
       {isLong && !expanded && "… "}
       {isLong && (
         <button
@@ -226,6 +227,7 @@ export function SpotCommentSheet({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string>();
+  const commentInputOverlayRef = useRef<HTMLDivElement>(null);
 
   const items = (spotId && commentsBySpot[spotId]) || [];
   // Genuinely fetched (even to zero results), not just "hasn't loaded yet"
@@ -369,19 +371,38 @@ export function SpotCommentSheet({
         </div>
 
         <div className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] dark:border-white/10">
-          <input
-            value={text}
-            onChange={(e) => setText(e.target.value.slice(0, COMMENT_MAX_LEN))}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void handleSend();
-              }
-            }}
-            placeholder="Add a comment…"
-            disabled={sending}
-            className="flex-1 rounded-full bg-surface-2 px-4 py-2.5 font-nunito text-[13px] text-ink placeholder:text-faint focus:outline-none disabled:opacity-60 dark:bg-white/10 dark:text-white"
-          />
+          <div className="relative flex-1">
+            {/* A plain single-line <input> never wraps (it just scrolls
+                sideways), so unlike the multi-line textareas elsewhere
+                (see TextHighlightOverlay's own doc on why THOSE need a
+                single-line gate) there's no possible wrap-point
+                disagreement here — this can just always render. */}
+            <div
+              aria-hidden="true"
+              ref={commentInputOverlayRef}
+              className="pointer-events-none absolute inset-0 overflow-hidden whitespace-nowrap rounded-full px-4 py-2.5 font-nunito text-[13px] text-ink dark:text-white"
+            >
+              {linkifyAsHighlightSpans(text)}
+            </div>
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value.slice(0, COMMENT_MAX_LEN))}
+              onScroll={(e) => {
+                if (commentInputOverlayRef.current) {
+                  commentInputOverlayRef.current.scrollLeft = e.currentTarget.scrollLeft;
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void handleSend();
+                }
+              }}
+              placeholder="Add a comment…"
+              disabled={sending}
+              className="w-full rounded-full bg-surface-2 px-4 py-2.5 font-nunito text-[13px] text-transparent caret-ink placeholder:text-faint focus:outline-none disabled:opacity-60 dark:bg-white/10 dark:caret-white"
+            />
+          </div>
           <button
             type="button"
             onClick={() => void handleSend()}
