@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { ProfileGistCardSkeleton } from "@/components/gist/ProfileGistCardSkeleton";
 import { CommentPanelSkeleton } from "@/components/comment/CommentPanelSkeleton";
@@ -38,6 +39,18 @@ export default function Loading({ avitag }: { avitag?: string }) {
   // ProfileView re-derives/re-validates everything from the store itself
   // (see its own getFreshProfileSnapshot seeding), so these props are only
   // ever the fallback for its very first paint.
+  // Same "?tab=spot means land on the Spot tab" contract page.tsx's own
+  // server-side render already honors (see ProfileView's own doc on
+  // handleTabChange) — a real navigation into this page with that query
+  // param, e.g. the Spot player's own back arrow returning here, needs
+  // this bypass to respect it too. Reading it here rather than passing it
+  // down from layout.tsx: this only ever matters for the SAME client
+  // navigation this component itself is the fallback for, where
+  // useSearchParams resolves synchronously (the router already has the
+  // URL) rather than suspending.
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get("tab") === "spot" ? "spot" : "gist";
+
   const snapshot = avitag ? getFreshProfileSnapshot(avitag) : null;
   if (avitag && snapshot) {
     return (
@@ -47,7 +60,7 @@ export default function Loading({ avitag }: { avitag?: string }) {
         isOwnProfile={snapshot.isOwnProfile}
         initialGists={snapshot.gists}
         initialGistTotal={snapshot.gistTotal}
-        initialTab="gist"
+        initialTab={initialTab}
       />
     );
   }

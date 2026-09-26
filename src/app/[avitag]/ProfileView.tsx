@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { motion, useAnimationControls } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
@@ -327,6 +327,27 @@ export function ProfileView({
   // Spot player's own back arrow) still goes through initialTab above,
   // resolved server-side, same as today's page always has.
   const [activeTab, setActiveTab] = useState<"gist" | "spot">(initialTab);
+  // Guards against a real, if narrow, gap: navigating away to /spot and
+  // back (its own back arrow uses router.back(), deliberately, to reuse
+  // Next's cached render of this page instead of a fresh fetch — see its
+  // own comment) can restore a CACHED instance of this exact component
+  // whose activeTab defaults to whatever tab was active on the ORIGINAL
+  // visit, not whatever handleTabChange's own history.replaceState later
+  // set — that replaceState call intentionally never goes through Next's
+  // router, specifically so a plain tab click doesn't re-fetch anything,
+  // which is exactly why Next's cache never learned about it. A real
+  // browser back navigation, unlike that replaceState, does resync Next's
+  // router to the actual current URL — so re-deriving activeTab from
+  // useSearchParams on every render (not just at mount) catches this
+  // regardless of which of the two paths (fresh render vs. cached restore)
+  // actually produced this component instance.
+  const searchParams = useSearchParams();
+  const urlTab = searchParams.get("tab") === "spot" ? "spot" : "gist";
+  const [lastSyncedUrlTab, setLastSyncedUrlTab] = useState(initialTab);
+  if (urlTab !== lastSyncedUrlTab) {
+    setLastSyncedUrlTab(urlTab);
+    setActiveTab(urlTab);
+  }
   const handleTabChange = (tab: "gist" | "spot") => {
     if (tab !== activeTab) playSound("tap");
     setActiveTab(tab);
