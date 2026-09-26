@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Nunito } from "next/font/google";
 import Script from "next/script";
 import { SessionWatcher } from "@/components/auth/SessionWatcher";
+import { TokenRefreshTimer } from "@/components/auth/TokenRefreshTimer";
 import { WebVitals } from "@/components/layout/WebVitals";
 import { AuthPromptModal } from "@/components/auth/AuthPromptModal";
 import { OfflineSync } from "@/components/auth/OfflineSync";
@@ -186,6 +187,7 @@ export default function RootLayout({
         <SplashScreen />
         <WebVitals />
         <SessionWatcher />
+        <TokenRefreshTimer />
         <ThemeRouteSync />
         <SoundPreload />
         <FeedScrollLock />

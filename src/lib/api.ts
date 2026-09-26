@@ -35,7 +35,12 @@ export const UNAUTHORIZED_EVENT = "kampos:unauthorized";
 type RefreshOutcome = "refreshed" | "expired" | "unavailable";
 let refreshInFlight: Promise<RefreshOutcome> | null = null;
 
-async function tryRefresh(): Promise<RefreshOutcome> {
+/** Exported for TokenRefreshTimer's own proactive (not-yet-401) call —
+ * shares this same in-flight dedupe so a background timer tick landing at
+ * the same moment as the reactive interceptor's own refresh (a request
+ * happened to 401 right as the timer fired) never fires two concurrent
+ * refresh calls against the same refresh token. */
+export async function tryRefresh(): Promise<RefreshOutcome> {
   if (!refreshInFlight) {
     refreshInFlight = api
       .post("/auth/refresh")
