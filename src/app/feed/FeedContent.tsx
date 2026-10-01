@@ -25,6 +25,103 @@ const CommentSheet = dynamic(
   () => import("@/components/comment/CommentSheet").then((m) => m.CommentSheet),
   { ssr: false },
 );
+// Reads live profile data (useAuthStore) that only exists client-side, so
+// ssr:false is load-bearing here, not just an optimization: a server-
+// rendered pass would have nothing to render yet and React would flag a
+// hydration mismatch once the client takes over.
+//
+// This fallback is deliberately a close copy of EDeyHotRail's OWN resting
+// state — the label pill (hot-ring-live border, flame icon, text) plus its
+// HotRailSkeleton (fire-ring circles) — not a generic placeholder, and the
+// OUTER wrapper matches EDeyHotRail's own `pb-2.5` exactly (no border, no
+// extra padding). It used to be a plain grey pulsing-circle row in a
+// bordered box, which READ as a completely different, lower-effort
+// skeleton from the real component's own — so the instant this dynamic
+// import's JS chunk finished loading, the whole rail visibly "upgraded"
+// from one skeleton to a nicer one, which looked like a glitch even though
+// both pieces were individually correct. Matching them here means that
+// handoff is now imperceptible. They can't actually SHARE code (this
+// fallback renders before EDeyHotRail's own module has even downloaded,
+// so importing from it would defeat the lazy-load), so if HotRailSkeleton's
+// markup or the label pill ever changes, update this copy too.
+const EDeyHotRail = dynamic(
+  () => import("@/components/gist/EDeyHotRail").then((m) => m.EDeyHotRail),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="pb-2.5">
+        <div className="overflow-y-hidden overflow-x-auto px-4 no-scrollbar sm:px-6" style={{ maxHeight: 40 }}>
+          <div className="relative inline-flex">
+            <div
+              className="hot-ring-live absolute -inset-2 rounded-full blur-md"
+              style={
+                {
+                  backgroundImage: "conic-gradient(var(--hot-c), var(--hot-b), var(--hot-a), var(--hot-b), var(--hot-c))",
+                  opacity: 0.55,
+                  "--hot-spin-dur": "2.6s",
+                  "--hot-flicker-sat": 1.3,
+                  "--hot-flicker-bright": 1.2,
+                } as React.CSSProperties
+              }
+            />
+            <div className="relative overflow-hidden rounded-full p-[2px]">
+              <div
+                className="hot-ring-live absolute -inset-[60%] rounded-full"
+                style={
+                  {
+                    backgroundImage: "conic-gradient(var(--hot-c), var(--hot-b), var(--hot-a), var(--hot-b), var(--hot-c))",
+                    "--hot-spin-dur": "2.6s",
+                    "--hot-flicker-sat": 1.3,
+                    "--hot-flicker-bright": 1.2,
+                  } as React.CSSProperties
+                }
+              />
+              <div className="relative flex items-center gap-1.5 whitespace-nowrap rounded-full bg-surface px-3.5 py-1.5">
+                <div className="relative h-4 w-3 shrink-0" style={{ filter: "drop-shadow(0 0 3px rgba(255,193,7,.5))" }}>
+                  <span
+                    className="hot-flame-lick-outer absolute bottom-0 left-1/2 -translate-x-1/2 rounded-[50%/62%_62%_38%_38%]"
+                    style={{ width: "12px", height: "16px", backgroundImage: "linear-gradient(180deg, var(--hot-a), var(--hot-b) 60%, var(--hot-c))" }}
+                  />
+                  <span
+                    className="hot-flame-lick-mid absolute bottom-0 left-1/2 -translate-x-1/2 rounded-[50%/62%_62%_38%_38%]"
+                    style={{ width: "8px", height: "11px", backgroundImage: "linear-gradient(180deg, var(--hot-b), var(--hot-c))" }}
+                  />
+                  <span
+                    className="hot-flame-lick-core absolute bottom-0 left-1/2 -translate-x-1/2 rounded-[50%/62%_62%_38%_38%]"
+                    style={{ width: "4px", height: "6px", backgroundImage: "linear-gradient(180deg, var(--hot-c), #fff6d6)" }}
+                  />
+                </div>
+                <span className="font-nunito text-[12.5px] font-extrabold text-ink">As e dey hot</span>
+                <span className="font-nunito text-[10.5px] font-semibold text-faint">· disappears after 24 hours</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="flex w-full gap-3.5 overflow-x-auto px-4 pb-1 pt-2.5 no-scrollbar sm:px-6">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex shrink-0 flex-col items-center gap-1">
+              <div className="relative h-[46px] w-[46px] shrink-0">
+                <div
+                  className="hot-ring-live absolute inset-0 rounded-full"
+                  style={
+                    {
+                      backgroundImage: "conic-gradient(var(--hot-c), var(--hot-b), var(--hot-a), var(--hot-b), var(--hot-c))",
+                      "--hot-spin-dur": "3s",
+                      "--hot-flicker-sat": 1.2,
+                      "--hot-flicker-bright": 1.15,
+                    } as React.CSSProperties
+                  }
+                />
+                <div className="absolute inset-[2px] rounded-full bg-line/60" />
+              </div>
+              <div className="h-[9px] w-9 rounded-full bg-line/50" />
+            </div>
+          ))}
+        </div>
+      </div>
+    ),
+  },
+);
 import { Illustration } from "@/components/brand/illustrations";
 import { Avatar } from "@/components/ui/Avatar";
 import { Wordmark } from "@/components/brand/Wordmark";
@@ -753,6 +850,8 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                 </AnimatePresence>
               </div>
             </div>
+
+            <EDeyHotRail />
 
             <div className="mx-auto flex max-w-[740px] items-center px-4 pb-2.5 pt-1 sm:px-6">
               <div className="inline-flex min-w-0 items-center gap-2 overflow-x-auto no-scrollbar">

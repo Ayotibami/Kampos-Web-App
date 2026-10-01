@@ -1136,13 +1136,6 @@ export function CreateVideoSheet({
                     className="font-nunito text-[13px] font-medium text-white"
                   />
                 </div>
-                <span
-                  className={`self-end font-nunito text-[10px] font-bold tabular-nums ${
-                    CAPTION_MAX_LEN - caption.length <= 20 ? "text-danger" : "text-white/40"
-                  }`}
-                >
-                  {caption.length} / {CAPTION_MAX_LEN}
-                </span>
               </div>
               <button
                 type="button"

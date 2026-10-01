@@ -92,6 +92,7 @@ const RESERVED_AVITAGS = new Set([
   "login",
   "signup",
   "feed",
+  "spot",
   "settings",
   "gist",
   "api",
