@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
 import { Modal } from "@/components/ui/Modal";
 import { X, Plus, DeleteIconFill } from "@/components/ui/icons";
 import { ConfirmModal } from "@/components/ui/FeedbackModal";
@@ -67,6 +68,30 @@ const SWIPE_THRESHOLD_PX = 60;
 // Below this, a pointerdown is still just the start of a tap, not a hold —
 // long enough that a normal tap-to-advance never accidentally pauses.
 const HOLD_THRESHOLD_MS = 180;
+
+// Person-to-person swipe transition — matches GistStackCard's own mobile
+// card exactly (useOverscrollNav.ts's EXIT_DISTANCE_PX/COMMIT_EXIT_S, and
+// the rotate range GistStackCard's own `rotate` transform uses): well past
+// any real device width, so the card is fully gone, not just past the
+// visible edge, by the time it's removed.
+const PERSON_EXIT_DISTANCE_PX = 700;
+const PERSON_EXIT_ROTATE_DEG = 16;
+
+// direction: +1 (next) enters from the right, exits to the left; -1 (prev)
+// mirrored. No opacity in either state — the real mobile mechanic never
+// fades, it stays fully visible the whole way, which is what makes it read
+// as physically sliding rather than crossfading.
+const personCardVariants = {
+  enter: (dir: number) => ({
+    x: dir > 0 ? PERSON_EXIT_DISTANCE_PX : -PERSON_EXIT_DISTANCE_PX,
+    rotate: dir > 0 ? PERSON_EXIT_ROTATE_DEG : -PERSON_EXIT_ROTATE_DEG,
+  }),
+  center: { x: 0, rotate: 0 },
+  exit: (dir: number) => ({
+    x: dir > 0 ? -PERSON_EXIT_DISTANCE_PX : PERSON_EXIT_DISTANCE_PX,
+    rotate: dir > 0 ? -PERSON_EXIT_ROTATE_DEG : PERSON_EXIT_ROTATE_DEG,
+  }),
+};
 
 function timeAgoLabel(createdAt: number, now: number): string {
   const diff = Math.max(0, now - createdAt);
@@ -148,6 +173,17 @@ export function EDeyHotViewer({
   onDeletePost?: (postId: string) => void;
 }) {
   const [personIndex, setPersonIndex] = useState(initialIndex);
+  // Which way the fall/rise card transition should play — +1 when the NEXT
+  // person's stack is coming in (their card enters from the right, the
+  // outgoing one exits left), -1 for prev (mirrored). Set in the SAME
+  // handler as setPersonIndex so React 18's automatic batching lands both
+  // in one render — see goNextPerson/goPrevPerson below. Fed to
+  // AnimatePresence's own `custom` prop (not read off component state
+  // directly inside variants) specifically so the ALREADY-EXITING card
+  // still re-evaluates against a fresh direction value instead of being
+  // stuck with whatever `direction` was at ITS OWN mount time — framer-
+  // motion's documented fix for exactly this "swipeable carousel" shape.
+  const [direction, setDirection] = useState(1);
   const [postIndex, setPostIndex] = useState(0);
   const [introShowing, setIntroShowing] = useState(true);
   const [paused, setPaused] = useState(false);
@@ -260,11 +296,16 @@ export function EDeyHotViewer({
     else goPrevPerson();
   };
   const goNextPerson = () => {
-    if (personIndex < people.length - 1) setPersonIndex((i) => i + 1);
-    else onClose();
+    if (personIndex < people.length - 1) {
+      setDirection(1);
+      setPersonIndex((i) => i + 1);
+    } else onClose();
   };
   const goPrevPerson = () => {
-    if (personIndex > 0) setPersonIndex((i) => i - 1);
+    if (personIndex > 0) {
+      setDirection(-1);
+      setPersonIndex((i) => i - 1);
+    }
   };
 
   // Deletes the CURRENTLY SHOWN post, not the whole stack. `posts` is
@@ -375,6 +416,13 @@ export function EDeyHotViewer({
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
+        // Belt-and-suspenders against the browser's own native long-press
+        // menu on a photo/video (save image, copy, native video controls)
+        // — the real fix is pointer-events-none on the media elements
+        // themselves below (so a touch never actually lands ON the <img>/
+        // <video>, only on this div), but this catches any browser that
+        // still fires a context menu via a different path regardless.
+        onContextMenu={(e) => e.preventDefault()}
         className="relative h-full w-full select-none overflow-hidden bg-black"
         // bgColor is the TEXT background, and only ever belongs behind
         // TEXT — a photo/video post used to get it too (every branch but
@@ -384,8 +432,51 @@ export function EDeyHotViewer({
         // content is ready, same as video already did.
         style={{ backgroundColor: isPhoto || isVideo ? undefined : bgColor }}
       >
-        {/* Content, re-keyed per post so nothing carries stale state (a
-            video element, scroll position, etc.) from the previous post. */}
+        {/* Content — the OUTER motion.div is keyed by personIndex only
+            (never postIndex), so this transition fires exclusively on a
+            person-to-person swipe; tapping through the SAME person's own
+            posts just updates the inner div without ever touching this
+            boundary, same instant cut as before. Plain framer-motion
+            transform here is the safe pattern already proven in this file
+            (see the intro's own avatar fix doc comment) — the thing that
+            broke earlier was animating an element that ALSO carries its
+            own background-image directly; this wrapper has neither, the
+            actual <img>/<video> underneath stay static, unanimated
+            children same as before.
+
+            Motion itself matches GistStackCard's own mobile mechanic
+            exactly (not the desktop peek-stack's diagonal+fade version) —
+            a pure horizontal slide with rotation proportional to how far
+            off it's traveled, NO opacity fade (stays fully visible the
+            whole way), outgoing and incoming animating in parallel like a
+            conveyor belt rather than one finishing before the other
+            starts. `custom={direction}` on AnimatePresence is framer-
+            motion's own documented fix for a direction-aware swipeable
+            carousel: without it, the EXITING card's `exit` variant would
+            be stuck evaluating against whatever `direction` was at ITS
+            OWN mount time, not the fresh value from the swipe that's
+            actually removing it — AnimatePresence re-evaluates every
+            currently-exiting child's variants against a NEW custom value
+            as it changes, which a plain closed-over state read never
+            would. EXIT_DISTANCE/MAX_ROTATE/duration are the exact same
+            numbers useOverscrollNav.ts's EXIT_DISTANCE_PX/COMMIT_EXIT_S
+            and GistStackCard's rotate range use — one consistent "this is
+            what a swipe-away feels like" across the app, not a
+            second, independently-tuned set. */}
+        <AnimatePresence initial={false} custom={direction}>
+          <motion.div
+            key={personIndex}
+            custom={direction}
+            className="absolute inset-0"
+            variants={personCardVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.5, ease: [0, 0, 0.2, 1] }}
+            style={{ willChange: "transform" }}
+          >
+        {/* Re-keyed per post so nothing carries stale state (a video
+            element, scroll position, etc.) from the previous post. */}
         <div key={currentPost?.id} className="absolute inset-0">
           {isPhoto && currentPost?.mediaUrl ? (
             <>
@@ -399,13 +490,25 @@ export function EDeyHotViewer({
                 src={currentPost.mediaUrl}
                 alt=""
                 aria-hidden
-                className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-[0.55]"
+                draggable={false}
+                // pointer-events-none is the actual fix for the native
+                // long-press "save/copy image" menu — a touch that never
+                // lands ON the <img> element itself (it passes straight
+                // through to the container div, which already owns the
+                // hold-to-pause handlers) never triggers the browser's own
+                // media-specific gesture handling in the first place.
+                // WebkitTouchCallout is the same idea for older iOS Safari
+                // specifically, belt-and-suspenders.
+                className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-[0.55]"
+                style={{ WebkitTouchCallout: "none" } as React.CSSProperties}
               />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={currentPost.mediaUrl}
                 alt=""
-                className="absolute inset-0 h-full w-full object-contain"
+                draggable={false}
+                className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+                style={{ WebkitTouchCallout: "none" } as React.CSSProperties}
                 onLoad={() => setMediaLoaded(true)}
                 // A failed load (404, offline, bad URL) still clears the
                 // spinner and lets the auto-advance timer start — without
@@ -439,7 +542,18 @@ export function EDeyHotViewer({
               poster={currentPost.thumbnailUrl ?? undefined}
               muted
               playsInline
-              className="absolute inset-0 h-full w-full object-contain"
+              disablePictureInPicture
+              disableRemotePlayback
+              controlsList="nodownload nofullscreen noremoteplayback noplaybackrate"
+              // Same pointer-events-none reasoning as the photo's own two
+              // <img> tags above — there's no `controls` attribute and no
+              // click handler on this element at all (every gesture
+              // already goes through the container div's own pointer
+              // handlers), so a touch never needs to land ON the video
+              // itself, which is what stops the native video context menu/
+              // controls overlay from appearing on hold.
+              className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+              style={{ WebkitTouchCallout: "none" } as React.CSSProperties}
               onLoadedMetadata={(e) => setVideoDurationMs(Math.round(e.currentTarget.duration * 1000))}
               onLoadedData={() => setMediaLoaded(true)}
               // Same reasoning as the photo's own onError above — a video
@@ -500,6 +614,8 @@ export function EDeyHotViewer({
             </div>
           ) : null}
         </div>
+          </motion.div>
+        </AnimatePresence>
 
         {/* Segmented bars — one per post, same yellow→orange burn gradient
             the rail's own rings use. Only the CURRENTLY ACTIVE segment is
