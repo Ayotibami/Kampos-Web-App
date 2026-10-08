@@ -14,6 +14,7 @@ import { ThemeRouteSync } from "@/components/theme/ThemeRouteSync";
 import { SoundPreload } from "@/components/theme/SoundPreload";
 import { FeedScrollLock } from "@/components/layout/FeedScrollLock";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
+import { DesktopSidebar } from "@/components/layout/DesktopSidebar";
 import { InputModalitySync } from "@/components/layout/InputModalitySync";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
 import { SplashScreen } from "@/components/brand/SplashScreen";
@@ -200,6 +201,7 @@ export default function RootLayout({
         <AuthPromptModal />
         <InstallPrompt />
         <MobileTabBar />
+        <DesktopSidebar />
         {children}
       </body>
     </html>

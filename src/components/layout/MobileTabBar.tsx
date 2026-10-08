@@ -23,7 +23,10 @@ const RESERVED_TOP_LEVEL = new Set([
   "forgot-password", "reset-password", "setup-profile", "welcome",
 ]);
 
-function isProfileRoute(pathname: string): boolean {
+// Exported so DesktopSidebar can route-gate itself identically — both bars
+// need to agree on exactly which pages count as "a profile" or neither can
+// trust the other's visibility logic stays in sync as routes change.
+export function isProfileRoute(pathname: string): boolean {
   const parts = pathname.split("/").filter(Boolean);
   return parts.length === 1 && !RESERVED_TOP_LEVEL.has(parts[0]);
 }

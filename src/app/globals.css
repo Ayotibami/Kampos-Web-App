@@ -165,9 +165,40 @@ textarea {
   60% { transform: scale(0.95); opacity: 1; }
   100% { transform: scale(1); opacity: 0; }
 }
+
+/* The bell icon's unread dot (FeedContent.tsx, ProfileView.tsx) — a soft
+   repeating glow instead of a static dot, enough to catch the eye without
+   being as loud as a hard blink/scale animation. */
+@keyframes notif-dot-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-brand) 45%, transparent); }
+  50% { box-shadow: 0 0 0 5px transparent; }
+}
+.animate-notif-breathe {
+  animation: notif-dot-breathe 2.2s ease-in-out infinite;
+}
+
+/* Kappy icon's unread nudge — a quick playful shake every 5s (not a
+   continuous wiggle), so it catches the eye periodically without being
+   distracting the rest of the time. The burst is compressed into the
+   first ~300ms of the cycle; the remaining ~94% holds still. */
+@keyframes kappy-wiggle {
+  0%, 6%, 100% { transform: rotate(0deg) scale(1); }
+  1% { transform: rotate(-14deg) scale(1.06); }
+  2% { transform: rotate(12deg) scale(1.06); }
+  3% { transform: rotate(-9deg) scale(1.03); }
+  4% { transform: rotate(6deg) scale(1.02); }
+  5% { transform: rotate(-3deg) scale(1.01); }
+}
+.animate-kappy-wiggle {
+  animation: kappy-wiggle 5s ease-in-out infinite;
+  transform-origin: 50% 85%;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-\[heart-pop_0\.55s_ease_forwards\],
-  .animate-pulse {
+  .animate-pulse,
+  .animate-notif-breathe,
+  .animate-kappy-wiggle {
     animation: none;
   }
 }

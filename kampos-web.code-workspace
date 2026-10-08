@@ -15,6 +15,9 @@
     {
       "path": "../smartbucket-admin",
     },
+    {
+      "path": "../smartbucket-backend",
+    },
   ],
   "settings": {},
 }

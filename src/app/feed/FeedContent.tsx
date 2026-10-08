@@ -123,15 +123,19 @@ const EDeyHotRail = dynamic(
   },
 );
 import { Illustration } from "@/components/brand/illustrations";
-import { Avatar } from "@/components/ui/Avatar";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { Plus, RefreshCw, X, AdminsIconFill } from "@/components/ui/icons";
+import Image from "next/image";
+import KappyNotifIcon from "@/assets/illustrations/KappyNotifIcon.png";
+import KappyNotifIconDark from "@/assets/illustrations/KappyNotifIconDark.png";
+import { useNotificationStore } from "@/stores/notificationStore";
 import { FloatingComposeButton } from "@/components/gist/FloatingComposeButton";
 import { PullIndicator, usePullToRefresh } from "@/components/ui/PullToRefresh";
 import { AnimatePresence } from "framer-motion";
 import { useGistStore, getFreshFeedSnapshot, patchGistPoll } from "@/stores/gistStore";
 import { useCommentStore } from "@/stores/commentStore";
-import { useAuthStore, useIsAdmin } from "@/stores/authStore";
+import { useLayoutStore } from "@/stores/layoutStore";
+import { useIsAdmin } from "@/stores/authStore";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { timeAgo } from "@/lib/format";
 import { playSound } from "@/lib/sounds";
@@ -238,15 +242,18 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   const listGists = useGistStore((s) => s.list);
   const primeFromServer = useGistStore((s) => s.primeFromServer);
   const prefetchComments = useCommentStore((s) => s.prefetchBatch);
-  const myAvitag = useAuthStore((s) => s.avitag);
-  const myImageUrl = useAuthStore(
-    (s) =>
-      (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as
-        | string
-        | undefined) ?? null,
-  );
   const isMobile = useIsMobile();
   const isAdmin = useIsAdmin();
+
+  // Fetched once on mount; kept live after that by notificationStore's own
+  // WS subscription (a fresh notification increments it directly, no
+  // polling needed) — same "fetch once, then let the socket carry it"
+  // pattern hotStore.ts's own fetchAll+WS combo already uses.
+  const unreadNotifCount = useNotificationStore((s) => s.unreadCount);
+  const fetchUnreadNotifCount = useNotificationStore((s) => s.fetchUnreadCount);
+  useEffect(() => {
+    void fetchUnreadNotifCount();
+  }, [fetchUnreadNotifCount]);
 
   // Captured once, at mount, from whatever gistStore.feedSnapshot holds —
   // see that field's own docstring for why this exists at all (surviving a
@@ -371,6 +378,89 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   // touch handlers bind here too (see atTop below), and the "load more"
   // sentinel sits at its bottom.
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Show-on-scroll-up header, same base algorithm as ProfileView's own
+  // (see its doc comment for the full reasoning on the 4px cumulative
+  // threshold), PLUS an idle-timeout layer ProfileView's simpler header
+  // doesn't need: scroll DOWN hides it immediately, scroll UP (even a
+  // little) brings it back immediately, and — new here — stopping for
+  // ~1.3s with it still hidden brings it back too, so reaching the bell/
+  // compose doesn't require deliberately scrolling up first. headerHeight
+  // is measured, not hardcoded: this header is three stacked rows (icons,
+  // the Hot rail, the tab pills), and the Hot rail's own explainer chip
+  // collapses a few seconds after mount (see EDeyHotRail), so the header's
+  // real height actually changes after the page's first render.
+  const headerRef = useRef<HTMLElement>(null);
+  const [headerVisible, setHeaderVisible] = useState(true);
+  const [headerHeight, setHeaderHeight] = useState(0);
+
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height;
+      if (h !== undefined) setHeaderHeight(h);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Callback ref, not useRef+useEffect — scrollRef isn't attached to any
+  // real DOM node while the loading skeleton is showing (a different div
+  // entirely, with no ref on it), so a plain effect-on-mount would grab
+  // `null` and never retry once the real scrollable list actually
+  // appeared. Re-deriving this off `[loading, gists.length]` instead was
+  // the first fix tried, and it very nearly worked — caught live that it
+  // over-fires: `gists.length` changes every time infinite-scroll loads
+  // more posts, which happens constantly while actually scrolling, tearing
+  // the listener down and resetting `baseline` to whatever scrollTop
+  // happened to be mid-gesture and silently swallowing the scroll that was
+  // already in flight. A callback ref sidesteps the whole dependency-array
+  // question — it fires exactly once when the node mounts and once when
+  // it unmounts, full stop, regardless of how many times anything else
+  // about the component re-renders in between.
+  const scrollListenerCleanupRef = useRef<(() => void) | null>(null);
+  const setScrollRef = useCallback((node: HTMLDivElement | null) => {
+    scrollRef.current = node;
+    scrollListenerCleanupRef.current?.();
+    scrollListenerCleanupRef.current = null;
+    if (!node) return;
+
+    let baseline = node.scrollTop;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    const IDLE_MS = 1300;
+
+    const armIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => setHeaderVisible(true), IDLE_MS);
+    };
+
+    const onScroll = () => {
+      const y = node.scrollTop;
+      armIdleTimer();
+      if (y <= 0) {
+        setHeaderVisible(true);
+        baseline = y;
+        return;
+      }
+      const delta = y - baseline;
+      if (delta <= -4) {
+        setHeaderVisible(true);
+        baseline = y;
+      } else if (delta >= 4) {
+        setHeaderVisible(false);
+        baseline = y;
+      }
+      // Within ±4px of the last change: hold state AND hold the baseline
+      // so slow movement keeps accumulating instead of resetting.
+    };
+
+    node.addEventListener("scroll", onScroll, { passive: true });
+    scrollListenerCleanupRef.current = () => {
+      node.removeEventListener("scroll", onScroll);
+      if (idleTimer) clearTimeout(idleTimer);
+    };
+  }, []);
 
   const load = useCallback(async (opts?: { resetToTop?: boolean }) => {
     // Bumped synchronously (before the first await) every time a fresh
@@ -531,6 +621,17 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
       setCommentsOpen(true);
     }
   }, []);
+  // DesktopSidebar lives outside this component (rendered globally from
+  // the root layout), so it can't see this local state directly — mirrored
+  // into a tiny shared store instead. Reset to false on unmount, not just
+  // left at its last value: without that, navigating away while the panel
+  // was open would leave every OTHER page permanently thinking a panel
+  // that doesn't exist there is still open, stuck collapsed for no reason.
+  const setDesktopCommentsPanelOpen = useLayoutStore((s) => s.setDesktopCommentsPanelOpen);
+  useEffect(() => {
+    setDesktopCommentsPanelOpen(commentsOpen);
+    return () => setDesktopCommentsPanelOpen(false);
+  }, [commentsOpen, setDesktopCommentsPanelOpen]);
   const [showCommentSheet, setShowCommentSheet] = useState(false);
   const handleToggleComments = (gistId: string) => {
     setActiveGistId(gistId);
@@ -759,37 +860,39 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
               the header itself so its own frosted background fills that
               strip. Resolves to 0 in a browser tab and on desktop — see
               layout.tsx's viewportFit note for the full story. */}
-          <header className="sticky top-0 z-20 w-full shrink-0 border-b border-line bg-surface/85 pt-[env(safe-area-inset-top,0px)] backdrop-blur-md">
+          <header
+            ref={headerRef}
+            // fixed, not sticky — out of normal flow entirely, so hiding it
+            // actually lets the gist list reclaim that space rather than
+            // leaving a dead transparent box in place. left/right mirror
+            // whatever's currently eating horizontal room on desktop:
+            // DesktopSidebar (w-20 collapsed when the comment panel is
+            // open, w-52 expanded when it's closed — see
+            // useDesktopSidebarLayout, though this header computes the
+            // same thing locally off `commentsOpen` directly since this
+            // IS the feed) on the left, and the 360px comment panel itself
+            // on the right, only when it's actually open.
+            className={`fixed left-0 right-0 top-0 z-20 border-b border-line bg-surface/85 pt-[env(safe-area-inset-top,0px)] backdrop-blur-md transition-transform duration-300 ${
+              commentsOpen ? "md:left-20 md:right-[360px]" : "md:left-52 md:right-0"
+            } ${headerVisible ? "translate-y-0" : "-translate-y-full"}`}
+          >
             <div className="mx-auto grid max-w-[740px] grid-cols-[1fr_auto_1fr] items-center px-4 py-2 sm:px-6 md:py-2.5">
-              {/* Profile avatar — the account entry point, anchored at the
-                  outer left edge (settings/theme toggle live on the profile
-                  page now, see below). Plus button balances it on the
-                  opposite edge instead of the two sharing one side, so the
-                  wordmark actually reads as centered between two anchors
-                  rather than centered against a dead spacer.
-                  Avatar link is desktop-only (`hidden md:flex`) — mobile
-                  has its own profile entry point now (the "You" tab in
-                  MobileTabBar), and desktop has no bottom nav at all, so
-                  this stays the only way to reach your profile there. The
-                  admin link right after it stays visible on every size —
-                  mobile still needs its own way into Village People, and
-                  MobileTabBar has no admin stop. */}
+              {/* Profile is no longer reachable from this header at all —
+                  mobile has its own entry point (the "You" tab in
+                  MobileTabBar) and desktop now has DesktopSidebar's own
+                  "You" rail item, so the avatar link that used to live
+                  here (desktop-only, since desktop had no bottom nav) was
+                  pure duplication once that rail existed. Only the admin
+                  entry point remains in this slot. */}
               <div className="flex items-center gap-2 justify-self-start">
-                <Link
-                  href={myAvitag ? `/${myAvitag}` : "/feed"}
-                  aria-label="Your profile"
-                  className="hidden h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-line transition hover:ring-brand md:flex"
-                >
-                  <Avatar src={myImageUrl} />
-                </Link>
                 {/* Village People entry point — only ever rendered for an
                     idiot/king account (useIsAdmin, same client-side role
                     check VillagePeopleRail itself already gates its own
                     "Admins" link on), so this is invisible chrome for
-                    every regular student. Sits right next to the avatar
-                    rather than in Settings — the admin team needs this
-                    often enough through the day that one more tap in a
-                    settings menu would be real friction. */}
+                    every regular student. Sits in the header rather than
+                    in Settings — the admin team needs this often enough
+                    through the day that one more tap in a settings menu
+                    would be real friction. */}
                 {isAdmin && (
                   <Link
                     href="/villagepeople"
@@ -806,15 +909,16 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                 className="justify-self-center text-lg sm:text-xl"
               />
 
-              {/* Compose trigger — desktop only now (`hidden md:flex`); on
-                  mobile this whole slot (button + its one-time coach mark
-                  below) goes away entirely in favor of FloatingComposeButton,
-                  a bottom-right FAB with its own recurring idle animation —
-                  see that component's own doc for why a fixed corner button
-                  needs that and a header button never did. Squeezed onto the
-                  wordmark's row (which had height to spare) rather than its
-                  own row, on desktop where it still renders. */}
-              <div className="relative hidden shrink-0 justify-self-end md:flex">
+              {/* Right slot — the bell is the one thing here that's ALWAYS
+                  visible (mobile and desktop both need a notifications
+                  entry point), rendered AFTER the compose trigger so on
+                  desktop it reads left-to-right as compose-then-bell.
+                  Harmless on mobile — the compose div is `hidden md:flex`
+                  there, so the bell is the only one actually painted,
+                  regardless of DOM order. Mobile uses FloatingComposeButton
+                  for compose instead. */}
+              <div className="flex shrink-0 items-center gap-2 justify-self-end">
+              <div className="relative hidden shrink-0 md:flex">
                 <button
                   type="button"
                   onClick={() => {
@@ -849,9 +953,42 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                   )}
                 </AnimatePresence>
               </div>
+                <Link
+                  href="/notifications"
+                  aria-label="Notifications"
+                  className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink transition hover:bg-line/60 active:scale-95"
+                >
+                  {/* Light/dark are two separate exported PNGs (not one
+                      recolored via CSS filter) — the cap swaps navy to
+                      white so it doesn't vanish against a dark surface,
+                      which a filter like invert() can't do selectively
+                      without also wrecking the blue head and yellow beak. */}
+                  <span className={`inline-flex ${unreadNotifCount > 0 ? "animate-kappy-wiggle" : ""}`}>
+                    <Image src={KappyNotifIcon} alt="" priority className="h-8 w-auto dark:hidden" />
+                    <Image src={KappyNotifIconDark} alt="" priority className="hidden h-8 w-auto dark:block" />
+                  </span>
+                  {unreadNotifCount > 0 && (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-[15px] min-w-[15px] animate-notif-breathe items-center justify-center rounded-full border-2 border-surface bg-brand px-[3px] font-nunito text-[8.5px] font-extrabold text-white">
+                      {unreadNotifCount > 9 ? "9+" : unreadNotifCount}
+                    </span>
+                  )}
+                </Link>
+              </div>
             </div>
 
-            <EDeyHotRail />
+            {/* Desktop-only wrapper — EDeyHotRail's own root is deliberately
+                full-bleed (see its own comment on why: boxing it into the
+                740px lane on mobile only fit 4-5 rings). That reasoning
+                never applied to desktop, and DesktopSidebar now occupies
+                real space at the true left edge there, so without this the
+                rail's own small px-4/px-6 inset started right up against
+                the sidebar instead of lining up with the centered lane the
+                header/gist list both use (the same x the admin crown sits
+                at). md: only — mobile keeps the original edge-to-edge
+                scroll track untouched. */}
+            <div className="md:mx-auto md:max-w-[740px]">
+              <EDeyHotRail />
+            </div>
 
             <div className="mx-auto flex max-w-[740px] items-center px-4 pb-2.5 pt-1 sm:px-6">
               <div className="inline-flex min-w-0 items-center gap-2 overflow-x-auto no-scrollbar">
@@ -878,7 +1015,10 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
             />
 
             {loading ? (
-              <div className="relative z-10 flex min-h-0 flex-1 justify-center overflow-y-auto px-4 pb-8 pt-3 sm:pt-4">
+              <div
+                className="relative z-10 flex min-h-0 flex-1 justify-center overflow-y-auto px-4 pb-8"
+                style={{ paddingTop: headerHeight + 12 }}
+              >
                 <div className="w-full max-w-[740px] space-y-3">
                   {SKELETON_VARIANTS.map((variant, i) => (
                     <FeedGistCardSkeleton key={i} variant={variant} />
@@ -887,7 +1027,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
               </div>
             ) : gists.length ? (
               <div
-                ref={scrollRef}
+                ref={setScrollRef}
                 // overscroll-y-contain: this is the actual scroll container
                 // that hits its own real top boundary as you pull down —
                 // `overscroll-behavior: none` on html/body (globals.css's
@@ -902,6 +1042,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                 // logic below. `contain` stops it exactly at this box's
                 // edge without disabling scroll bounce everywhere.
                 className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain"
+                style={{ paddingTop: headerHeight }}
               >
                 <PullIndicator pull={pull} state={state} />
                 <div className="flex flex-1 justify-center px-4 pb-24 pt-3 sm:pt-4 md:pb-8">
@@ -961,7 +1102,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                 </div>
               </div>
             ) : loadError ? (
-              <div className="relative z-10 flex flex-1 w-full flex-col items-center justify-center gap-3 text-center px-6">
+              <div className="relative z-10 flex flex-1 w-full flex-col items-center justify-center gap-3 text-center px-6" style={{ paddingTop: headerHeight }}>
                 <RefreshCw className="h-10 w-10 text-muted" />
                 <p className="font-nunito text-sm text-muted">
                   Abeg we no fit load the gists — check your connection.
@@ -975,7 +1116,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                 </button>
               </div>
             ) : (
-              <div className="relative z-10 flex flex-1 w-full flex-col items-center justify-center gap-3 text-center">
+              <div className="relative z-10 flex flex-1 w-full flex-col items-center justify-center gap-3 text-center" style={{ paddingTop: headerHeight }}>
                 <Illustration
                   name="Kappymagnifyingglass"
                   className="h-40 w-auto"

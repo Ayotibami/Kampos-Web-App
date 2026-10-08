@@ -1069,7 +1069,14 @@ function VideoFeedContentInner() {
             type="button"
             onClick={() => router.back()}
             aria-label="Back to grid"
-            className="fixed left-3 top-[calc(1.25rem+env(safe-area-inset-top,0px))] z-30 flex h-9 w-9 items-center justify-center rounded-full bg-black/40 text-white"
+            // md:left-[92px] (80px sidebar + the original 12px edge gap
+            // preserved): same bug as ProfileView's own header and
+            // SettingsHeader (see those for the full explanation) — `fixed`
+            // ignores DesktopSidebarSpacer's reserved flex space entirely,
+            // so without this DesktopSidebar covered this button outright
+            // on desktop. Static offset, not the reactive sidebar width:
+            // Spot never triggers the feed-only expanded case.
+            className="fixed left-3 md:left-[92px] top-[calc(1.25rem+env(safe-area-inset-top,0px))] z-30 flex h-9 w-9 items-center justify-center rounded-full bg-black/40 text-white"
           >
             <ChevronLeft className="h-5 w-5" />
           </button>

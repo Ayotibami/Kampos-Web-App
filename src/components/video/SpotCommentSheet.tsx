@@ -190,7 +190,7 @@ function SpotCommentBubble({
           onClose={() => (deleting ? undefined : setShowDeleteConfirm(false))}
           onConfirm={handleConfirmDelete}
           loading={deleting}
-          title={isOwn ? "Delete your comment?" : `Delete @${c.avitag}'s comment?`}
+          title={isOwn ? "Delete your comment?" : `Delete ${c.avitag}'s comment?`}
           message={isOwn ? "This can't be undone." : "This can't be undone — you're deleting this as an admin."}
           confirmLabel="Delete"
           icon={<DeleteIconFill size={26} weight="fill" />}

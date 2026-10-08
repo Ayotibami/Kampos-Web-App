@@ -37,6 +37,10 @@ export {
   CheckCircle,
   Ghost as AnonymousIconFill,
   Feather as KornerIconFill,
+  Bell,
+  CheckCheck,
+  Sparkles,
+  Moon,
 } from "lucide-react";
 
 // Phosphor, fill-weight — bolder/playfuller than lucide's thin stroke. This
@@ -91,6 +95,7 @@ export {
   GraduationCap as CampusIconFill,
   BookOpen as MajorIconFill,
   TrendUp as LevelIconFill,
+  TrendUp as TrendingIconFill,
   ChartBar as PollIconFill,
   Repeat as RepostIconFill,
   // The actual iOS share-sheet glyph (box, arrow pointing up out of it) —

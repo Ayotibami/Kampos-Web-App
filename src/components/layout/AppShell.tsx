@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Wordmark } from "@/components/brand/Wordmark";
+import { DesktopSidebarSpacer } from "@/components/layout/DesktopSidebarSpacer";
 
 /**
  * AppShell — the branded page frame.
@@ -203,6 +204,14 @@ export function AppShell({
           only) sit above/below the panel, sharing its width, inside one
           flex-col stack so the trio centers together as a unit. */}
       <div className={`relative z-10 flex min-h-dvh w-full items-stretch justify-center ${safeTop} ${lanePad}`}>
+        {/* Reserves real flex space for DesktopSidebar — a `fixed` element,
+            so nothing about this row's own layout would otherwise account
+            for it. Only "feed" and "panel" ever render that sidebar (see
+            DesktopSidebar.tsx's own route list: feed, Spot, any profile,
+            Settings — exactly these two variants' pages, no others), so
+            gated the same way here rather than rendering it unconditionally
+            and reserving dead space on pages that never show it. */}
+        {(isFeed || isPanel) && <DesktopSidebarSpacer />}
         <div className={`flex w-full ${panelWidth} flex-col gap-4`}>
           {outerHeader && <div className="hidden shrink-0 md:block">{outerHeader}</div>}
           <div className={`relative flex min-h-0 w-full flex-col ${panelBg} ${panelChrome} ${className}`}>

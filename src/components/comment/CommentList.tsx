@@ -273,7 +273,7 @@ function CommentBubble({
           onClose={() => (deleting ? undefined : setShowDeleteConfirm(false))}
           onConfirm={handleConfirmDelete}
           loading={deleting}
-          title={isOwn ? "Delete your comment?" : `Delete ${c.avitag ? `@${c.avitag}'s` : "this"} comment?`}
+          title={isOwn ? "Delete your comment?" : `Delete ${c.avitag ? `${c.avitag}'s` : "this"} comment?`}
           message={
             isOwn
               ? "This can't be undone."

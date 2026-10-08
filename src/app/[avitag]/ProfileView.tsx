@@ -8,8 +8,11 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
+import NextImage from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
+import KappyNotifIcon from "@/assets/illustrations/KappyNotifIcon.png";
+import KappyNotifIconDark from "@/assets/illustrations/KappyNotifIconDark.png";
 import { motion, useAnimationControls } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
 import { Avatar } from "@/components/ui/Avatar";
@@ -41,6 +44,7 @@ import {
   LevelIconFill,
 } from "@/components/ui/icons";
 import { useGistStore, patchGistPoll } from "@/stores/gistStore";
+import { useNotificationStore } from "@/stores/notificationStore";
 import {
   useProfileSnapshotStore,
   getFreshProfileSnapshot,
@@ -294,6 +298,14 @@ export function ProfileView({
         | string
         | undefined) ?? null,
   );
+  // Same bell entry point the feed header already gives — own-profile only
+  // (see the Settings/theme row below, same reasoning: it's a global nav
+  // affordance, not something that belongs on someone else's page).
+  const unreadNotifCount = useNotificationStore((s) => s.unreadCount);
+  const fetchUnreadNotifCount = useNotificationStore((s) => s.fetchUnreadCount);
+  useEffect(() => {
+    if (isOwnProfile) void fetchUnreadNotifCount();
+  }, [isOwnProfile, fetchUnreadNotifCount]);
   // This page's own profile data came from a server fetch that Next's
   // client Router Cache may be serving from before a just-made edit (see
   // profileFreshness.ts) — only relevant here when it's actually MY OWN
@@ -901,9 +913,19 @@ export function ProfileView({
               certain viewports). Slides up off-screen on scroll-down (4px+
               cumulative) and back down on scroll-up, with a frosted-glass
               backdrop so content scrolling under it remains legible. At the
-              very top of the page it's always visible. */}
+              very top of the page it's always visible.
+              `fixed` positions relative to the viewport regardless of this
+              div's own DOM nesting inside the max-w-6xl content column
+              above, so DesktopSidebarSpacer's reserved flex space (which
+              only affects normal document flow) does nothing for it —
+              without `md:left-20` here specifically, the sidebar covered
+              the back arrow and avitag outright. Static value, not the
+              reactive useDesktopSidebarLayout width: the sidebar never
+              expands past w-20 on a profile route (see that hook's own
+              "feed only" expansion rule), so there's no second width to
+              account for here. */}
             <div
-              className={`fixed top-0 inset-x-0 z-30 flex items-center justify-between gap-3 border-b border-line/60 bg-surface-2/95 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] backdrop-blur-md transition-transform duration-300 sm:px-6 ${
+              className={`fixed top-0 left-0 right-0 md:left-20 z-30 flex items-center justify-between gap-3 border-b border-line/60 bg-surface-2/95 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] backdrop-blur-md transition-transform duration-300 sm:px-6 ${
                 headerVisible ? "translate-y-0" : "-translate-y-full"
               }`}
             >
@@ -965,13 +987,37 @@ export function ProfileView({
                     <Plus className="h-4 w-4" />
                   </button>
                   <Link
+                    href="/notifications"
+                    aria-label="Notifications"
+                    className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
+                  >
+                    {/* Same light/dark asset swap as the feed header's
+                        bell — see FeedContent.tsx's own comment on why. */}
+                    <span className={`inline-flex ${unreadNotifCount > 0 ? "animate-kappy-wiggle" : ""}`}>
+                      <NextImage src={KappyNotifIcon} alt="" priority className="h-8 w-auto dark:hidden" />
+                      <NextImage src={KappyNotifIconDark} alt="" priority className="hidden h-8 w-auto dark:block" />
+                    </span>
+                    {unreadNotifCount > 0 && (
+                      <span className="absolute -right-0.5 -top-0.5 flex h-[15px] min-w-[15px] animate-notif-breathe items-center justify-center rounded-full border-2 border-surface bg-brand px-[3px] font-nunito text-[8.5px] font-extrabold text-white">
+                        {unreadNotifCount > 9 ? "9+" : unreadNotifCount}
+                      </span>
+                    )}
+                  </Link>
+                  {/* Desktop-only from here down: md:hidden — DesktopSidebar
+                      now has its own Settings + theme toggle rail items,
+                      so keeping these here too on desktop would just be
+                      the same two destinations duplicated on screen at
+                      once. Mobile still needs them here, since the
+                      sidebar itself is md:flex (never shows on mobile at
+                      all). */}
+                  <Link
                     href="/settings"
                     aria-label="Settings"
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand md:hidden"
                   >
                     <SettingsIconFill className="h-5 w-5" weight="regular" />
                   </Link>
-                  <ThemeToggle />
+                  <ThemeToggle className="md:hidden" />
                 </div>
               ) : (
                 myAvitag && (
