@@ -9,6 +9,12 @@ import {
   AuditIconFill,
   CampusIconFill,
   BroadcastsIconFill,
+  GrowthIconFill,
+  TargetIconFill,
+  RetentionIconFill,
+  TopListIconFill,
+  ActivationIconFill,
+  FunnelIconFill,
 } from "@/components/ui/icons";
 
 export interface NavItem {
@@ -53,6 +59,24 @@ export function getNavGroups(isKing: boolean): NavGroup[] {
         // Spot via a report, not a pending-review state the way Gist's own
         // queue does.
         { href: "/villagepeople/spots", label: "All Spots", icon: AllSpotsIconFill },
+      ],
+    },
+    {
+      // Growth dashboard (/villagepeople/growth/*) — any admin, same isIdiot
+      // tier as every endpoint it reads (stats/targets/socials routes.ts's
+      // own doc comments: "not king-gated"), so this sits alongside
+      // Moderate/Manage rather than under the king-only Oversight group
+      // below.
+      label: "Growth",
+      items: [
+        { href: "/villagepeople/growth", label: "Dashboard", icon: GrowthIconFill },
+        { href: "/villagepeople/growth/targets", label: "Targets", icon: TargetIconFill },
+        { href: "/villagepeople/growth/retention", label: "Retention & activity", icon: RetentionIconFill },
+        { href: "/villagepeople/growth/schools", label: "Schools", icon: CampusIconFill },
+        { href: "/villagepeople/growth/top", label: "Top posts & users", icon: TopListIconFill },
+        { href: "/villagepeople/growth/socials", label: "Socials", icon: BroadcastsIconFill },
+        { href: "/villagepeople/growth/activation", label: "Activation", icon: ActivationIconFill },
+        { href: "/villagepeople/growth/funnel", label: "Growth funnel", icon: FunnelIconFill },
       ],
     },
     {

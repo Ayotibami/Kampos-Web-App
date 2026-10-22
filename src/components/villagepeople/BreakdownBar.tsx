@@ -29,7 +29,19 @@ export interface BreakdownSegment {
  * dot is the only thing that carries the actual data color, per "text
  * never wears the data color."
  */
-export function BreakdownBar({ segments }: { segments: BreakdownSegment[] }) {
+export function BreakdownBar({
+  segments,
+  unit = "count",
+}: {
+  segments: BreakdownSegment[];
+  /** "percent" renders each segment's value with a trailing % sign in the
+   * legend instead of toLocaleString's thousands-formatted raw count — for
+   * callers whose `value` is already a server-computed percentage (not a
+   * count the bar itself should sum/renormalize meaningfully). Additive,
+   * defaults to the original count behavior, so every existing caller is
+   * unaffected. */
+  unit?: "count" | "percent";
+}) {
   const total = segments.reduce((sum, s) => sum + s.value, 0);
   const nonZero = segments.filter((s) => s.value > 0);
 
@@ -42,7 +54,7 @@ export function BreakdownBar({ segments }: { segments: BreakdownSegment[] }) {
               key={s.key}
               style={{ width: `${(s.value / total) * 100}%`, backgroundColor: s.color }}
               className={i < nonZero.length - 1 ? "border-r-2 border-surface" : ""}
-              title={`${s.label}: ${s.value.toLocaleString()}`}
+              title={`${s.label}: ${unit === "percent" ? `${s.value}%` : s.value.toLocaleString()}`}
             />
           ))}
         </div>
@@ -52,7 +64,8 @@ export function BreakdownBar({ segments }: { segments: BreakdownSegment[] }) {
           <div key={s.key} className="flex items-center gap-1.5">
             <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: s.color }} />
             <span className="font-nunito text-[11px] text-faint">
-              {s.label} <span className="font-bold text-ink">{s.value.toLocaleString()}</span>
+              {s.label}{" "}
+              <span className="font-bold text-ink">{unit === "percent" ? `${s.value}%` : s.value.toLocaleString()}</span>
             </span>
           </div>
         ))}

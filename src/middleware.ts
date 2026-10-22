@@ -52,11 +52,32 @@ export async function middleware(request: NextRequest) {
     // the page's own already-safe "unknown state, don't log out" fallback
     // (see serverAuth.ts), ever get a chance to run. Failing fast here lets
     // that existing fallback do its job instead.
-    const refreshRes = await fetch(`${env.API_BASE}/auth/refresh`, {
+    // A non-OK response here is ambiguous in a way a thrown fetch error
+    // isn't: 401/403 means the refresh token itself is dead (genuinely
+    // logged out, fine to let the stale access token through as-is — the
+    // page's own gate check will correctly resolve that to "guest"). Any
+    // other status (5xx, etc.) is a transient backend blip — exactly the
+    // same kind of hiccup the catch block below already forgives — but
+    // letting the stale access token through in THAT case means the page's
+    // next fetch (to /account/profile) will itself get a real 401 from an
+    // actually-expired token, which serverAuth.ts correctly but wrongly-
+    // for-this-case maps to "guest" and bounces a perfectly legitimate,
+    // still-logged-in admin out of /villagepeople. One short retry absorbs
+    // the common transient case (cold start) instead of racing into that.
+    let refreshRes = await fetch(`${env.API_BASE}/auth/refresh`, {
       method: "POST",
       headers: { Cookie: request.headers.get("cookie") ?? "" },
       signal: AbortSignal.timeout(5000),
     });
+
+    if (!refreshRes.ok && refreshRes.status !== 401 && refreshRes.status !== 403) {
+      await new Promise((r) => setTimeout(r, 300));
+      refreshRes = await fetch(`${env.API_BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { Cookie: request.headers.get("cookie") ?? "" },
+        signal: AbortSignal.timeout(5000),
+      });
+    }
 
     if (!refreshRes.ok) return NextResponse.next();
 

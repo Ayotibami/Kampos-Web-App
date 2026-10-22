@@ -16,6 +16,7 @@ import { env } from "@/lib/env";
 import { sanitizeInput, validateEmail, validatePassword, passwordsMatch } from "@/lib/validation";
 import { Check } from "@/components/ui/icons";
 import { apiErrorMessage } from "@/lib/api";
+import { getStoredAttribution, clearStoredAttribution } from "@/lib/attribution";
 
 export function SignupForm() {
   const router = useRouter();
@@ -67,7 +68,16 @@ export function SignupForm() {
       // Registering already logs the account in (the server sets the auth
       // cookies on this response) — just unverified, so this always lands
       // on /verify-otp next, no separate re-login step needed.
-      const state = await register({ email: cleanEmail, password: cleanPassword });
+      //
+      // Whatever first-touch UTM/referrer/invite-code attribution got
+      // captured on an earlier visit (see lib/attribution.ts) rides along
+      // here — undefined/omitted for anything never captured.
+      const attribution = getStoredAttribution();
+      const state = await register({ email: cleanEmail, password: cleanPassword, ...attribution });
+      // Now persisted server-side on the account — nothing left to keep
+      // client-side, and keeping it would wrongly re-attach to any later
+      // registration attempt from this same browser.
+      clearStoredAttribution();
       notifyAuthToast("signup");
       router.replace(destinationFor(state));
     } catch (err) {

@@ -91,11 +91,16 @@ const PROFILE_TYPE_CONFIG: { key: string; label: string; color: string }[] = [
 ];
 
 /** One KPI card: a headline number, an icon, a label, and optional
- * secondary "today / 7d / 30d"-style breakdown underneath. */
-function StatCard({
+ * secondary "today / 7d / 30d"-style breakdown underneath. Exported so the
+ * growth dashboard (/villagepeople/growth/*) reuses this exact component
+ * rather than a near-duplicate — same spacing/colors/radius everywhere a
+ * KPI tile shows up in /villagepeople. */
+export function StatCard({
   icon: Icon,
   label,
   value,
+  displayValue,
+  change,
   breakdown,
   footer,
   href,
@@ -104,6 +109,15 @@ function StatCard({
   icon: PhosphorIcon;
   label: string;
   value: number;
+  /** Overrides compactNumber(value) for the headline — e.g. a percentage
+   * ("42.3%") or an average ("3.4/day") that compactNumber's k/m-suffix
+   * formatting was never meant to render. `value` itself is still used
+   * wherever a plain number keeps working (sorting, etc.). */
+  displayValue?: string;
+  /** "+12.4% vs previous period" style delta — only ever shown when the
+   * growth dashboard's compare toggle is on; green/red by sign, no color
+   * for exactly 0 (neither an improvement nor a decline). */
+  change?: { pct: number; label?: string } | null;
   breakdown?: { label: string; value: number }[];
   /** Richer footer content (e.g. a BreakdownBar) — takes the same slot as
    * `breakdown`'s text pills, mutually exclusive with it. */
@@ -130,7 +144,19 @@ function StatCard({
         {href && <ExternalLinkIconFill className="h-4 w-4 text-faint" />}
       </div>
       <div>
-        <p className="font-nunito text-2xl font-extrabold text-ink">{compactNumber(value)}</p>
+        <div className="flex items-baseline gap-2">
+          <p className="font-nunito text-2xl font-extrabold text-ink">{displayValue ?? compactNumber(value)}</p>
+          {change && (
+            <span
+              className={`font-nunito text-xs font-bold ${
+                change.pct > 0 ? "text-success" : change.pct < 0 ? "text-danger" : "text-faint"
+              }`}
+            >
+              {change.pct > 0 ? "+" : ""}
+              {change.pct.toFixed(1)}%{change.label ? ` ${change.label}` : ""}
+            </span>
+          )}
+        </div>
         <p className="font-nunito text-xs font-semibold text-muted">{label}</p>
       </div>
       {footer && <div className="mt-auto border-t border-line/50 pt-3">{footer}</div>}

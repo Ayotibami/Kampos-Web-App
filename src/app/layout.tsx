@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Nunito } from "next/font/google";
 import Script from "next/script";
 import { SessionWatcher } from "@/components/auth/SessionWatcher";
+import { SessionStartPing } from "@/components/auth/SessionStartPing";
+import { AttributionCapture } from "@/components/auth/AttributionCapture";
 import { TokenRefreshTimer } from "@/components/auth/TokenRefreshTimer";
 import { WebVitals } from "@/components/layout/WebVitals";
 import { AuthPromptModal } from "@/components/auth/AuthPromptModal";
@@ -164,6 +166,32 @@ export default function RootLayout({
             in sync by hand since this one has to run as a raw inline
             script, before hydration, not the TS module ThemeRouteSync
             imports its route list from. */}
+        {/* Organization + WebSite structured data — tells Google this is
+            the official Kampos entity (name, logo, social profiles), same
+            pattern already used on the marketing site (kampos-website's
+            public/index.html). Helps the app surface for a bare "kampos"
+            brand-name search instead of leaving Google to guess from page
+            text alone. */}
+        <Script id="kampos-jsonld-org" type="application/ld+json" strategy="beforeInteractive">
+          {JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            name: "Kampos",
+            alternateName: "Kampos by Ayoti",
+            url: `${env.SITE_URL}/`,
+            logo: `${env.SITE_URL}/icons/icon-192.png`,
+            description: DESCRIPTION,
+            sameAs: ["https://x.com/Kamposapp", "https://instagram.com/Kamposapp"],
+          })}
+        </Script>
+        <Script id="kampos-jsonld-website" type="application/ld+json" strategy="beforeInteractive">
+          {JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            name: "Kampos",
+            url: `${env.SITE_URL}/`,
+          })}
+        </Script>
         <Script id="kampos-theme-init" strategy="beforeInteractive">
           {`(function(){try{var s=localStorage.getItem('kampos-theme');var seg=(location.pathname.split('/')[1]||'');var light={'':1,welcome:1,login:1,signup:1,'signup-success':1,'verify-otp':1,'forgot-password':1,'reset-password':1,'setup-profile':1,gist:1};var allowed=seg==='feed'||seg==='settings'||!light[seg];document.documentElement.classList.toggle('dark',allowed&&s==='dark');}catch(e){}})();`}
         </Script>
@@ -188,6 +216,8 @@ export default function RootLayout({
         <SplashScreen />
         <WebVitals />
         <SessionWatcher />
+        <SessionStartPing />
+        <AttributionCapture />
         <TokenRefreshTimer />
         <ThemeRouteSync />
         <SoundPreload />

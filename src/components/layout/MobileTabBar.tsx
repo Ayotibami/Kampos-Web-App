@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { MessageCircle, VideoTabIconFill } from "@/components/ui/icons";
 import { useAuthStore } from "@/stores/authStore";
+import { useLayoutStore } from "@/stores/layoutStore";
 import { Avatar } from "@/components/ui/Avatar";
 import { playSound } from "@/lib/sounds";
 
@@ -50,7 +51,18 @@ export function MobileTabBar() {
   );
   const onFeed = pathname === "/feed";
   const onVideo = pathname.startsWith("/spot");
+  // isProfileRoute's own single-segment-not-reserved check already covers
+  // /notifications too (it's not in RESERVED_TOP_LEVEL) — the bar already
+  // rendered there before this change for the same reason, so this isn't
+  // broadening who gets a bar at all, only who gets to hide it.
   const onProfile = isProfileRoute(pathname);
+  // Feed, profile pages and notifications all drive this signal, each
+  // from their own scroll container (see layoutStore.ts's own doc
+  // comment) — everywhere else (Spot) it stays visible regardless of the
+  // store's value, so a hide set elsewhere can never leak onto a page
+  // that never gets the chance to reset it back to visible itself.
+  const mobileNavVisible = useLayoutStore((s) => s.mobileNavVisible);
+  const navVisible = onFeed || onProfile ? mobileNavVisible : true;
 
   // Real navigation only ever confirms itself once `pathname` actually
   // changes — which can lag well behind the tap on a cold cache hit, since
@@ -111,7 +123,9 @@ export function MobileTabBar() {
     // screen's own edge.
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] z-30 mx-auto flex w-[80%] items-center rounded-full border border-line/60 bg-surface/95 px-1.5 py-1.5 shadow-lg shadow-black/10 backdrop-blur-md md:hidden"
+      className={`fixed inset-x-0 bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] z-30 mx-auto flex w-[80%] items-center rounded-full border border-line/60 bg-surface/95 px-1.5 py-1.5 shadow-lg shadow-black/10 backdrop-blur-md transition-transform duration-300 md:hidden ${
+        navVisible ? "translate-y-0" : "translate-y-[calc(100%+1rem+env(safe-area-inset-bottom,0px))]"
+      }`}
     >
       <Link
         href="/feed"

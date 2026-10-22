@@ -50,6 +50,7 @@ import {
   getFreshProfileSnapshot,
 } from "@/stores/profileSnapshotStore";
 import { useAuthStore } from "@/stores/authStore";
+import { useLayoutStore } from "@/stores/layoutStore";
 import { wasProfileRecentlyUpdated } from "@/lib/profileFreshness";
 import { HOBBY_EMOJI } from "@/lib/hobbies";
 import { apiErrorMessage } from "@/lib/api";
@@ -792,19 +793,26 @@ export function ProfileView({
     const read = () => el?.scrollTop || window.scrollY;
 
     let baseline = read();
+    // Same signal also drives MobileTabBar (mounted outside this
+    // component, see the unmount-reset effect below) — the bottom nav
+    // hides/reveals in lockstep with this header, exactly the feed's own
+    // pattern.
     const onScroll = () => {
       const y = read();
       if (y <= 0) {
         setHeaderVisible(true);
+        useLayoutStore.getState().setMobileNavVisible(true);
         baseline = y;
         return;
       }
       const delta = y - baseline;
       if (delta <= -4) {
         setHeaderVisible(true);
+        useLayoutStore.getState().setMobileNavVisible(true);
         baseline = y;
       } else if (delta >= 4) {
         setHeaderVisible(false);
+        useLayoutStore.getState().setMobileNavVisible(false);
         baseline = y;
       }
       // Within ±4px of the last change: hold state AND hold the baseline so
@@ -816,6 +824,7 @@ export function ProfileView({
     return () => {
       el?.removeEventListener("scroll", onScroll);
       window.removeEventListener("scroll", onScroll);
+      useLayoutStore.getState().setMobileNavVisible(true);
     };
   }, []);
 
@@ -989,13 +998,13 @@ export function ProfileView({
                   <Link
                     href="/notifications"
                     aria-label="Notifications"
-                    className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
+                    className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
                   >
                     {/* Same light/dark asset swap as the feed header's
                         bell — see FeedContent.tsx's own comment on why. */}
                     <span className={`inline-flex ${unreadNotifCount > 0 ? "animate-kappy-wiggle" : ""}`}>
-                      <NextImage src={KappyNotifIcon} alt="" priority className="h-8 w-auto dark:hidden" />
-                      <NextImage src={KappyNotifIconDark} alt="" priority className="hidden h-8 w-auto dark:block" />
+                      <NextImage src={KappyNotifIcon} alt="" priority className="h-9 w-auto dark:hidden" />
+                      <NextImage src={KappyNotifIconDark} alt="" priority className="hidden h-9 w-auto dark:block" />
                     </span>
                     {unreadNotifCount > 0 && (
                       <span className="absolute -right-0.5 -top-0.5 flex h-[15px] min-w-[15px] animate-notif-breathe items-center justify-center rounded-full border-2 border-surface bg-brand px-[3px] font-nunito text-[8.5px] font-extrabold text-white">

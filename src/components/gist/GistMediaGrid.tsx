@@ -25,10 +25,10 @@ export const SHORT_TEXT = 200;
  * the old fixed 420px cap. Viewport-relative rather than a flat pixel
  * number so "reasonable" scales with the actual screen, not a desktop-sized
  * guess that's way too generous on a phone and way too tight on a monitor.
- * Expressed as a literal Tailwind class (`max-h-[75vh]`) wherever it's
+ * Expressed as a literal Tailwind class (`max-h-[50vh]`) wherever it's
  * used, not interpolated from this constant — Tailwind only generates CSS
  * for arbitrary values it can see as a literal string at build time. */
-const MEDIA_HEIGHT_CEILING = "75vh";
+const MEDIA_HEIGHT_CEILING = "50vh";
 
 /** width/height are only ever present on media uploaded through Cloudinary
  * (see the backend's finalize/upload/create handlers) — null for anything
@@ -575,7 +575,7 @@ function MediaTile({
       className={
         contain
           ? "block w-full max-h-screen cursor-pointer rounded-2xl bg-brand-ink object-contain object-top md:mx-auto md:w-auto md:max-w-full"
-          : "block w-full max-h-[75vh] cursor-pointer rounded-2xl object-cover object-top md:mx-auto md:w-auto md:max-w-full"
+          : "block w-full max-h-[50vh] cursor-pointer rounded-2xl object-cover object-top md:mx-auto md:w-auto md:max-w-full"
       }
     />
   );
@@ -835,7 +835,7 @@ function VideoTile({
             ? "relative w-full max-h-screen md:mx-auto md:w-auto md:max-w-full"
             : cropped
               ? "relative h-full min-w-0"
-              : "relative w-full max-h-[75vh] md:mx-auto md:w-auto md:max-w-full"
+              : "relative w-full max-h-[50vh] md:mx-auto md:w-auto md:max-w-full"
       }
       onClick={canControl ? handleVideoTap : undefined}
     >

@@ -10,9 +10,21 @@ interface LayoutState {
    * `false` and stays expanded. */
   desktopCommentsPanelOpen: boolean;
   setDesktopCommentsPanelOpen: (open: boolean) => void;
+
+  /** Mirrors the feed's own header hide-on-scroll signal — MobileTabBar
+   * lives outside FeedContent (mounted globally from the root layout), so
+   * it reads this instead of running its own scroll listener. FeedContent
+   * is the only thing that ever sets this (and resets it to `true` on
+   * unmount); every other page just reads the default `true` and ignores
+   * it entirely (MobileTabBar only honors it while actually on /feed). */
+  mobileNavVisible: boolean;
+  setMobileNavVisible: (visible: boolean) => void;
 }
 
 export const useLayoutStore = create<LayoutState>((set) => ({
   desktopCommentsPanelOpen: false,
   setDesktopCommentsPanelOpen: (open) => set({ desktopCommentsPanelOpen: open }),
+
+  mobileNavVisible: true,
+  setMobileNavVisible: (visible) => set({ mobileNavVisible: visible }),
 }));

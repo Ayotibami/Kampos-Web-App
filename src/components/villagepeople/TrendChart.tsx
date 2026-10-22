@@ -1,35 +1,11 @@
 "use client";
 
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { formatDay, niceTicks } from "./chartUtils";
 
 export interface TrendPoint {
   date: string; // "YYYY-MM-DD"
   count: number;
-}
-
-function formatDay(iso: string): string {
-  const d = new Date(`${iso}T00:00:00`);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-/**
- * Clean, evenly-spaced integer ticks for the Y-axis (0, then round steps
- * up to the data max) — computed here rather than left to recharts' own
- * "nice tick" generator, which produced fractional steps like 0.7/1.4/2.1
- * on a small max-3 range that (at 10px) read as illegible, non-monotonic-
- * looking labels. Matches the dataviz skill's own rule: "Y-axis ticks:
- * round to clean numbers."
- */
-function niceTicks(max: number, targetCount = 4): number[] {
-  if (max <= 0) return [0, 1];
-  const rawStep = max / targetCount;
-  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
-  const residual = rawStep / magnitude;
-  const step = Math.max(1, Math.round((residual > 5 ? 10 : residual > 2 ? 5 : residual > 1 ? 2 : 1) * magnitude));
-  const ticks: number[] = [];
-  for (let t = 0; t <= max; t += step) ticks.push(t);
-  if (ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);
-  return ticks;
 }
 
 /** Value bold/primary, label secondary — the interaction spec's "values
@@ -61,10 +37,42 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: { value
  * defines in its own theme-scoped <style> block) so this component never
  * has to know which theme is active.
  */
-export function TrendChart({ data, color }: { data: TrendPoint[]; color: string }) {
+export function TrendChart({
+  data,
+  color,
+  compact = false,
+}: {
+  data: TrendPoint[];
+  color: string;
+  /** StatCard-sparkline mode — no axes/grid/tooltip, just the shape of the
+   * trend at a glance, in a much shorter box. Same Area, same data, same
+   * color convention as the full chart below; only the chrome is stripped. */
+  compact?: boolean;
+}) {
   const max = data.reduce((m, p) => Math.max(m, p.count), 0);
   const ticks = niceTicks(max);
   const domainMax = ticks[ticks.length - 1];
+
+  if (compact) {
+    return (
+      <div className="h-10 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+            <Area
+              type="monotone"
+              dataKey="count"
+              stroke={color}
+              strokeWidth={1.5}
+              fill={color}
+              fillOpacity={0.12}
+              dot={false}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
 
   return (
     <div className="h-40 w-full">

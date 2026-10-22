@@ -133,6 +133,7 @@ import { FloatingComposeButton } from "@/components/gist/FloatingComposeButton";
 import { PullIndicator, usePullToRefresh } from "@/components/ui/PullToRefresh";
 import { AnimatePresence } from "framer-motion";
 import { useGistStore, getFreshFeedSnapshot, patchGistPoll } from "@/stores/gistStore";
+import { pingActivity } from "@/lib/activityPing";
 import { useCommentStore } from "@/stores/commentStore";
 import { useLayoutStore } from "@/stores/layoutStore";
 import { useIsAdmin } from "@/stores/authStore";
@@ -346,6 +347,16 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   // "school", which campus (see gist.controller.ts's list handler).
   const isSchoolTab = tab !== "Gist" && tab !== "Amebo";
   const feedMode = tab === "Amebo" ? "amebo" : isSchoolTab ? "school" : "gist";
+
+  // Fires once on mount and again only when the active mode genuinely
+  // changes (the effect's own dependency array does that gating — this is
+  // NOT re-run on every scroll/re-render, just a real gist/school/amebo
+  // switch), so "lurkers vs posters" has something to count even for
+  // someone who only ever scrolls and never likes/comments/posts.
+  useEffect(() => {
+    pingActivity("feed_view", { feed_mode: feedMode });
+  }, [feedMode]);
+
   const trendingSchools = useGistStore((s) => s.trendingSchools);
   const fetchTrendingSchools = useGistStore((s) => s.fetchTrendingSchools);
 
@@ -427,28 +438,33 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     if (!node) return;
 
     let baseline = node.scrollTop;
-    let idleTimer: ReturnType<typeof setTimeout> | undefined;
-    const IDLE_MS = 1300;
 
-    const armIdleTimer = () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => setHeaderVisible(true), IDLE_MS);
-    };
-
+    // Pure directional toggle, no timer — the header has real content
+    // people actively use (the Hot rail), not just chrome to glance at,
+    // so there's no "pause and it vanishes anyway" case anymore. Scroll
+    // down hides it, scroll up shows it, and it just stays until the
+    // next down-scroll. Same pattern ProfileView.tsx's own header
+    // already uses.
+    // Same signal drives MobileTabBar too (via the shared store — it's
+    // mounted outside this component, see the unmount-reset effect above)
+    // so the bottom nav hides and reveals in lockstep with the header,
+    // exactly the same trigger, exactly the same moment.
     const onScroll = () => {
       const y = node.scrollTop;
-      armIdleTimer();
       if (y <= 0) {
         setHeaderVisible(true);
+        useLayoutStore.getState().setMobileNavVisible(true);
         baseline = y;
         return;
       }
       const delta = y - baseline;
       if (delta <= -4) {
         setHeaderVisible(true);
+        useLayoutStore.getState().setMobileNavVisible(true);
         baseline = y;
       } else if (delta >= 4) {
         setHeaderVisible(false);
+        useLayoutStore.getState().setMobileNavVisible(false);
         baseline = y;
       }
       // Within ±4px of the last change: hold state AND hold the baseline
@@ -458,7 +474,6 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     node.addEventListener("scroll", onScroll, { passive: true });
     scrollListenerCleanupRef.current = () => {
       node.removeEventListener("scroll", onScroll);
-      if (idleTimer) clearTimeout(idleTimer);
     };
   }, []);
 
@@ -632,6 +647,13 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     setDesktopCommentsPanelOpen(commentsOpen);
     return () => setDesktopCommentsPanelOpen(false);
   }, [commentsOpen, setDesktopCommentsPanelOpen]);
+  // MobileTabBar (mounted globally, outside this component) mirrors the
+  // same scroll-direction signal as the header below — reset to visible
+  // on unmount so navigating away from /feed never leaves it stuck hidden
+  // on a page that never sets it again.
+  useEffect(() => {
+    return () => useLayoutStore.getState().setMobileNavVisible(true);
+  }, []);
   const [showCommentSheet, setShowCommentSheet] = useState(false);
   const handleToggleComments = (gistId: string) => {
     setActiveGistId(gistId);
@@ -811,7 +833,16 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
       <button
         key={id}
         type="button"
-        onClick={() => setTab(id)}
+        onClick={() => {
+          // The toggle ACTION itself — switching INTO Amebo — not the
+          // continuous view (that's feed_view's job, above). Only fires on
+          // the actual transition, not on re-clicking a tab that's already
+          // active.
+          if (id === "Amebo" && tab !== "Amebo") {
+            pingActivity("amebo_toggled");
+          }
+          setTab(id);
+        }}
         className={`inline-flex min-w-[60px] shrink-0 items-center justify-center rounded-full px-4 py-1.5 text-center font-nunito text-[14px] transition active:scale-95 ${
           isSchool ? "tracking-wide" : ""
         } ${
@@ -956,7 +987,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                 <Link
                   href="/notifications"
                   aria-label="Notifications"
-                  className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink transition hover:bg-line/60 active:scale-95"
+                  className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-ink transition hover:bg-line/60 active:scale-95"
                 >
                   {/* Light/dark are two separate exported PNGs (not one
                       recolored via CSS filter) — the cap swaps navy to
@@ -964,8 +995,8 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                       which a filter like invert() can't do selectively
                       without also wrecking the blue head and yellow beak. */}
                   <span className={`inline-flex ${unreadNotifCount > 0 ? "animate-kappy-wiggle" : ""}`}>
-                    <Image src={KappyNotifIcon} alt="" priority className="h-8 w-auto dark:hidden" />
-                    <Image src={KappyNotifIconDark} alt="" priority className="hidden h-8 w-auto dark:block" />
+                    <Image src={KappyNotifIcon} alt="" priority className="h-9 w-auto dark:hidden" />
+                    <Image src={KappyNotifIconDark} alt="" priority className="hidden h-9 w-auto dark:block" />
                   </span>
                   {unreadNotifCount > 0 && (
                     <span className="absolute -right-0.5 -top-0.5 flex h-[15px] min-w-[15px] animate-notif-breathe items-center justify-center rounded-full border-2 border-surface bg-brand px-[3px] font-nunito text-[8.5px] font-extrabold text-white">

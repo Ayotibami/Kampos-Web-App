@@ -71,6 +71,15 @@ interface AuthState {
   register: (payload: {
     email: string;
     password: string;
+    /** First-touch attribution captured client-side (see lib/attribution.ts)
+     * — all optional, omitted entirely when nothing was ever captured for
+     * this visitor. Persisted server-side on the account; the caller clears
+     * localStorage once this call succeeds. */
+    utm_source?: string;
+    utm_medium?: string;
+    utm_campaign?: string;
+    referrer?: string;
+    invite_code?: string;
   }) => Promise<AuthGateState>;
   login: (creds: { email: string; password: string }) => Promise<AuthGateState>;
   /** The single source of truth — hits the backend, derives the gate

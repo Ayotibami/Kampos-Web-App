@@ -83,3 +83,18 @@ export function compactNumber(n?: number): string {
   if (n < 1_000_000) return format(n / 1000, "k");
   return format(n / 1_000_000, "m");
 }
+
+/**
+ * Sensible duration label for a raw hour count — "2.3 hrs" under a day,
+ * "1 day 4 hrs" (days pluralized, hrs dropped when it's a round number of
+ * days) once it crosses 24h. Used for the Activation page's
+ * time-to-first-action stat, where `avgHours` can legitimately be small
+ * (minutes-scale, shown as a fraction of an hour) or multi-day.
+ */
+export function formatHours(hours: number): string {
+  if (hours < 24) return `${hours.toFixed(1)} hrs`;
+  const days = Math.floor(hours / 24);
+  const remHours = Math.round(hours - days * 24);
+  const dayLabel = `${days} day${days === 1 ? "" : "s"}`;
+  return remHours > 0 ? `${dayLabel} ${remHours} hrs` : dayLabel;
+}

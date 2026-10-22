@@ -122,4 +122,18 @@ export {
   // never reads as "opens the camera" the way the compose button's
   // camera+plus icon does — this one means "watch," not "record."
   Eye as VideoTabIconFill,
+  // Growth dashboard (/villagepeople/growth/*) nav + controls.
+  ChartLineUp as GrowthIconFill,
+  Target as TargetIconFill,
+  ArrowCounterClockwise as RetentionIconFill,
+  GridFour as HeatmapIconFill,
+  Trophy as TopListIconFill,
+  CalendarBlank as CalendarIconFill,
+  ArrowsLeftRight as CompareIconFill,
+  FunnelSimple as FilterIconFill,
+  // Activation (/villagepeople/growth/activation) and Growth Funnel
+  // (/villagepeople/growth/funnel) nav + page icons.
+  Rocket as ActivationIconFill,
+  Funnel as FunnelIconFill,
+  Timer as TimeToActionIconFill,
 } from "@phosphor-icons/react";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -21,6 +21,7 @@ import {
   X,
 } from "@/components/ui/icons";
 import { useNotificationStore, type Notification, type NotificationCategory, type DigestItem, type TargetType } from "@/stores/notificationStore";
+import { useLayoutStore } from "@/stores/layoutStore";
 import { api } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
 import KappyWaving from "@/assets/illustrations/KappyWaving.webp";
@@ -532,6 +533,50 @@ export function NotificationsContent() {
     void fetchAll();
   }, [fetchAll]);
 
+  // Drives MobileTabBar's own hide-on-scroll (mounted outside this
+  // component, see layoutStore.ts's own doc comment) — this page's own
+  // header stays static, but the bottom nav follows the same scroll
+  // direction the feed and profile pages already use.
+  const scrollListenerCleanupRef = useRef<(() => void) | null>(null);
+  const setScrollRef = useCallback((node: HTMLDivElement | null) => {
+    scrollListenerCleanupRef.current?.();
+    scrollListenerCleanupRef.current = null;
+    if (!node) return;
+
+    // AppShell's "panel" variant only locks its own height + scrolls
+    // internally at md: (desktop) and up — on mobile there's no such
+    // constraint, so the page actually scrolls the window/body instead,
+    // and `node.scrollTop` just stays 0 the whole time. Same dual-read
+    // ProfileView's own header listener already needs for exactly this
+    // reason: read whichever one is actually non-zero.
+    const read = () => node.scrollTop || window.scrollY;
+    let baseline = read();
+    const onScroll = () => {
+      const y = read();
+      if (y <= 0) {
+        useLayoutStore.getState().setMobileNavVisible(true);
+        baseline = y;
+        return;
+      }
+      const delta = y - baseline;
+      if (delta <= -4) {
+        useLayoutStore.getState().setMobileNavVisible(true);
+        baseline = y;
+      } else if (delta >= 4) {
+        useLayoutStore.getState().setMobileNavVisible(false);
+        baseline = y;
+      }
+    };
+
+    node.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("scroll", onScroll, { passive: true });
+    scrollListenerCleanupRef.current = () => {
+      node.removeEventListener("scroll", onScroll);
+      window.removeEventListener("scroll", onScroll);
+      useLayoutStore.getState().setMobileNavVisible(true);
+    };
+  }, []);
+
   const hasUnread = notifications.some((n) => !n.read_at);
 
   return (
@@ -590,7 +635,7 @@ export function NotificationsContent() {
         </p>
       </div>
 
-      <div className="relative z-10 min-h-0 flex-1 overflow-y-auto px-2 pb-8 pt-3">
+      <div ref={setScrollRef} className="relative z-10 min-h-0 flex-1 overflow-y-auto px-2 pb-8 pt-3">
         {!loaded ? (
           <div className="flex flex-col gap-2.5 px-2">
             {Array.from({ length: 6 }).map((_, i) => (
