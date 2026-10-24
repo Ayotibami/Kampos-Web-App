@@ -19,7 +19,13 @@ import axios, {
  */
 export const api: AxiosInstance = axios.create({
   baseURL: "/api/v1",
-  headers: { "Content-Type": "application/json" },
+  // X-Requested-With is required by the backend's CSRF guard on a couple of
+  // state-changing routes (gist creation, account deactivation) — a plain
+  // cross-site <form> submission can never set a custom header, so this is
+  // what lets the backend tell a real app request apart from a forged one.
+  // The proxy route (src/app/api/v1/[...path]/route.ts) forwards all request
+  // headers through to the backend untouched, so this reaches it correctly.
+  headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
   timeout: 30_000,
   withCredentials: true,
 });

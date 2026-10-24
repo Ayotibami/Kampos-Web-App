@@ -333,10 +333,14 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
       /* storage unavailable — just don't show the hint */
     }
     if (seen) return;
-    setShowComposeHint(true);
-    const timer = window.setTimeout(() => dismissComposeHint(), 5000);
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Deferred one tick — same reasoning as the other effects in this file
+    // that do this (see the mount-fetch effect's own doc comment below).
+    const showTimer = window.setTimeout(() => setShowComposeHint(true), 0);
+    const dismissTimer = window.setTimeout(() => dismissComposeHint(), 5000);
+    return () => {
+      window.clearTimeout(showTimer);
+      window.clearTimeout(dismissTimer);
+    };
   }, []);
 
   // "Gist" = your own school's students + every non-student poster.
@@ -379,7 +383,9 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   }, []);
   useEffect(() => {
     if (isSchoolTab && !trendingSchools.some((s) => s.campus_tag === tab)) {
-      setTab("Gist");
+      // Deferred one tick — same reasoning as elsewhere in this file.
+      const timer = setTimeout(() => setTab("Gist"), 0);
+      return () => clearTimeout(timer);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trendingSchools]);
@@ -560,8 +566,13 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
       // SSR delivered nothing — either the backend was unreachable during
       // SSR, or the feed is genuinely empty. Either way, fall back to a
       // real client-side fetch so the skeleton actually resolves instead
-      // of hanging forever.
-      void load();
+      // of hanging forever. Deferred one tick (not called synchronously in
+      // the effect body) — load() sets state before its first await, and
+      // calling it directly here would do that synchronously within this
+      // effect's own commit; see GrowthDashboardClient.tsx's own doc
+      // comment on this exact same pattern.
+      const timer = setTimeout(() => void load(), 0);
+      return () => clearTimeout(timer);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -614,6 +625,49 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     return () => observer.disconnect();
   }, [gists, isMobile]);
 
+  // Video-windowing signal — mirrors Spot's own WINDOW_RADIUS mitigation
+  // (see VideoFeedContent.tsx) for a card's <video> element specifically,
+  // adapted for this list's variable card heights and continuous scroll
+  // (no single "active index" the way Spot's swipe-stack has one): a card
+  // more than ~1.5 screens outside the viewport either way gets its real
+  // `<video>` swapped for a poster image (see MediaBlock/VideoTile's own
+  // `renderVideo` doc) instead of holding a live decoder/buffer for it
+  // indefinitely as the list keeps growing. Runs unconditionally (not
+  // gated on isMobile like the scrollspy observer above) — mobile is the
+  // primary video-watching surface here, not an afterthought.
+  //
+  // Tracks the FAR set, not the near one — everything starts implicitly
+  // "near" (rendered) by default, so a card's very first render (before
+  // this observer has had a chance to fire even once) never incorrectly
+  // shows a poster for a video that's actually on screen. Entries only
+  // ever get added once the observer explicitly reports a card has left
+  // the generous margin, and removed again the moment it re-enters it.
+  const [farVideoGistIds, setFarVideoGistIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setFarVideoGistIds((prev) => {
+          let changed = false;
+          const next = new Set(prev);
+          for (const entry of entries) {
+            const id = entry.target.getAttribute("data-gist-id");
+            if (!id) continue;
+            if (entry.isIntersecting) {
+              if (next.delete(id)) changed = true;
+            } else if (!next.has(id)) {
+              next.add(id);
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      },
+      { rootMargin: "150% 0px 150% 0px" },
+    );
+    cardRefs.current.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [gists]);
+
   // Closed by default on mobile (there it's the sheet, a deliberate modal
   // action, not a passive side panel) — but open by default on desktop,
   // where the panel just sits there with real screen space to spare, and
@@ -633,6 +687,11 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     if (didSetDefaultCommentsOpenRef.current) return;
     didSetDefaultCommentsOpenRef.current = true;
     if (!window.matchMedia("(max-width: 767px)").matches) {
+      // Deliberately synchronous, before paint — the whole point of this
+      // being a layout effect (see the doc above) is to avoid a one-frame
+      // flash of the wrong state on mobile. Deferring this setState would
+      // reintroduce exactly that flash.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCommentsOpen(true);
     }
   }, []);
@@ -655,18 +714,64 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     return () => useLayoutStore.getState().setMobileNavVisible(true);
   }, []);
   const [showCommentSheet, setShowCommentSheet] = useState(false);
-  const handleToggleComments = (gistId: string) => {
-    setActiveGistId(gistId);
-    if (isMobile) {
-      setShowCommentSheet(true);
-      return;
-    }
-    if (commentsOpen && activeGistId === gistId) {
-      setCommentsOpen(false);
-    } else {
-      setCommentsOpen(true);
-    }
-  };
+  // useCallback (not a plain function) — passed straight through to every
+  // FeedGistCard as `onToggleComments` with no per-card wrapping, so its
+  // identity has to stay stable across renders that don't actually change
+  // its behavior (e.g. the header's show/hide-on-scroll state flipping)
+  // or it defeats FeedGistCard's own `memo` wrap for every mounted card on
+  // every scroll reversal. Deps are exactly the three values the body
+  // actually reads — isMobile, commentsOpen, activeGistId — so this only
+  // gets a new identity when one of those genuinely changes (a real
+  // interaction, or desktop's scrollspy moving activeGistId), never from
+  // scroll-direction state alone.
+  const handleToggleComments = useCallback(
+    (gistId: string) => {
+      setActiveGistId(gistId);
+      if (isMobile) {
+        setShowCommentSheet(true);
+        return;
+      }
+      if (commentsOpen && activeGistId === gistId) {
+        setCommentsOpen(false);
+      } else {
+        setCommentsOpen(true);
+      }
+    },
+    [isMobile, commentsOpen, activeGistId],
+  );
+
+  // The four callbacks below are passed as-is to every FeedGistCard
+  // instance (see the `.map()` further down) — same reasoning as
+  // handleToggleComments above: each has to keep a stable identity across
+  // renders that don't change what it does, or it defeats FeedGistCard's
+  // `memo` wrap for every mounted card. onDeleted/onDeleteFailed/onEdited
+  // only ever touch `setGists` via its functional-updater form, so they
+  // close over nothing from render scope and need no deps at all.
+  // onReposted is the one exception — it reads `activeGistId` (to land the
+  // repost right after whichever gist is currently active rather than
+  // always at the very front), so it genuinely needs that in its deps and
+  // gets a new identity on the same cadence handleToggleComments does.
+  const handleGistDeleted = useCallback((gistId: string) => {
+    setGists((prev) => prev.filter((gg) => gg.gist_id !== gistId));
+  }, []);
+  const handleGistDeleteFailed = useCallback((gist: Gist) => {
+    setGists((prev) => [gist, ...prev]);
+  }, []);
+  const handleGistEdited = useCallback((fresh: Gist) => {
+    setGists((prev) => prev.map((gg) => (gg.gist_id === fresh.gist_id ? fresh : gg)));
+  }, []);
+  const handleGistReposted = useCallback(
+    (fresh: Gist) => {
+      setGists((prev) => {
+        // Same "land after the active gist, not always the front"
+        // placement as the main composer's own onPosted above.
+        const idx = activeGistId ? prev.findIndex((gg) => gg.gist_id === activeGistId) : -1;
+        if (idx === -1) return [fresh, ...prev];
+        return [...prev.slice(0, idx + 1), fresh, ...prev.slice(idx + 1)];
+      });
+    },
+    [activeGistId],
+  );
 
   // Restores the exact scroll position a fresh-enough snapshot remembered —
   // once, on mount, not smoothly (this is a restore, not a user-initiated
@@ -727,7 +832,6 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     };
     window.addEventListener("kampos:gists-synced", onSynced);
     return () => window.removeEventListener("kampos:gists-synced", onSynced);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Live counts (reactions/comments/views ticking up from other people's
@@ -959,9 +1063,9 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                     dismissComposeHint();
                   }}
                   aria-label="Create a gist"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95"
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus className="h-[18px] w-[18px]" />
                 </button>
                 {/* One-time coach mark: teaches that this button is tappable. */}
                 <AnimatePresence>
@@ -1092,28 +1196,12 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
                             gist={g}
                             showCampusTag={feedMode === "amebo"}
                             active={commentsOpen && g.gist_id === activeGistId}
-                            onToggleComments={() => handleToggleComments(g.gist_id)}
-                            onDeleted={(gistId) =>
-                              setGists((prev) => prev.filter((gg) => gg.gist_id !== gistId))
-                            }
-                            onDeleteFailed={(gist) => setGists((prev) => [gist, ...prev])}
-                            onEdited={(fresh) =>
-                              setGists((prev) =>
-                                prev.map((gg) => (gg.gist_id === fresh.gist_id ? fresh : gg)),
-                              )
-                            }
-                            onReposted={(fresh) =>
-                              setGists((prev) => {
-                                // Same "land after the active gist, not
-                                // always the front" placement as the main
-                                // composer's own onPosted above.
-                                const idx = activeGistId
-                                  ? prev.findIndex((gg) => gg.gist_id === activeGistId)
-                                  : -1;
-                                if (idx === -1) return [fresh, ...prev];
-                                return [...prev.slice(0, idx + 1), fresh, ...prev.slice(idx + 1)];
-                              })
-                            }
+                            onToggleComments={handleToggleComments}
+                            onDeleted={handleGistDeleted}
+                            onDeleteFailed={handleGistDeleteFailed}
+                            onEdited={handleGistEdited}
+                            onReposted={handleGistReposted}
+                            renderVideo={!farVideoGistIds.has(g.gist_id)}
                           />
                         </li>
                       ))}

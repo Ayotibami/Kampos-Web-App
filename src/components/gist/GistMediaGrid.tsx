@@ -160,11 +160,16 @@ export function MediaBlock({
   stackDuo,
   fitHeightPx,
   onDoubleTapReact,
+  renderVideo,
 }: {
   media: GistMedia[];
   onOpenOverlay: (index: number) => void;
   overlayOpen: boolean;
   videoSyncRef?: VideoSyncRef;
+  /** Feed-only — see VideoTile's own doc. Undefined (every other caller)
+   * keeps every video tile always rendered, exactly like before this
+   * existed. */
+  renderVideo?: boolean;
   /** Fires on a double-tap anywhere on a tile's media — the same LOVE
    * reaction any double-tap elsewhere on the card already triggers (see
    * FeedGistCard/ProfileGistCard/GistCard's own handleDoubleTapReact),
@@ -300,6 +305,7 @@ export function MediaBlock({
             forcePause={anyModalOpen || (activePlayIdx !== null && activePlayIdx !== idx)}
             onRequestPlay={idx === 0 ? handleRequestPlay0 : handleRequestPlay1}
             onDoubleTapReact={onDoubleTapReact}
+            renderVideo={renderVideo}
           />
         ))
       ) : isDuo ? (
@@ -348,6 +354,7 @@ export function MediaBlock({
               forcePause={anyModalOpen || (activePlayIdx !== null && activePlayIdx !== idx)}
               onRequestPlay={idx === 0 ? handleRequestPlay0 : handleRequestPlay1}
               onDoubleTapReact={onDoubleTapReact}
+              renderVideo={renderVideo}
             />
           ))}
         </div>
@@ -362,6 +369,7 @@ export function MediaBlock({
           fitHeightPx={firstFitHeightPx}
           forcePause={anyModalOpen}
           onDoubleTapReact={onDoubleTapReact}
+          renderVideo={renderVideo}
         />
       )}
     </div>
@@ -383,6 +391,7 @@ function MediaTile({
   forcePause = false,
   onRequestPlay,
   onDoubleTapReact,
+  renderVideo = true,
 }: {
   item: GistMedia;
   cropped: boolean;
@@ -390,6 +399,9 @@ function MediaTile({
   overlayOpen: boolean;
   videoSyncRef?: VideoSyncRef;
   active?: boolean;
+  /** Video-only (see VideoTile's own doc) — feed-only windowing signal,
+   * ignored entirely for an image item. */
+  renderVideo?: boolean;
   /** See MediaBlock's own doc — a real measured pixel budget this tile is
    * guaranteed to fit fully inside, no cropping, no scroll required to see
    * the rest of it. Takes over sizing entirely when set; the cap logic
@@ -454,6 +466,7 @@ function MediaTile({
         flexGrow={flexGrow}
         onMeasuredRatio={onMeasuredRatio}
         onDoubleTapReact={onDoubleTapReact}
+        renderVideo={renderVideo}
       />
     );
   }
@@ -609,6 +622,7 @@ function VideoTile({
   forcePause = false,
   onRequestPlay,
   onDoubleTapReact,
+  renderVideo = true,
 }: {
   item: GistMedia;
   cropped: boolean;
@@ -620,6 +634,21 @@ function VideoTile({
    * concern images have (cloudinaryVideo negotiates codec, not crop, so
    * there's no separate "already cropped" URL to worry about here). */
   fitHeightPx?: number;
+  /** Feed-only (see FeedContent.tsx's own IntersectionObserver-based
+   * tracking) — false once this tile has scrolled far enough outside the
+   * viewport that there's no point keeping a real decoder/buffer alive for
+   * it. Swaps the actual `<video>` element out for its poster image (no
+   * tap controls either, nothing to control) without touching any of this
+   * component's own local state — every effect below already no-ops
+   * safely when `videoRef.current` is null, so toggling this back to true
+   * on scrolling back into range just resumes everything exactly as if it
+   * had been mounted the whole time. Same mitigation Spot's own VideoCard
+   * applies via WINDOW_RADIUS (see VideoFeedContent.tsx), adapted here for
+   * a variable-height scrolling list via real viewport intersection
+   * instead of a fixed swipe-stack index distance. Every other caller
+   * (profile grid, swipe-stack, admin panel) leaves this at its default —
+   * always render — exactly like before this existed. */
+  renderVideo?: boolean;
   /** See MediaTile's own doc — only meaningful when fitHeightPx is
    * undefined. */
   contain?: boolean;
@@ -694,7 +723,12 @@ function VideoTile({
     if (!video) return;
     if (shouldPlay) video.play().catch(() => {});
     else video.pause();
-  }, [shouldPlay]);
+    // renderVideo is in deps too (not just shouldPlay) — toggling it back
+    // to true (re-entering the feed's rendering window) mounts a BRAND NEW
+    // <video> element that starts paused regardless of what `shouldPlay`
+    // already was, and `shouldPlay` itself won't have changed to re-trigger
+    // this on its own in that case.
+  }, [shouldPlay, renderVideo]);
 
   // Pause the in-card video when the overlay opens — two copies of the
   // same video (and audio) playing at once makes no sense. The overlay's
@@ -757,6 +791,15 @@ function VideoTile({
       // still true — that one's deliberately "stays paused until tapped
       // again" (see its own doc above), forcePause clearing shouldn't
       // override that.
+      // Reading the observer's last-known reading during render (not in an
+      // effect) is deliberate here, same as the reset-during-render pattern
+      // this whole block already uses — there's no other way to get "what
+      // did the intersection observer last report" synchronously at this
+      // exact render, and deferring to an effect would reintroduce the
+      // "stuck until the next real visibility change" bug this ref exists
+      // to avoid (see the comment above). Not refactoring this delicate,
+      // carefully-interdependent video-sync logic under launch deadline.
+      // eslint-disable-next-line react-hooks/refs
       if (stackDriven ? active && autoplay : autoplay && isIntersectingRef.current) {
         setPlaying(true);
       }
@@ -804,9 +847,14 @@ function VideoTile({
     );
     observer.observe(video);
     return () => observer.disconnect();
-  }, [stackDriven, autoplay]);
+    // renderVideo is in deps too — this observer binds to the actual
+    // videoRef.current DOM node, which is null (and so skipped above)
+    // while renderVideo is false; without this dep, re-entering the
+    // rendering window and mounting a fresh <video> wouldn't get a fresh
+    // observer attached to it (the effect wouldn't know anything changed).
+  }, [stackDriven, autoplay, renderVideo]);
 
-  const canControl = stackDriven ? !!active && !overlayOpen : !overlayOpen;
+  const canControl = renderVideo && (stackDriven ? !!active && !overlayOpen : !overlayOpen);
   const handleVideoTap = useDelayedTapAction(() => setPlaying((p) => !p), onDoubleTapReact);
 
   return (
@@ -839,37 +887,56 @@ function VideoTile({
       }
       onClick={canControl ? handleVideoTap : undefined}
     >
-      <MediaVideo
-        ref={videoRef}
-        src={cloudinaryVideo(item.media_url)}
-        poster={item.thumbnail_url}
-        playsInline
-        loop
-        muted={muted}
-        // Belt-and-suspenders for media that DOES have a known ratio (the
-        // wrapper's own aspect-ratio above already sizes it correctly
-        // regardless), and the only thing that helps at all for media that
-        // doesn't: a <video> with a poster but no explicit preload defers
-        // fetching its real dimensions until playback actually starts on
-        // most browsers, which is what made an old, dimension-less tile
-        // visibly resize the moment someone hit play.
-        preload="metadata"
-        onLoadedMetadata={
-          onMeasuredRatio
-            ? (e) => {
-                const video = e.currentTarget;
-                if (video.videoHeight > 0) onMeasuredRatio(video.videoWidth / video.videoHeight);
-              }
-            : undefined
-        }
-        className={
-          fitHeightPx !== undefined || contain
-            ? "h-full w-full rounded-2xl bg-brand-ink object-contain"
-            : cropped
-              ? "h-full w-full rounded-2xl object-cover object-center"
-              : "h-full w-full rounded-2xl object-cover object-top"
-        }
-      />
+      {renderVideo ? (
+        <MediaVideo
+          ref={videoRef}
+          src={cloudinaryVideo(item.media_url)}
+          poster={item.thumbnail_url}
+          playsInline
+          loop
+          muted={muted}
+          // Belt-and-suspenders for media that DOES have a known ratio (the
+          // wrapper's own aspect-ratio above already sizes it correctly
+          // regardless), and the only thing that helps at all for media that
+          // doesn't: a <video> with a poster but no explicit preload defers
+          // fetching its real dimensions until playback actually starts on
+          // most browsers, which is what made an old, dimension-less tile
+          // visibly resize the moment someone hit play.
+          preload="metadata"
+          onLoadedMetadata={
+            onMeasuredRatio
+              ? (e) => {
+                  const video = e.currentTarget;
+                  if (video.videoHeight > 0) onMeasuredRatio(video.videoWidth / video.videoHeight);
+                }
+              : undefined
+          }
+          className={
+            fitHeightPx !== undefined || contain
+              ? "h-full w-full rounded-2xl bg-brand-ink object-contain"
+              : cropped
+                ? "h-full w-full rounded-2xl object-cover object-center"
+                : "h-full w-full rounded-2xl object-cover object-top"
+          }
+        />
+      ) : (
+        // Outside the feed's rendering window — no <video> element at all,
+        // just its poster filling the exact same box (see `renderVideo`'s
+        // own doc above), so scrolling back toward it shows something
+        // immediately instead of a blank frame while a fresh <video> mounts.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={item.thumbnail_url ?? undefined}
+          alt=""
+          className={
+            fitHeightPx !== undefined || contain
+              ? "h-full w-full rounded-2xl bg-brand-ink object-contain"
+              : cropped
+                ? "h-full w-full rounded-2xl object-cover object-center"
+                : "h-full w-full rounded-2xl object-cover object-top"
+          }
+        />
+      )}
       {canControl && (
         <>
           <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5">

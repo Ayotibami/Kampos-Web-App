@@ -967,7 +967,7 @@ export function ProfileView({
                     router.replace("/feed");
                   }}
                   aria-label="Back"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand"
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </button>
@@ -991,9 +991,9 @@ export function ProfileView({
                       setShowCreate(true);
                     }}
                     aria-label="Create a gist"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand text-white shadow-sm shadow-brand/30 transition hover:bg-brand-dark active:scale-95"
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-[18px] w-[18px]" />
                   </button>
                   <Link
                     href="/notifications"
@@ -1022,7 +1022,7 @@ export function ProfileView({
                   <Link
                     href="/settings"
                     aria-label="Settings"
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand md:hidden"
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-muted transition hover:bg-brand/10 hover:text-brand md:hidden"
                   >
                     <SettingsIconFill className="h-5 w-5" weight="regular" />
                   </Link>

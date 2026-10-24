@@ -124,6 +124,18 @@ export function MediaImage({
         onLoad?.(e);
       }}
       onError={(e) => handleFailure(() => onError?.(e))}
+      // Defaults, not forced — every caller (gist photos/avatars/grid
+      // tiles/GIF pickers) currently renders only images that are already
+      // on-screen the moment they mount (nothing here is virtualized off-
+      // screen ahead of time), so `loading="lazy"` costs nothing for any of
+      // them: a lazy image that starts inside the viewport still loads
+      // immediately, the attribute only matters for one that starts well
+      // outside it. `{...rest}` comes after, so an individual caller can
+      // still override either with its own `loading`/`decoding` prop (e.g.
+      // a genuine above-the-fold hero) without this file needing a
+      // dedicated `priority` prop for a case nothing here actually has yet.
+      loading="lazy"
+      decoding="async"
       {...rest}
     />
   );

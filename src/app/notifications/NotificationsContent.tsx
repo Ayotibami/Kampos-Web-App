@@ -19,6 +19,7 @@ import {
   TrendingIconFill,
   ChevronRight,
   X,
+  RefreshCw,
 } from "@/components/ui/icons";
 import { useNotificationStore, type Notification, type NotificationCategory, type DigestItem, type TargetType } from "@/stores/notificationStore";
 import { useLayoutStore } from "@/stores/layoutStore";
@@ -526,7 +527,19 @@ function PreferencesPanel({ open, onClose }: { open: boolean; onClose: () => voi
 
 export function NotificationsContent() {
   const router = useRouter();
-  const { notifications, loaded, fetchAll, markAllRead } = useNotificationStore();
+  // Individual selectors, not one whole-store destructure — the store also
+  // carries `unreadCount`, which bumps on every WS push (see
+  // notificationStore.ts), and a whole-store subscribe here would re-render
+  // this entire page on every one of those even though nothing it renders
+  // reads that field. Each selector below only re-renders this component
+  // when the specific field it names actually changes; fetchAll/markAllRead
+  // are stable function references from the store body, same as any other
+  // Zustand action.
+  const notifications = useNotificationStore((s) => s.notifications);
+  const loaded = useNotificationStore((s) => s.loaded);
+  const error = useNotificationStore((s) => s.error);
+  const fetchAll = useNotificationStore((s) => s.fetchAll);
+  const markAllRead = useNotificationStore((s) => s.markAllRead);
   const [showPrefs, setShowPrefs] = useState(false);
 
   useEffect(() => {
@@ -597,7 +610,7 @@ export function NotificationsContent() {
 
       <div className="relative z-10 flex items-center justify-between border-b border-line px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))]">
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => router.back()} aria-label="Back" className="flex h-8 w-8 items-center justify-center rounded-full text-ink">
+          <button type="button" onClick={() => router.back()} aria-label="Back" className="flex h-10 w-10 items-center justify-center rounded-full text-ink">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <h1 className="font-nunito text-base font-extrabold text-ink">Notifications</h1>
@@ -609,7 +622,7 @@ export function NotificationsContent() {
               onClick={markAllRead}
               aria-label="Mark all read"
               title="Mark all read"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-muted transition hover:bg-brand-tint hover:text-brand active:scale-95"
+              className="flex h-10 w-10 items-center justify-center rounded-full text-muted transition hover:bg-brand-tint hover:text-brand active:scale-95"
             >
               <CheckCheck className="h-[18px] w-[18px]" />
             </button>
@@ -619,7 +632,7 @@ export function NotificationsContent() {
             onClick={() => setShowPrefs(true)}
             aria-label="Notification settings"
             title="Settings"
-            className="flex h-9 w-9 items-center justify-center rounded-full text-muted transition hover:bg-brand-tint hover:text-brand active:scale-95"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-muted transition hover:bg-brand-tint hover:text-brand active:scale-95"
           >
             <SettingsIconFill className="h-[18px] w-[18px]" />
           </button>
@@ -642,12 +655,7 @@ export function NotificationsContent() {
               <div key={i} className="h-14 animate-pulse rounded-xl bg-line/40" />
             ))}
           </div>
-        ) : notifications.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-16 text-center">
-            <Image src={KappyWaving} alt="" className="h-24 w-auto" />
-            <p className="font-nunito text-sm font-semibold text-muted">Nothing here yet — Kappy go holler you when something happens</p>
-          </div>
-        ) : (
+        ) : notifications.length > 0 ? (
           <div className="flex flex-col gap-4">
             {groupByDay(notifications).map((group) => (
               <div key={group.label} className="flex flex-col gap-2">
@@ -659,6 +667,30 @@ export function NotificationsContent() {
                 </div>
               </div>
             ))}
+          </div>
+        ) : error ? (
+          // The fetch itself failed — genuinely different from "confirmed
+          // zero notifications" below, and was previously indistinguishable
+          // from it (a dead backend read exactly like an empty inbox). Same
+          // pattern FeedContent.tsx's own loadError branch and
+          // VideoFeedContent.tsx's own error branch already use.
+          <div className="flex flex-col items-center gap-3 py-16 text-center">
+            <RefreshCw className="h-10 w-10 text-muted" />
+            <p className="font-nunito text-sm text-muted">
+              Abeg we no fit load notifications — check your connection.
+            </p>
+            <button
+              type="button"
+              onClick={() => void fetchAll()}
+              className="rounded-full bg-brand px-4 py-2 font-nunito text-sm font-semibold text-white transition hover:bg-brand-dark"
+            >
+              Try again
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3 py-16 text-center">
+            <Image src={KappyWaving} alt="" className="h-24 w-auto" />
+            <p className="font-nunito text-sm font-semibold text-muted">Nothing here yet — Kappy go holler you when something happens</p>
           </div>
         )}
       </div>

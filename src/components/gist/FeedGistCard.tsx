@@ -90,8 +90,17 @@ export const FeedGistCard = memo(function FeedGistCard({
   onDeleteFailed,
   onEdited,
   onReposted,
+  renderVideo = true,
 }: {
   gist: Gist;
+  /** Feed-only windowing signal (see FeedContent.tsx's own
+   * IntersectionObserver-based tracking and MediaBlock/VideoTile's own
+   * doc) — false once this card has scrolled far enough outside the
+   * viewport that its video (if it has one) gets swapped for a poster
+   * instead of staying a real, decoder-holding `<video>` element. Has no
+   * effect on a text/photo-only gist. Defaults true so this card renders
+   * exactly as before for any caller that doesn't pass it. */
+  renderVideo?: boolean;
   /** Suppresses just the campus chip — the feed passes false on the Gist/
    * School tabs (already scoped to one campus, the chip would be redundant)
    * and true on Amebo (mixed campuses, the chip is real information). Same
@@ -102,8 +111,14 @@ export const FeedGistCard = memo(function FeedGistCard({
   active?: boolean;
   /** Fires when the comment button is tapped — the feed owns whether the
    * panel is open at all and which gist it's showing, this card doesn't
-   * track that itself. */
-  onToggleComments?: () => void;
+   * track that itself. Takes this card's own gist_id (rather than a bare
+   * `() => void`) so the feed can pass one stable, useCallback-wrapped
+   * function shared by every card instead of a fresh per-card closure on
+   * every render — that per-card closure used to defeat this component's
+   * own `memo` wrap on every parent re-render (e.g. the feed header's
+   * show/hide-on-scroll state flipping), forcing every mounted card to
+   * re-render on every scroll reversal. */
+  onToggleComments?: (gistId: string) => void;
   /** Fires the instant delete is confirmed, before the request even goes
    * out — this card's own gist_id is no longer in the feed's list from
    * this point, so this instance unmounts almost immediately after. */
@@ -609,6 +624,7 @@ export const FeedGistCard = memo(function FeedGistCard({
                   overlayOpen={overlayIndex !== null}
                   videoSyncRef={videoSyncRef}
                   onDoubleTapReact={triggerLoveReact}
+                  renderVideo={renderVideo}
                 />
               )}
             </>
@@ -762,7 +778,7 @@ export const FeedGistCard = memo(function FeedGistCard({
           )}
           <button
             type="button"
-            onClick={onToggleComments}
+            onClick={() => onToggleComments?.(gist.gist_id)}
             aria-label={active ? "Hide comments" : "View comments"}
             aria-pressed={active}
             className={`flex shrink-0 items-center gap-1 rounded-full bg-brand px-2.5 py-1.5 text-white shadow-sm shadow-brand/30 transition ${

@@ -251,7 +251,21 @@ export function CreateGistSheet({
    * someone else's inside it. */
   quoteGist?: Gist;
 }) {
-  const { create, update, uploadMedia, attachMediaUrl, removeMedia: removeMediaApi, remove: removeGistApi, get: getGist } = useGistStore();
+  // Individual selectors, not one whole-store destructure — gistStore's
+  // `items` array gets replaced on nearly every reaction/view/share/comment
+  // anywhere in the app (see gistStore.ts), and this sheet stays mounted
+  // even while closed (a controlled `open` dialog, not conditionally
+  // unmounted — see FeedContent.tsx's own dynamic() comment on it), so a
+  // whole-store subscribe here would re-render it constantly for no reason.
+  // Each of these is a stable action reference from the store body, so
+  // selecting them individually never re-renders this component at all.
+  const create = useGistStore((s) => s.create);
+  const update = useGistStore((s) => s.update);
+  const uploadMedia = useGistStore((s) => s.uploadMedia);
+  const attachMediaUrl = useGistStore((s) => s.attachMediaUrl);
+  const removeMediaApi = useGistStore((s) => s.removeMedia);
+  const removeGistApi = useGistStore((s) => s.remove);
+  const getGist = useGistStore((s) => s.get);
   const myImageUrl = useAuthStore(
     (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null
   );
@@ -287,19 +301,26 @@ export function CreateGistSheet({
   useEffect(() => {
     if (!open) return;
     if (!placeholder) {
-      setTypedPlaceholder(quoteGist ? YARN_BACK_PLACEHOLDER : DEFAULT_PLACEHOLDER);
-      return;
+      // Deferred one tick, not called synchronously in the effect body —
+      // same reasoning/pattern as FeedContent.tsx's own doc comment on this.
+      const timer = setTimeout(() => setTypedPlaceholder(quoteGist ? YARN_BACK_PLACEHOLDER : DEFAULT_PLACEHOLDER), 0);
+      return () => clearTimeout(timer);
     }
-    setTypedPlaceholder("");
+    // Deferred one tick — same reasoning as above; the reset itself isn't
+    // called synchronously in the effect body.
     let cancelled = false;
     let i = 0;
+    let timer: number;
     const tick = () => {
       if (cancelled) return;
       i++;
       setTypedPlaceholder(placeholder.slice(0, i));
       if (i < placeholder.length) timer = window.setTimeout(tick, PLACEHOLDER_TYPE_SPEED_MS);
     };
-    let timer = window.setTimeout(tick, PLACEHOLDER_TYPE_SPEED_MS);
+    timer = window.setTimeout(() => {
+      setTypedPlaceholder("");
+      timer = window.setTimeout(tick, PLACEHOLDER_TYPE_SPEED_MS);
+    }, 0);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);

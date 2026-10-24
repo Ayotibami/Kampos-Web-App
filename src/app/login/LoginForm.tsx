@@ -3,6 +3,7 @@
 import { useState } from "react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import { AuthShell } from "@/components/layout/AuthShell";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
@@ -42,6 +43,11 @@ export function LoginForm() {
   const [showReactivatePrompt, setShowReactivatePrompt] = useState(false);
   const [reactivating, setReactivating] = useState(false);
 
+  // Same "only flag it once the user has left the field" pattern
+  // SignupForm.tsx's own email field already uses — see its comment.
+  const [emailTouched, setEmailTouched] = useState(false);
+  const emailError = emailTouched ? validateEmail(sanitizeInput(email)) : null;
+
   const fail = (msg?: string, list: string[] = []) => {
     setMessage(msg);
     setPwErrors(list);
@@ -52,8 +58,11 @@ export function LoginForm() {
     const cleanEmail = sanitizeInput(email);
     const cleanPassword = sanitizeInput(password);
 
-    const emailError = validateEmail(cleanEmail);
-    if (emailError) return fail(emailError);
+    const emailErr = validateEmail(cleanEmail);
+    if (emailErr) {
+      setEmailTouched(true);
+      return fail(emailErr);
+    }
     // Only presence is checked here — strength rules (8+ chars, mixed case,
     // etc.) belong on signup/reset, not login. Re-applying them here could
     // reject a real account's password that predates today's rules; the
@@ -112,16 +121,33 @@ export function LoginForm() {
         </header>
 
         <div className="space-y-4">
-          <TextInput
-            value={email}
-            onChange={setEmail}
-            placeholder="Email"
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            autoCapitalize="none"
-            maxLength={50}
-          />
+          <div>
+            <TextInput
+              value={email}
+              onChange={setEmail}
+              onBlur={() => setEmailTouched(true)}
+              placeholder="Email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoCapitalize="none"
+              maxLength={50}
+              error={!!emailError}
+            />
+            <AnimatePresence>
+              {emailError && (
+                <motion.p
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.15 }}
+                  className="mt-1.5 pl-1 font-nunito text-xs text-danger"
+                >
+                  {emailError}
+                </motion.p>
+              )}
+            </AnimatePresence>
+          </div>
           <TextInput
             value={password}
             onChange={setPassword}
