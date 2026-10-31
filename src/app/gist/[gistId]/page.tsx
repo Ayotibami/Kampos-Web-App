@@ -53,7 +53,11 @@ export default async function GistSharePage({
   // logged in either, and a stranger clicking a shared link shouldn't hit
   // a login wall before ever seeing the actual content).
   const { state, account, profiles } = await resolveServerAuthState();
-  const context = await fetchGistContext(gistId);
+  // A handful of neighbors each side — enough to swipe into immediately on
+  // first load without a network round trip; GistShareView fetches more of
+  // either side itself (via gistStore.getContext) once the viewer swipes
+  // close to either edge of what's loaded.
+  const context = await fetchGistContext(gistId, 6, 6);
   if (!context) notFound();
 
   return (

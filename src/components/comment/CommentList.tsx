@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Heart, RefreshCw, DeleteIconFill } from "@/components/ui/icons";
@@ -294,9 +294,25 @@ function CommentBubble({
  * instead of a separate, simplified re-implementation drifting out of sync
  * with the real desktop panel over time.
  */
-export function CommentList({ gist, className = "" }: { gist: Gist | undefined; className?: string }) {
-  const { itemsByGist, errorByGist, loadingMoreByGist, recentlyLiveIds, listByGist, loadMoreByGist, reactComment, unreactComment, remove } =
+export function CommentList({
+  gist,
+  className = "",
+  scrollable = true,
+}: {
+  gist: Gist | undefined;
+  className?: string;
+  /** False for a page that already scrolls as a whole (the gist detail
+   * page's comments-at-the-bottom layout) — drops the internal
+   * `flex-1 overflow-y-auto` sizing (built for a bounded sidebar/sheet
+   * parent) in favor of plain natural-flow block sizing, and swaps the
+   * onScroll-based "near the bottom, load more" trigger for an
+   * IntersectionObserver watching the actual viewport instead of this
+   * element's own (nonexistent) scroll container. */
+  scrollable?: boolean;
+}) {
+  const { itemsByGist, errorByGist, loadingMoreByGist, hasMoreByGist, recentlyLiveIds, listByGist, loadMoreByGist, reactComment, unreactComment, remove } =
     useCommentStore();
+  const sentinelRef = useRef<HTMLLIElement>(null);
   // Shared error surface for both react and delete failures below — both
   // are just "something went wrong, tell the viewer" cases for this list.
   const [actionError, setActionError] = useState<string>();
@@ -326,6 +342,25 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
       listByGist(gist.gist_id).catch(() => {});
     }
   }, [gist?.gist_id, listByGist]);
+
+  // Non-scrollable mode has no internal scroll container for the onScroll
+  // handler below to listen on, so pagination instead watches a sentinel
+  // row against the real viewport — same "fetch before someone actually
+  // hits the end" intent, just triggered by the page's own scroll instead.
+  useEffect(() => {
+    if (scrollable) return;
+    const gistId = gist?.gist_id;
+    const el = sentinelRef.current;
+    if (!gistId || !el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) void loadMoreByGist(gistId);
+      },
+      { rootMargin: "150px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [scrollable, gist?.gist_id, loadMoreByGist, items.length]);
 
   const handleCommentReact = async (commentId: string, gistId: string, alreadyReacted: boolean) => {
     if (!requireAuth("react to comments")) return;
@@ -371,19 +406,34 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
     }
   };
 
+  // h-full on the empty/error states below only works while this root is
+  // itself a bounded flex child (the sidebar/sheet case) — in natural-flow
+  // mode there's no ancestor height for h-full to resolve against, so it
+  // collapses to 0 and the state renders invisible. min-h-[Npx] gives it
+  // real height either way.
+  const emptyStateSizing = scrollable ? "h-full" : "min-h-[200px]";
+
   return (
     <div
-      className={`min-h-0 flex-1 overflow-y-auto no-scrollbar ${className}`}
-      onScroll={(e) => {
-        const gistId = gist?.gist_id;
-        if (!gistId) return;
-        const el = e.currentTarget;
-        // Within ~150px of the bottom — fetch the next page before someone
-        // actually hits the end, not after.
-        if (el.scrollHeight - el.scrollTop - el.clientHeight < 150) {
-          void loadMoreByGist(gistId);
-        }
-      }}
+      className={
+        scrollable
+          ? `min-h-0 flex-1 overflow-y-auto no-scrollbar ${className}`
+          : `${className}`
+      }
+      onScroll={
+        scrollable
+          ? (e) => {
+              const gistId = gist?.gist_id;
+              if (!gistId) return;
+              const el = e.currentTarget;
+              // Within ~150px of the bottom — fetch the next page before
+              // someone actually hits the end, not after.
+              if (el.scrollHeight - el.scrollTop - el.clientHeight < 150) {
+                void loadMoreByGist(gistId);
+              }
+            }
+          : undefined
+      }
     >
       <ErrorModal open={!!actionError} onClose={() => setActionError(undefined)} message={actionError} />
       {showSkeleton ? (
@@ -393,7 +443,7 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
           ))}
         </ul>
       ) : hasError ? (
-        <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+        <div className={`flex ${emptyStateSizing} flex-col items-center justify-center gap-3 text-center`}>
           <RefreshCw className="h-8 w-8 text-muted" />
           <p className="font-nunito text-sm font-semibold text-muted dark:text-white/80">
             Abeg we no fit load comments — check your connection.
@@ -407,7 +457,7 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
           </button>
         </div>
       ) : items.length === 0 ? (
-        <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+        <div className={`flex ${emptyStateSizing} flex-col items-center justify-center gap-3 text-center`}>
           <Illustration name="Commentmodal" className="h-28 w-auto opacity-80" />
           <p className="font-nunito text-sm font-semibold text-muted dark:text-white/80">
             Nobody don talk yet, Talk your own na!
@@ -433,6 +483,9 @@ export function CommentList({ gist, className = "" }: { gist: Gist | undefined; 
             <li className="flex justify-center py-2">
               <span className="h-5 w-5 animate-spin rounded-full border-2 border-brand/30 border-t-brand" />
             </li>
+          )}
+          {!scrollable && gist?.gist_id && hasMoreByGist[gist.gist_id] !== false && (
+            <li ref={sentinelRef} aria-hidden className="h-px" />
           )}
         </ul>
       )}

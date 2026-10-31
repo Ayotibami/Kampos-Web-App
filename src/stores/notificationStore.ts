@@ -4,7 +4,9 @@ import { wsClient } from "@/lib/ws";
 
 export type NotificationCategory = "COMMENT" | "REPOST" | "HOT_EXPIRING" | "DIGEST" | "INACTIVITY_NUDGE" | "ACTIVATION_NUDGE";
 export type ImageKind = "KAPPY" | "PROFILE_PICTURE" | "MEDIA";
-export type TargetType = "GIST" | "SPOT" | "HOT_POST" | "PROFILE";
+// 'COMPOSE' has no content behind it at all — it means "open the Create
+// Gist sheet", not "navigate to a thing" (only ACTIVATION_NUDGE sets it).
+export type TargetType = "GIST" | "SPOT" | "HOT_POST" | "PROFILE" | "COMPOSE";
 
 export interface DigestItem {
   trigger_type: string;

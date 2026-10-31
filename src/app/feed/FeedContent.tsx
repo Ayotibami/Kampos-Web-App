@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import { pickRandomPrompt } from "@/lib/composePrompts";
 import { motion } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
 import { FeedGistCard } from "@/components/gist/FeedGistCard";
@@ -156,33 +157,6 @@ type Tab = string;
 // time, not rotated continuously in the background like before (nothing
 // was left on-screen to show that rotation once the trigger shrank down to
 // a bare plus button).
-const PROMPTS = [
-  "Oya gist us",
-  "Feel free to rant",
-  "Wetin dey your mind?",
-  "Give us hot gist",
-  "Wetin dey sup",
-  "Oya we are listening",
-  "Yarn some matter for us",
-  "What's happening on campus?",
-  "Tell us a story",
-  "Any random gist?",
-  "Any departmental gist",
-  "Wetin dey sup for school",
-  "Oya banter anybody!",
-];
-
-let lastPromptIndex = -1;
-function pickRandomPrompt(): string {
-  let idx = Math.floor(Math.random() * PROMPTS.length);
-  if (PROMPTS.length > 1) {
-    while (idx === lastPromptIndex)
-      idx = Math.floor(Math.random() * PROMPTS.length);
-  }
-  lastPromptIndex = idx;
-  return PROMPTS[idx];
-}
-
 // Exported so loading.tsx (the route-level Suspense fallback shown before
 // this component ever mounts) can render the exact same skeleton stack
 // instead of drifting out of sync with it, the way it did when the feed

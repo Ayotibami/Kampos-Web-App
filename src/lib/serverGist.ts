@@ -67,7 +67,18 @@ export async function fetchGistContext(
     );
     if (!res.ok) return null;
     const json = (await res.json()) as { data?: GistContext };
-    return json.data ?? null;
+    if (!json.data) return null;
+    // Missed when this function was first written — fetchFeedGists and
+    // fetchFeedPage (below) both already normalize their results, this
+    // one never did. Confirmed live: every count (not just comments) on
+    // GistShareView read as 0/undefined regardless of the real value,
+    // since gist.counts was never populated — just silently invisible
+    // until a real comment made the gap obvious.
+    return {
+      target: normalizeGist(json.data.target),
+      before: normalizeGists(json.data.before),
+      after: normalizeGists(json.data.after),
+    };
   } catch {
     return null;
   }

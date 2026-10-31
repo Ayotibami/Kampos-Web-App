@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/Avatar";
 import { Plus } from "@/components/ui/icons";
 import { useAuthStore } from "@/stores/authStore";
 import { useHotStore, type HotPost, type HotPerson } from "@/stores/hotStore";
 import { EDeyHotComposer } from "./EDeyHotComposer";
-import { EDeyHotViewer, type ViewerPerson } from "./EDeyHotViewer";
 import { HotExplainerModal, hotExplainerDismissed, dismissHotExplainerForever } from "./HotExplainerModal";
 
 const HOURS = 60 * 60 * 1000;
@@ -203,6 +203,7 @@ function HotRing({
 }
 
 export function EDeyHotRail() {
+  const router = useRouter();
   const myAvitag = useAuthStore((s) => s.avitag);
   const myImageUrl = useAuthStore(
     (s) => (s.profiles.find((p) => p.avitag === s.avitag)?.image_url as string | undefined) ?? null,
@@ -212,9 +213,6 @@ export function EDeyHotRail() {
   const feed = useHotStore((s) => s.feed);
   const loaded = useHotStore((s) => s.loaded);
   const fetchAll = useHotStore((s) => s.fetchAll);
-  const markSeenInStore = useHotStore((s) => s.markSeen);
-  const flushSeen = useHotStore((s) => s.flushSeen);
-  const deletePost = useHotStore((s) => s.deletePost);
 
   useEffect(() => {
     void fetchAll();
@@ -304,65 +302,6 @@ export function EDeyHotRail() {
       clearTimeout(goneTimer);
     };
   }, []);
-
-  const markPostSeen = (postId: string) => markSeenInStore(postId);
-
-  // The viewer works on the same soonest-expiring-first post order the
-  // rings already use, translated into its own decoupled ViewerPerson
-  // shape — keeps EDeyHotViewer generic instead of coupled to this file's
-  // own store types.
-  const viewerPeople: ViewerPerson[] = useMemo(
-    () =>
-      rings.map(({ person, sortedPosts }) => ({
-        avitag: person.avitag,
-        firstName: person.firstName,
-        avatarGradient: avatarGradientFor(person.imageUrl),
-        campusTag: person.campusTag ?? undefined,
-        majorTag: person.majorTag ?? undefined,
-        level: person.level ?? undefined,
-        bio: person.bio ?? undefined,
-        posts: sortedPosts.map((p) => ({
-          id: p.id,
-          text: p.text ?? "",
-          createdAt: p.createdAt,
-          mediaUrl: p.mediaUrl,
-          mediaKind: p.type === "text" ? null : p.type,
-          colorKey: p.colorKey,
-          thumbnailUrl: p.thumbnailUrl,
-        })),
-      })),
-    [rings],
-  );
-  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
-
-  // A separate, single-person viewer instance for your OWN stack — kept
-  // apart from viewerPeople/viewerIndex above (which is everyone else's
-  // swipeable list) rather than folding "you" into that same array, since
-  // swiping past the end of a one-person list just closes it, which is the
-  // right behavior here (there's no "next person" to swipe to from your
-  // own stack) but would be wrong behavior mixed into the real list.
-  const [ownViewerOpen, setOwnViewerOpen] = useState(false);
-  const ownViewerPeople: ViewerPerson[] = useMemo(
-    () => [
-      {
-        avitag: myAvitag ?? "",
-        firstName: "You",
-        avatarGradient: avatarGradientFor(myImageUrl),
-        posts: [...visibleMyPosts]
-          .sort((a, b) => a.expiresAt - b.expiresAt)
-          .map((p) => ({
-            id: p.id,
-            text: p.text ?? "",
-            createdAt: p.createdAt,
-            mediaUrl: p.mediaUrl,
-            mediaKind: p.type === "text" ? null : p.type,
-            colorKey: p.colorKey,
-            thumbnailUrl: p.thumbnailUrl,
-          })),
-      },
-    ],
-    [myAvitag, myImageUrl, visibleMyPosts],
-  );
 
   return (
     <div className="pb-2.5">
@@ -482,7 +421,7 @@ export function EDeyHotRail() {
           <div className="relative">
             <button
               type="button"
-              onClick={() => (visibleMyPosts.length > 0 ? setOwnViewerOpen(true) : openComposer())}
+              onClick={() => (visibleMyPosts.length > 0 ? router.push(`/hot?avitag=${encodeURIComponent(myAvitag ?? "")}`) : openComposer())}
               aria-label={visibleMyPosts.length > 0 ? "View your Hot stories" : "Post something hot"}
               className="block active:scale-95"
             >
@@ -521,11 +460,11 @@ export function EDeyHotRail() {
           </span>
         </div>
 
-        {rings.map(({ person, sortedPosts, remainingMs, seen }, i) => (
+        {rings.map(({ person, sortedPosts, remainingMs, seen }) => (
           <button
             key={person.avitag}
             type="button"
-            onClick={() => setViewerIndex(i)}
+            onClick={() => router.push(`/hot?avitag=${encodeURIComponent(person.avitag)}`)}
             className="flex shrink-0 flex-col items-center gap-1 active:scale-95"
           >
             <div className="relative">
@@ -556,39 +495,6 @@ export function EDeyHotRail() {
       )}
 
       <EDeyHotComposer open={composerOpen} onClose={() => setComposerOpen(false)} />
-
-      <EDeyHotViewer
-        open={viewerIndex !== null}
-        people={viewerPeople}
-        initialIndex={viewerIndex ?? 0}
-        now={now}
-        seenPostIds={seenPostIds}
-        onPostViewed={markPostSeen}
-        onClose={() => {
-          setViewerIndex(null);
-          void flushSeen();
-        }}
-      />
-
-      <EDeyHotViewer
-        open={ownViewerOpen}
-        people={ownViewerPeople}
-        initialIndex={0}
-        now={now}
-        seenPostIds={seenPostIds}
-        onPostViewed={markPostSeen}
-        onClose={() => {
-          setOwnViewerOpen(false);
-          void flushSeen();
-        }}
-        // Steps out of viewing and straight into composing — the "+" in
-        // the viewer's own header is the whole reason this prop exists.
-        onAddAnother={() => {
-          setOwnViewerOpen(false);
-          openComposer();
-        }}
-        onDeletePost={(id) => void deletePost(id)}
-      />
 
       <HotExplainerModal
         open={explainerOpen}

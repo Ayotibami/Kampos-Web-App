@@ -146,18 +146,22 @@ function groupByDay(notifications: Notification[]): { label: string; items: Noti
   return GROUP_ORDER.filter((label) => buckets[label].length > 0).map((label) => ({ label, items: buckets[label] }));
 }
 
+// COMPOSE and HOT_POST are both absent from this switch — neither resolves
+// from targetId alone. COMPOSE has no target at all (it's just "go open
+// the composer"); HOT_POST needs the POSTER's avitag, not the post id, to
+// build its URL. Both are handled in resolveNotificationTarget below,
+// which has what this targetId-only helper doesn't.
 function hrefForTarget(targetType: TargetType | null, targetId: string | null): string | null {
   if (!targetType || !targetId) return null;
   switch (targetType) {
     case "GIST":
       return `/gist/${targetId}`;
-    case "HOT_POST":
-      // There's no standalone Hot-post route — the viewer only opens from
-      // the rail. Pointing at /feed is the closest honest destination
-      // until that's worth a deep link of its own.
-      return `/feed`;
     case "SPOT":
-      return `/spot/${targetId}`;
+      // There's no /spot/[id] route — Spot is a single swipeable feed
+      // (app/spot/page.tsx) that opens a specific clip via a `spot` query
+      // param (see VideoFeedContent.tsx's own deepLinkSpotId read).
+      // Confirmed live: the path-segment form 404s outright.
+      return `/spot?spot=${targetId}`;
     case "PROFILE":
       return `/${targetId}`;
     default:
@@ -165,14 +169,38 @@ function hrefForTarget(targetType: TargetType | null, targetId: string | null): 
   }
 }
 
-function DigestSubitem({ item, onNavigate }: { item: DigestItem; onNavigate: (href: string) => void }) {
+/** Resolves a notification (or a bundled digest item) to wherever tapping
+ * it should actually go — a real route every time now: COMPOSE opens
+ * /compose (its own standalone Create Gist sheet) and HOT_POST opens
+ * /hot?avitag=<poster> (its own standalone Hot viewer) — both used to be
+ * special client-side actions reaching into a different page's local
+ * state, back when neither had an address of its own. Centralized here so
+ * NotificationRow and DigestSubitem can't drift apart on this logic. */
+function resolveNotificationTarget(
+  targetType: TargetType | null,
+  targetId: string | null,
+  actorAvitag: string | null
+): { kind: "route"; href: string } | null {
+  if (targetType === "COMPOSE") return { kind: "route", href: "/compose" };
+  if (targetType === "HOT_POST" && actorAvitag) return { kind: "route", href: `/hot?avitag=${encodeURIComponent(actorAvitag)}` };
+  const href = hrefForTarget(targetType, targetId);
+  return href ? { kind: "route", href } : null;
+}
+
+type ResolvedTarget = ReturnType<typeof resolveNotificationTarget>;
+
+function DigestSubitem({ item, onNavigate }: { item: DigestItem; onNavigate: (target: ResolvedTarget) => void }) {
   // Hooks run before the meta-missing early return below, per rules of
   // hooks. Same broken-load-degrades-gracefully reasoning as
   // NotificationRow's own actorFailed/mediaFailed.
   const [actorFailed, setActorFailed] = useState(false);
   const [mediaFailed, setMediaFailed] = useState(false);
   const meta = DIGEST_ITEM_META[item.trigger_type];
-  const href = hrefForTarget(item.target_type, item.target_id);
+  // None of the digest-eligible trigger types ever carry HOT_POST/COMPOSE
+  // (those are instant/periodic-only), so this always resolves to a plain
+  // route or null in practice — routed through the same resolver anyway
+  // so the two components can't quietly drift apart on this logic.
+  const target = resolveNotificationTarget(item.target_type, item.target_id, item.actor_avitag);
   if (!meta) return null;
   const Icon = meta.icon;
   // Purely data-driven, independent checks — only trust what the backend
@@ -185,10 +213,10 @@ function DigestSubitem({ item, onNavigate }: { item: DigestItem; onNavigate: (hr
   return (
     <button
       type="button"
-      disabled={!href}
+      disabled={!target}
       onClick={(e) => {
         e.stopPropagation();
-        if (href) onNavigate(href);
+        if (target) onNavigate(target);
       }}
       className="relative z-10 flex w-full items-center gap-2.5 rounded-xl px-1.5 py-1.5 text-left transition enabled:hover:bg-surface enabled:active:scale-[0.98] disabled:opacity-60"
     >
@@ -221,12 +249,12 @@ function DigestSubitem({ item, onNavigate }: { item: DigestItem; onNavigate: (hr
         </span>
       )}
       <span className="min-w-0 flex-1 truncate font-nunito text-[12px] font-bold text-ink">{meta.label(item.actor_avitag)}</span>
-      {href && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />}
+      {target && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />}
     </button>
   );
 }
 
-function DigestExpandPanel({ items, onNavigate }: { items: DigestItem[]; onNavigate: (href: string) => void }) {
+function DigestExpandPanel({ items, onNavigate }: { items: DigestItem[]; onNavigate: (target: ResolvedTarget) => void }) {
   return (
     <div className="mt-2 flex flex-col gap-0.5 rounded-2xl bg-surface-2 p-2">
       {items.map((item, i) => (
@@ -258,7 +286,6 @@ function NotificationRow({ notification }: { notification: Notification }) {
   const meta = CATEGORY_META[notification.category];
   const isDigest = notification.category === "DIGEST";
   const items = notification.payload?.items ?? [];
-  const href = hrefForTarget(notification.target_type, notification.target_id);
   const isHot = notification.category === "HOT_EXPIRING";
   const hasActor = !!notification.actor_avitag && !!notification.actor_image_url && !actorFailed;
   const hasMedia = notification.image_kind === "MEDIA" && !!notification.image_url && !mediaFailed;
@@ -267,17 +294,29 @@ function NotificationRow({ notification }: { notification: Notification }) {
   const tilt = notification.notification_id.charCodeAt(notification.notification_id.length - 1) % 2 === 0 ? "-1deg" : "1.1deg";
   const catColor = isHot ? "var(--hot-a)" : meta.tintVar;
 
-  const goTo = (target: string) => {
+  // One shared landing spot for every "actually go somewhere" tap — a
+  // bundled digest item (via DigestExpandPanel's onNavigate) and this
+  // row's own top-level target both end up here. Every resolved target is
+  // a real route now (COMPOSE -> /compose, HOT_POST -> /hot?avitag=...,
+  // see resolveNotificationTarget), and neither of those pages has any
+  // stored "already consumed" state to dedupe against — both just derive
+  // what to show fresh from the URL on every mount — so this needs no
+  // cache-busting trick for repeat taps the way the old Feed-embedded
+  // versions of both did.
+  const performTarget = (target: ResolvedTarget) => {
+    if (!target) return;
     markRead(notification.notification_id);
-    router.push(target);
+    router.push(target.href);
   };
 
+  const topTarget = resolveNotificationTarget(notification.target_type, notification.target_id, notification.actor_avitag);
+
   const handleRowClick = () => {
-    markRead(notification.notification_id);
     if (isDigest) {
+      markRead(notification.notification_id);
       setExpanded((v) => !v);
-    } else if (href) {
-      router.push(href);
+    } else {
+      performTarget(topTarget);
     }
   };
 
@@ -369,7 +408,7 @@ function NotificationRow({ notification }: { notification: Notification }) {
           )}
         </button>
 
-        {isDigest && expanded && items.length > 0 && <DigestExpandPanel items={items} onNavigate={goTo} />}
+        {isDigest && expanded && items.length > 0 && <DigestExpandPanel items={items} onNavigate={performTarget} />}
         </div>
       </div>
     </div>

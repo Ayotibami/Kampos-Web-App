@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SendIconFill } from "@/components/ui/icons";
 import { useCommentStore } from "@/stores/commentStore";
@@ -25,18 +25,23 @@ const COMPOSER_MAX_HEIGHT = 160;
  * the gist card, so it gets just this — a compact input stacked below the
  * card instead (see FeedContent's mobile layout).
  */
-export function CommentComposer({
-  gist,
-  className = "",
-  autoFocus = false,
-}: {
-  gist: Gist | undefined;
-  className?: string;
-  /** Focuses the textarea the moment this mounts — used by CommentSheet,
-   * which only ever mounts this while its modal is actually open, so
-   * "on mount" and "sheet just opened" are the same moment. */
-  autoFocus?: boolean;
-}) {
+/** Imperative handle for a caller that needs to focus the textarea on
+ * demand, after mount — e.g. the gist detail page's "Comment" button,
+ * which scrolls an already-mounted composer into view and focuses it,
+ * as opposed to `autoFocus` below which only ever fires once, at mount. */
+export type CommentComposerHandle = { focus: () => void };
+
+export const CommentComposer = forwardRef<
+  CommentComposerHandle,
+  {
+    gist: Gist | undefined;
+    className?: string;
+    /** Focuses the textarea the moment this mounts — used by CommentSheet,
+     * which only ever mounts this while its modal is actually open, so
+     * "on mount" and "sheet just opened" are the same moment. */
+    autoFocus?: boolean;
+  }
+>(function CommentComposer({ gist, className = "", autoFocus = false }, ref) {
   const create = useCommentStore((s) => s.create);
   // Keyed by gist_id, same reasoning as CommentPanel's own drafts — an
   // in-progress draft belongs to the gist it was written for, so swiping
@@ -48,6 +53,8 @@ export function CommentComposer({
   const text = (gist?.gist_id && drafts[gist.gist_id]) || "";
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+
+  useImperativeHandle(ref, () => ({ focus: () => textareaRef.current?.focus() }), []);
   // Whether the draft still fits on one line — the highlight overlay (see
   // TextHighlightOverlay's own doc on why) only ever renders while this is
   // true; the instant a draft wraps, this flips false and the real
@@ -236,4 +243,4 @@ export function CommentComposer({
       </button>
     </div>
   );
-}
+});

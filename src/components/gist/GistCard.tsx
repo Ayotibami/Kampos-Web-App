@@ -33,6 +33,7 @@ import {
   DeleteIconFill,
   AnonymousIconFill,
   AlertCircle,
+  CommentIconFill,
 } from "@/components/ui/icons";
 import type { Gist, ReactionType } from "@/types";
 import { gistColorForGist } from "@/lib/brand";
@@ -96,6 +97,7 @@ export const GistCard = memo(function GistCard({
   dragY,
   opacity,
   committingRef,
+  onToggleComments,
 }: {
   gist: Gist;
   isActive?: boolean;
@@ -161,6 +163,17 @@ export const GistCard = memo(function GistCard({
    * rather than inferred from dragY's value. Same sharing reasoning as
    * dragY itself: only ever passed by GistStack's mobile front card. */
   committingRef?: RefObject<boolean>;
+  /** Opt-in only — this card deliberately shows no comment affordance of
+   * its own otherwise (see the metrics row's own doc comment below): every
+   * OTHER caller (the feed, a profile) already has its own comment
+   * icon+count button built outside this component, since they're flat
+   * lists with room for one in their own layout. GistStack (the swipeable
+   * stack this card is exclusively used inside) has no such outer slot, so
+   * when a caller passes this, the metrics row renders the SAME icon+count
+   * affordance inline instead of quietly having none at all — which is
+   * what GistShareView (the one real consumer: a shared-link / notification
+   * destination) was missing entirely on mobile until this existed. */
+  onToggleComments?: (gistId: string) => void;
 }) {
   const reactGist = useGistStore((s) => s.react);
   const unreactGist = useGistStore((s) => s.unreact);
@@ -747,14 +760,22 @@ export const GistCard = memo(function GistCard({
       {/* Actions & info — date first, then reactions-total/views/shares (left,
           icon-only for space; date complements the relative time up in the
           header), then the reaction picker on the right. Comments dropped
-          from here entirely (both platforms) — it's shown elsewhere already
-          (the comment sheet/panel header, and mobile's own bottom-bar
-          icon+count), so repeating it here was pure duplication. Reactions
-          stays as the one total number here on purpose — the reaction
-          badge/tray next to it only ever shows the per-emoji breakdown, not
-          a total, so this is the one place a total reaction count is
-          actually visible. Share is display-only for now — the actual share
-          action lands separately later. */}
+          from here entirely BY DEFAULT (both platforms) — it's shown
+          elsewhere already for every other caller (the comment sheet/panel
+          header, and the feed/profile's own bottom-bar icon+count built
+          into THEIR OWN card markup), so repeating it here was pure
+          duplication. onToggleComments (opt-in, see its own doc comment) is
+          the one exception: GistStack has no such outer slot, so when a
+          caller passes it, a comment icon+count button renders — but to
+          the RIGHT of the reaction picker below (see that div's own
+          comment), not in this left-hand metrics cluster: it's an action
+          (opens something), not a passive metric like the four here, and
+          sits beside the OTHER action in this row for the same reason.
+          Reactions stays as the one total number here on purpose — the
+          reaction badge/tray next to it only ever shows the per-emoji
+          breakdown, not a total, so this is the one place a total reaction
+          count is actually visible. Share is display-only for now — the
+          actual share action lands separately later. */}
       {/* flex-nowrap (not flex-wrap) + the metrics group's own overflow-x-auto
           below is deliberate: on the narrowest real phones (~320-360px) the
           four metrics didn't fit next to the reaction badge, and flex-wrap
@@ -789,8 +810,13 @@ export const GistCard = memo(function GistCard({
             Desktop keeps the classic always-visible row. Double-tap-to-react
             on the card body drives whichever one is actually mounted.
             shrink-0: this is the one thing in the row that must never lose
-            width to the metrics group above squeezing against it. */}
-        <div className="shrink-0">
+            width to the metrics group above squeezing against it. The
+            comment button (opt-in, mobile-only — see its own doc comment
+            above) sits in this SAME flex group, to the right of the
+            reaction picker: it's the row's other action, not a metric, so
+            it belongs beside the thing it's acting alongside rather than
+            buried in the passive date/reactions/views/shares cluster. */}
+        <div className="flex shrink-0 items-center gap-3">
           {isMobile ? (
             <MobileReactionBadge
               onReact={handleReact}
@@ -811,6 +837,30 @@ export const GistCard = memo(function GistCard({
               onReacted={(type) => setCenterBurst({ id: Date.now(), type })}
               guardClick={() => requireAuth("react to gists")}
             />
+          )}
+          {/* isMobile, not just onToggleComments — GistShareView (the one
+              real caller) always passes the callback regardless of
+              viewport, since its own desktop CommentPanel sidebar is
+              always visible there and would make this a redundant second
+              way to reach the exact same panel. Styled to match
+              FeedGistCard's own comment button exactly (same solid-brand
+              pill, same icon/text treatment) — one consistent "this is
+              where you go for comments" affordance across the app, not a
+              second, differently-dressed one just for this page. */}
+          {onToggleComments && isMobile && (
+            <button
+              type="button"
+              onClick={() => onToggleComments(gist.gist_id)}
+              aria-label="View comments"
+              className="flex shrink-0 items-center gap-1 rounded-full bg-brand px-2.5 py-1.5 text-white shadow-sm shadow-brand/30 transition"
+            >
+              <CommentIconFill className="h-3.5 w-3.5" weight="fill" />
+              {!!gist.counts?.comments_count && (
+                <span className="font-nunito text-[11px] font-bold leading-none tabular-nums">
+                  {compactNumber(gist.counts.comments_count)}
+                </span>
+              )}
+            </button>
           )}
         </div>
       </div>

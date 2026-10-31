@@ -76,12 +76,18 @@ export function GistStack({
   mediaPaused = false,
   resetToTopSignal,
   showCampusTag = true,
+  onToggleComments,
 }: {
   gists: Gist[];
   /** Opens the stack on a specific gist instead of always the front (index
    * 0) — the shared-link view uses this to land directly on the gist that
    * was actually shared, with its chronological neighbors either side. */
   initialIndex?: number;
+  /** Passed straight through to every GistCard — see its own doc comment.
+   * Opt-in: GistShareView (the only real caller) is the one place that
+   * needs it, since it has no outer flat-list slot of its own to put a
+   * comment button in the way the feed/profile do. */
+  onToggleComments?: (gistId: string) => void;
   onCurrentChange?: (gist: Gist | undefined) => void;
   /** Bubbled up from GistCard's own delete action — the stack doesn't own
    * the gist list (the feed page does), so it just passes this straight
@@ -435,6 +441,7 @@ export function GistStack({
                 direction={direction}
                 mediaPaused={mediaPaused}
                 showCampusTag={showCampusTag}
+                onToggleComments={onToggleComments}
                 canGoNext={canGoNextValue}
                 canGoPrev={canGoPrevValue}
                 handleOverlayOpenChange={handleOverlayOpenChange}
@@ -462,6 +469,7 @@ export function GistStack({
                   direction={1}
                   mediaPaused={mediaPaused}
                   showCampusTag={showCampusTag}
+                  onToggleComments={onToggleComments}
                   canGoNext={offset === 0 ? canGoNextValue : true}
                   canGoPrev={offset === 0 ? canGoPrevValue : true}
                   handleOverlayOpenChange={handleOverlayOpenChange}
@@ -538,6 +546,7 @@ function GistStackCard({
   direction,
   mediaPaused,
   showCampusTag,
+  onToggleComments,
   canGoNext,
   canGoPrev,
   handleOverlayOpenChange,
@@ -562,6 +571,8 @@ function GistStackCard({
   direction: number;
   mediaPaused: boolean;
   showCampusTag: boolean;
+  /** Passed straight through to GistCard — see its own doc comment. */
+  onToggleComments?: (gistId: string) => void;
   /** Whether a swipe from THIS card actually has somewhere to go — see
    * GistStack's own canGoNextValue/canGoPrevValue and useOverscrollNav's
    * docs. Only meaningful for the front card; desktop's peeking cards
@@ -697,6 +708,7 @@ function GistStackCard({
               gist={gist}
               isActive={!mediaPaused}
               showCampusTag={showCampusTag}
+              onToggleComments={onToggleComments}
               onOverlayOpenChange={handleOverlayOpenChange}
               onDeleted={onGistDeleted}
               onDeleteFailed={onGistDeleteFailed}
@@ -756,6 +768,7 @@ function GistStackCard({
             gist={gist}
             isActive={isFront && !mediaPaused}
             showCampusTag={showCampusTag}
+            onToggleComments={onToggleComments}
             onOverlayOpenChange={handleOverlayOpenChange}
             onDeleted={onGistDeleted}
             onDeleteFailed={onGistDeleteFailed}
