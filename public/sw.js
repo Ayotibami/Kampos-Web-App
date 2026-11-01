@@ -125,12 +125,15 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(networkFirst(e.request, STATIC));
 });
 
-// ── Web Push (admin notifications) ──────────────────────────────────────────
-// Only ever sent to a browser that explicitly subscribed via the admin
-// panel's own opt-in (see src/lib/pushSubscription.ts) — this fires on
-// EVERY push this service worker receives, but the backend only ever pushes
-// to admin subscriptions in the first place, so there's nothing to further
-// gate here.
+// ── Web Push ─────────────────────────────────────────────────────────────
+// Only ever sent to a browser that explicitly subscribed — either the admin
+// panel's own opt-in (src/lib/pushSubscription.ts) or a regular user's own
+// (src/lib/notificationPush.ts) — this fires on EVERY push this service
+// worker receives, but the backend only ever pushes to someone who actually
+// subscribed in the first place, so there's nothing to further gate here.
+// Both audiences share the same {title, body, url} payload shape (see
+// KamposBackend's webpush.service.ts PushPayload) so this handler needs no
+// per-audience branching at all.
 
 self.addEventListener("push", (e) => {
   let data = {};
@@ -147,14 +150,14 @@ self.addEventListener("push", (e) => {
       body: data.body || "",
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
-      data: { url: data.url || "/villagepeople" },
+      data: { url: data.url || "/notifications" },
     }),
   );
 });
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-  const url = e.notification.data?.url || "/villagepeople";
+  const url = e.notification.data?.url || "/notifications";
   e.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
       // Focus an already-open tab on this origin rather than always opening

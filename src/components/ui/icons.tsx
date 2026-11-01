@@ -104,6 +104,7 @@ export {
   // sees in their own Safari toolbar, not just mean "share" abstractly.
   Export as ShareBoxIconFill,
   PlusSquare as AddToHomeIconFill,
+  Bell as BellIconFill,
   // Village People (/villagepeople) admin section nav icons.
   House as HQIconFill,
   Crown as AdminsIconFill,

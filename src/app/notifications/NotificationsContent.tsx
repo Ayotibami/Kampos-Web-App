@@ -25,6 +25,7 @@ import { useNotificationStore, type Notification, type NotificationCategory, typ
 import { useLayoutStore } from "@/stores/layoutStore";
 import { api } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
+import { PushOptInBanner } from "@/components/notifications/PushOptInBanner";
 import KappyWaving from "@/assets/illustrations/KappyWaving.webp";
 import KappyAvatar from "@/assets/illustrations/kappyhead.png";
 
@@ -679,6 +680,8 @@ export function NotificationsContent() {
       </div>
 
       <PreferencesPanel open={showPrefs} onClose={() => setShowPrefs(false)} />
+
+      <PushOptInBanner />
 
       <div className="relative z-10 border-b border-line px-4 py-2.5">
         <p className="font-nunito text-[11px] leading-snug text-faint">

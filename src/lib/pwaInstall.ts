@@ -51,7 +51,14 @@ export function isStandalone(): boolean {
   );
 }
 
-function detectIOSSafari(): boolean {
+/** Exported (not just used internally by useInstallPrompt below) so other
+ * features that need "is this iPhone Safari, not yet installed" as an
+ * independent fact — e.g. the push notification toggle deciding whether to
+ * show the real Enable button or the install walkthrough instead — aren't
+ * forced through useInstallPrompt's own 24h dismiss-snooze state, which
+ * exists only to pace the UNRELATED general install nudge banner's own
+ * re-appearance and has nothing to do with whether push can work. */
+export function detectIOSSafari(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent;
   // iPadOS 13+ reports as "Macintosh" with touch support instead of

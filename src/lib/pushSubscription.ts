@@ -28,6 +28,21 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 
 export type PushSupport = "unsupported" | "denied" | "ready";
 
+/** `navigator.serviceWorker.ready` only ever resolves once something has
+ * actually registered a service worker — in production that already
+ * happened on page load (see layout.tsx's own inline registration
+ * script), but that script deliberately only runs in production (to keep
+ * the service worker's caching from fighting dev's hot-reload), so on
+ * localhost nothing has registered one yet and `.ready` hangs forever,
+ * leaving this toggle's button stuck mid-click with nothing to show for
+ * it. `register()` with the same scriptURL is a no-op when one's already
+ * active (returns the existing registration immediately), so calling it
+ * unconditionally here is always safe. */
+async function getRegistration(): Promise<ServiceWorkerRegistration> {
+  await navigator.serviceWorker.register("/sw.js");
+  return navigator.serviceWorker.ready;
+}
+
 /** Whether this browser can even do Web Push at all, before ever touching
  * permissions — Safari on non-installed/non-home-screen contexts and very
  * old browsers simply don't have these APIs. */
@@ -44,7 +59,7 @@ export function getPushSupport(): PushSupport {
  * render the toggle's initial state without asking permission again. */
 export async function isSubscribed(): Promise<boolean> {
   if (getPushSupport() !== "ready") return false;
-  const registration = await navigator.serviceWorker.ready;
+  const registration = await getRegistration();
   const existing = await registration.pushManager.getSubscription();
   return !!existing;
 }
@@ -54,7 +69,7 @@ export async function subscribeToPush(): Promise<void> {
   if (permission !== "granted") {
     throw new Error("Notification permission was not granted");
   }
-  const registration = await navigator.serviceWorker.ready;
+  const registration = await getRegistration();
   const keyRes = await api.get<{ data?: { publicKey: string } }>("/idiot/notifications/public-key");
   const publicKey = keyRes.data?.data?.publicKey;
   if (!publicKey) {
@@ -73,7 +88,7 @@ export async function subscribeToPush(): Promise<void> {
 
 export async function unsubscribeFromPush(): Promise<void> {
   if (getPushSupport() !== "ready") return;
-  const registration = await navigator.serviceWorker.ready;
+  const registration = await getRegistration();
   const existing = await registration.pushManager.getSubscription();
   if (!existing) return;
   const endpoint = existing.endpoint;
