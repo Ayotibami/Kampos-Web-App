@@ -31,11 +31,18 @@ const INITIAL_LIMIT = 100;
 const PAGE_SIZE = 20;
 
 /**
- * Pending Posts tab — approve/reject SUBMITTED gists. Mirrors AdminsManager's
- * "own the list in local state, splice on success, apiErrorMessage on
- * failure, leave the row in place" approach, just with per-row action state
- * (`actioningId`) instead of one global boolean, since this is a list of
- * many items rather than admins.tsx's single grant form.
+ * Moderate Posts tab — gists post live immediately now (gist_status
+ * defaults to APPROVED, see backend migration 0063), so this is no longer
+ * a pre-approval queue. It lists everything approved in the last 50 hours
+ * (gist.repo.ts listPendingGistsWithDetails) so an admin can catch and pull
+ * anything bad shortly after it's already on the feed — the only action is
+ * Take Down, which reuses the existing reject endpoint (still hides a gist
+ * from the feed/trending/search everywhere except the poster's own
+ * profile, same as it always has). Mirrors AdminsManager's "own the list in
+ * local state, splice on success, apiErrorMessage on failure, leave the row
+ * in place" approach, just with per-row action state (`actioningId`)
+ * instead of one global boolean, since this is a list of many items rather
+ * than admins.tsx's single grant form.
  *
  * Only the first media item is shown as a thumbnail — a full multi-media
  * grid (GistMediaGrid) is overkill for a moderation queue row; an admin just
@@ -56,8 +63,8 @@ export function PendingPostsTab({
   onFail: (msg: string) => void;
   onSucceed: (msg: string) => void;
   /** Reports this tab's own live count up to ModerationManager's tab
-   * badges — called on mount and again after every approve/reject, so the
-   * "Pending Posts" tab's badge count stays in sync with what's actually
+   * badges — called on mount and again after every take-down, so the
+   * "Moderate Posts" tab's badge count stays in sync with what's actually
    * left in the queue, not just a snapshot from before this tab was ever
    * opened. */
   onCountChange?: (count: number) => void;
@@ -69,14 +76,13 @@ export function PendingPostsTab({
     onCountChange?.(gists.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gists.length]);
-  const [actioningId, setActioningId] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<PendingGist | null>(null);
   const [rejecting, setRejecting] = useState(false);
   const [limit, setLimit] = useState(Math.max(INITIAL_LIMIT, initialGists.length));
   // Whether there's likely more beyond the current `limit` — set purely
   // from fetch results (got back a full page => probably more), NEVER from
-  // `gists.length`, since that shrinks every time an admin approves/rejects
-  // something and would otherwise hide "Load more" prematurely even when
+  // `gists.length`, since that shrinks every time an admin takes something
+  // down and would otherwise hide "Load more" prematurely even when
   // plenty more is still sitting on the server. Compared against
   // INITIAL_LIMIT here specifically because the very first fetch (done
   // server-side, before this component even mounts) requested that many,
@@ -85,7 +91,6 @@ export function PendingPostsTab({
   const [hasMore, setHasMore] = useState(initialGists.length >= INITIAL_LIMIT);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const approveGist = useModerationStore((s) => s.approveGist);
   const rejectGist = useModerationStore((s) => s.rejectGist);
   const fetchGists = useModerationStore((s) => s.fetchGists);
 
@@ -106,29 +111,16 @@ export function PendingPostsTab({
     }
   };
 
-  const handleApprove = async (gist: PendingGist) => {
-    setActioningId(gist.gist_id);
-    try {
-      await approveGist(gist.gist_id);
-      removeGist(gist.gist_id);
-      onSucceed("Post approved.");
-    } catch (err) {
-      onFail(apiErrorMessage(err, "Failed to approve post"));
-    } finally {
-      setActioningId(null);
-    }
-  };
-
-  const handleReject = async (reason?: string) => {
+  const handleTakeDown = async (reason?: string) => {
     if (!rejectTarget) return;
     setRejecting(true);
     try {
       await rejectGist(rejectTarget.gist_id, reason);
       removeGist(rejectTarget.gist_id);
       setRejectTarget(null);
-      onSucceed("Post rejected.");
+      onSucceed("Post taken down.");
     } catch (err) {
-      onFail(apiErrorMessage(err, "Failed to reject post"));
+      onFail(apiErrorMessage(err, "Failed to take down post"));
     } finally {
       setRejecting(false);
     }
@@ -141,7 +133,7 @@ export function PendingPostsTab({
   if (gists.length === 0 && !hasMore) {
     return (
       <p className="rounded-2xl border border-dashed border-line/70 p-6 text-center font-nunito text-sm text-muted">
-        No pending posts to review.
+        No gists need moderation right now.
       </p>
     );
   }
@@ -151,21 +143,20 @@ export function PendingPostsTab({
       <ConfirmReasonModal
         open={!!rejectTarget}
         onClose={() => (rejecting ? undefined : setRejectTarget(null))}
-        onConfirm={handleReject}
-        title="Reject this post?"
-        message="It won't be published. You can add a reason for the record."
-        confirmLabel="Reject"
+        onConfirm={handleTakeDown}
+        title="Take down this post?"
+        message="It'll come off the feed everywhere except the poster's own profile. You can add a reason for the record."
+        confirmLabel="Take Down"
         loading={rejecting}
       />
 
       <ul className="flex flex-col gap-3">
         {gists.map((gist) => {
           const media = gist.media?.[0];
-          const busy = actioningId === gist.gist_id;
           // Same "jump to this poster's profile" affordance as
-          // AdminGistCard.tsx (the All Gists tab) — reviewing a pending
-          // post is exactly when an admin most wants a poster's history
-          // without a detour through Profiles' own search.
+          // AdminGistCard.tsx (the All Gists tab) — reviewing a live post
+          // is exactly when an admin most wants a poster's history without
+          // a detour through Profiles' own search.
           const normalizedType = normalizeProfileType(gist.profile_type);
           const goToProfile = () => {
             if (!normalizedType) return;
@@ -224,22 +215,12 @@ export function PendingPostsTab({
                 )}
                 <div className="mt-3 flex gap-2">
                   <Button
-                    fullWidth={false}
-                    className="!px-6 !py-2 text-sm"
-                    loading={busy}
-                    disabled={busy}
-                    onClick={() => handleApprove(gist)}
-                  >
-                    Approve
-                  </Button>
-                  <Button
                     variant="secondary"
                     fullWidth={false}
                     className="!border-danger !px-6 !py-2 text-sm !text-danger hover:!bg-danger/5"
-                    disabled={busy}
                     onClick={() => setRejectTarget(gist)}
                   >
-                    Reject
+                    Take Down
                   </Button>
                 </div>
               </div>

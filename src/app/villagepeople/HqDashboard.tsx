@@ -219,7 +219,7 @@ export function HqDashboard({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <StatCard
             icon={PendingIconFill}
-            label="Pending gists"
+            label="Gists to review"
             value={stats.moderation.pending_gists}
             href="/villagepeople/moderation?tab=posts"
             tone={stats.moderation.pending_gists > 0 ? "warning" : "default"}

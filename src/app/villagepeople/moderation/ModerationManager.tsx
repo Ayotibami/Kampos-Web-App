@@ -12,7 +12,7 @@ import { ProfileVerificationsTab } from "./ProfileVerificationsTab";
 type TabKey = "posts" | "reports" | "spot-reports" | "profiles";
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: "posts", label: "Pending Posts" },
+  { key: "posts", label: "Moderate Posts" },
   { key: "reports", label: "Reports" },
   { key: "spot-reports", label: "Spot Reports" },
   { key: "profiles", label: "Profile Verifications" },
@@ -32,7 +32,7 @@ function isTabKey(v: string | null): v is TabKey {
  *
  * Each tab keeps its OWN list state (initialized from this page's one
  * server-side fetch) and mutates it locally on success — there is no
- * shared "moderation list" state here, since a Pending Posts action never
+ * shared "moderation list" state here, since a Moderate Posts action never
  * needs to affect the Reports or Profile Verifications lists (or vice
  * versa), and switching tabs never re-fetches.
  */
@@ -54,9 +54,9 @@ export function ModerationManager({
   const [tab, setTabState] = useState<TabKey>(isTabKey(tabParam) ? tabParam : "posts");
 
   // The URL reflects the active tab (not just component state) so it's
-  // shareable/bookmarkable and, critically, so HQ's own "Pending gists" /
+  // shareable/bookmarkable and, critically, so HQ's own "Gists to review" /
   // "Pending reports" cards can link straight to the right tab instead of
-  // always landing on Pending Posts regardless of which card was clicked.
+  // always landing on Moderate Posts regardless of which card was clicked.
   // `replace` (not `push`) — switching tabs isn't a new page in the user's
   // sense, so it shouldn't pile up back-button history entries.
   const setTab = (next: TabKey) => {
@@ -100,7 +100,7 @@ export function ModerationManager({
         <div>
           <h1 className="font-nunito text-2xl font-extrabold text-ink">Moderation</h1>
           <p className="mt-1 font-nunito text-sm text-muted">
-            Review pending posts, reports, and profile verifications.
+            Moderate live posts, and review reports and profile verifications.
           </p>
         </div>
 

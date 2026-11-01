@@ -12,7 +12,7 @@ import { ModerationManager } from "./ModerationManager";
  * initial fetch, client component owns the interactive parts" split as
  * admins/page.tsx + AdminsManager.tsx — the tabs just swap which already-
  * loaded list is visible rather than fetching per-tab-switch, so flipping
- * between Pending Posts/Reports/Spot Reports/Profile Verifications is
+ * between Moderate Posts/Reports/Spot Reports/Profile Verifications is
  * instant and each list only ever needs fetching once per page load. Spot
  * Reports is its own tab, not merged into Reports — the two report kinds
  * join against entirely different content (gists vs. Spots) with different
