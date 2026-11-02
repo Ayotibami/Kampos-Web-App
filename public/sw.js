@@ -145,10 +145,21 @@ self.addEventListener("push", (e) => {
     // as the raw ws gateway's own message parsing.
   }
   const title = data.title || "Kampos";
+  // icon: the backend already picks the right one per notification (the
+  // actor's own face, the content's media, or Kappy — see
+  // notification.service.ts's buildPushIcon) — "/icons/icon-192.png" here
+  // is only a defensive fallback for a malformed/old-shaped payload
+  // missing the field entirely, not the normal path. badge (the small
+  // monochrome status-bar glyph, Android only) stays the plain app icon
+  // always — that one's about brand recognition in the notification
+  // tray, not per-notification content, so it's never swapped per push.
+  // image (the larger banner, Chrome-only) is simply omitted by
+  // showNotification when data.image is undefined — no fallback needed.
   e.waitUntil(
     self.registration.showNotification(title, {
       body: data.body || "",
-      icon: "/icons/icon-192.png",
+      icon: data.icon || "/icons/icon-192.png",
+      image: data.image,
       badge: "/icons/icon-192.png",
       data: { url: data.url || "/notifications" },
     }),

@@ -100,6 +100,21 @@ function SwipeCard({
   // wheel/keyboard-triggered change, where x never moved at all).
   const committingRef = useRef(false);
   const cardRef = useRef<HTMLDivElement>(null);
+  // Refs, not read directly in the gesture effect below — canGoNext/
+  // canGoPrev can change on every single swipe (the parent recomputes
+  // them from currentIndex), and that effect deliberately does NOT
+  // re-run on every swipe (see its own dependency array) — tearing down
+  // and reattaching real touch listeners that often is wasteful and
+  // risks dropping a touch that's already in progress. A ref lets
+  // onTouchEnd always read the CURRENT value without the effect needing
+  // to know these changed. Same pattern useOverscrollNav.ts's own
+  // original mobile gesture used for the same reason.
+  const canGoNextRef = useRef(canGoNext);
+  const canGoPrevRef = useRef(canGoPrev);
+  useEffect(() => {
+    canGoNextRef.current = canGoNext;
+    canGoPrevRef.current = canGoPrev;
+  }, [canGoNext, canGoPrev]);
 
   // Entrance — mount-only, starts fully off-screen and eases to rest.
   useLayoutEffect(() => {
@@ -127,37 +142,45 @@ function SwipeCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPresent]);
 
-  // Fully custom pointer handling instead of Framer's own `drag` prop —
-  // confirmed live (not a guess) that `drag="x"` silently loses the
-  // gesture a few pixels into a real touch drag, nested as this card is
-  // inside its own vertically-scrollable content: dragStart fires, a
-  // couple of updates land, then it just stops tracking even though the
-  // touch continues, so the card never actually commits. This is the
-  // exact class of problem GistStack.tsx's own original mobile gesture
-  // deliberately avoided Framer's `drag` for too (see useOverscrollNav),
-  // building its own touch handling instead — same move here, just for a
-  // horizontal gesture via the unified Pointer Events API (covers mouse,
-  // touch, and pen in one code path) rather that file's vertical-specific
-  // touch listeners.
-  // lastX/lastT and prevX/prevT track the two most recent pointermove
-  // samples — NOT the pointerup event's own clientX/clientY, which is
-  // unreliable for a touch-originated gesture (confirmed live: a
-  // touch-to-pointer-synthesized "up" can report clientX as 0, not
-  // wherever the finger actually lifted — silently making every swipe
-  // register as the same direction regardless of which way it went).
-  // Final position and velocity are both derived from these tracked
-  // move samples instead, which are already proven reliable.
+  // Raw native TouchEvents via addEventListener, deliberately NOT React's
+  // synthetic Pointer Events + touch-action CSS + setPointerCapture (what
+  // this used before). That combination is the exact thing Framer's own
+  // `drag="x"` was already dropped for (see the removed comment this
+  // replaced) — AND is independently a known-shaky pattern on Android
+  // Chrome specifically: touch-action tells the COMPOSITOR thread what to
+  // allow before JS ever runs, and Android Chrome has documented cases
+  // (https://github.com/w3c/pointerevents/issues/295,
+  // https://github.com/wesleyegbertsen/CardiPaw/pull/15) where it still
+  // lets the OS's system back-gesture win an in-progress horizontal drag
+  // out from under touch-action: pan-y, firing pointercancel and aborting
+  // the gesture partway through — not a problem on iOS Safari, which is
+  // exactly the "works on iPhone, not Android" split this was hitting.
+  // GistStack.tsx's own original mobile swipe (useOverscrollNav.ts, see
+  // git history — vertical, not horizontal, but the same underlying
+  // mechanism question) used raw TouchEvents with touchmove registered
+  // non-passive and called preventDefault() directly — no touch-action
+  // dependency, no compositor race, and it worked reliably on Android.
+  // This rebuilds that same reliable mechanism for the new horizontal
+  // gesture rather than carrying the shakier one forward.
   const dragStateRef = useRef<{
     dragging: boolean;
     claimed: boolean;
+    // Which finger this gesture belongs to (Touch.identifier, the native
+    // equivalent of a pointerId) — without this, a second finger
+    // accidentally touching down mid-swipe (easy to do holding a phone,
+    // thumb near the edge) could be misread as part of the same gesture.
+    // touches[0] usually stays the original finger in practice, but
+    // that's implementation behavior, not a spec guarantee — tracking the
+    // real identifier is what actually makes that certain.
+    touchId: number | null;
     startX: number;
     startY: number;
     lastX: number;
     lastT: number;
     prevX: number;
     prevT: number;
-  }>({ dragging: false, claimed: false, startX: 0, startY: 0, lastX: 0, lastT: 0, prevX: 0, prevT: 0 });
-  // Raw pointer travel, in px, before a still-undecided touch counts as
+  }>({ dragging: false, claimed: false, touchId: null, startX: 0, startY: 0, lastX: 0, lastT: 0, prevX: 0, prevT: 0 });
+  // Raw finger travel, in px, before a still-undecided touch counts as
   // "claimed" as a horizontal swipe — small enough that a short flick
   // registers, big enough that normal vertical scrolling/reading never
   // gets mistaken for one.
@@ -169,100 +192,141 @@ function SwipeCard({
     onCommit(dir);
   };
 
-  const handlePointerDown = (e: React.PointerEvent) => {
-    if (!isFront) return;
-    // Captures on THIS stable outer element, not e.target — e.target is
-    // whatever deep, potentially-rerendering child inside FeedGistCard
-    // the finger happened to land on. Confirmed live: capturing there
-    // let pointermove silently stop arriving a few pixels into a real
-    // gesture (the browser drops capture if its element's identity
-    // changes underneath it), which looked like the drag "freezing"
-    // after barely any travel — not a release, the events just stopped
-    // coming.
-    cardRef.current?.setPointerCapture?.(e.pointerId);
-    const now = performance.now();
-    dragStateRef.current = {
-      dragging: true,
-      claimed: false,
-      startX: e.clientX,
-      startY: e.clientY,
-      lastX: e.clientX,
-      lastT: now,
-      prevX: e.clientX,
-      prevT: now,
-    };
-  };
+  useEffect(() => {
+    const surface = cardRef.current;
+    if (!surface || !isFront) return;
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    const s = dragStateRef.current;
-    if (!s.dragging) return;
-    const dx = e.clientX - s.startX;
-    const dy = e.clientY - s.startY;
-    if (!s.claimed) {
-      // Not yet decided whether this touch is a horizontal swipe attempt
-      // or an ordinary vertical scroll/read. Below the slop, or clearly
-      // more vertical than horizontal, leave it alone entirely — native
-      // scrolling of the card's own content keeps working exactly as
-      // normal, nothing here interferes.
-      if (Math.max(Math.abs(dx), Math.abs(dy)) < CLAIM_SLOP_PX) return;
-      if (Math.abs(dy) >= Math.abs(dx)) {
-        s.dragging = false;
+    const findTouch = (list: TouchList, id: number) => {
+      for (let i = 0; i < list.length; i++) if (list[i].identifier === id) return list[i];
+      return null;
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (dragStateRef.current.dragging) return; // a gesture is already in progress — ignore a second finger
+      const t = e.touches[0];
+      const now = performance.now();
+      dragStateRef.current = {
+        dragging: true,
+        claimed: false,
+        touchId: t.identifier,
+        startX: t.clientX,
+        startY: t.clientY,
+        lastX: t.clientX,
+        lastT: now,
+        prevX: t.clientX,
+        prevT: now,
+      };
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const s = dragStateRef.current;
+      if (!s.dragging) return;
+      const t = s.touchId !== null ? findTouch(e.touches, s.touchId) : null;
+      if (!t) return;
+      const dx = t.clientX - s.startX;
+      const dy = t.clientY - s.startY;
+      if (!s.claimed) {
+        // Not yet decided whether this touch is a horizontal swipe
+        // attempt or an ordinary vertical scroll/read. Below the slop, or
+        // clearly more vertical than horizontal, leave it alone entirely
+        // — native scrolling of the card's own content keeps working
+        // exactly as normal, nothing here interferes (touchmove is
+        // non-passive below, but simply never calling preventDefault
+        // here is what lets the browser's own scroll proceed).
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < CLAIM_SLOP_PX) return;
+        if (Math.abs(dy) >= Math.abs(dx)) {
+          s.dragging = false;
+          return;
+        }
+        s.claimed = true;
+      }
+      // Claimed — this gesture is ours for the rest of its life. Stop the
+      // browser (and, on Android, the OS's own edge-back gesture — see
+      // this effect's own doc comment) from also trying to claim the
+      // same touch.
+      e.preventDefault();
+      x.set(dx);
+      s.prevX = s.lastX;
+      s.prevT = s.lastT;
+      s.lastX = t.clientX;
+      s.lastT = performance.now();
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      const s = dragStateRef.current;
+      if (!s.dragging) return;
+      // A lifted finger that isn't the one we're tracking (the OTHER hand
+      // let go while ours is still down) changes nothing about our
+      // gesture — only resolve once our own tracked touch is actually
+      // gone from the active list.
+      if (s.touchId !== null && findTouch(e.touches, s.touchId)) return;
+      s.dragging = false;
+      if (!s.claimed) return; // never became a horizontal swipe — nothing to resolve
+      // s.lastX/prevX (the tracked touchmove samples) are what resolve
+      // this, not changedTouches' own final position — same reasoning
+      // this code always used: the most reliable read is the last real
+      // move sample, not whatever the release event itself reports.
+      const dx = s.lastX - s.startX;
+      const dt = s.lastT - s.prevT;
+      const velocity = dt > 0 ? ((s.lastX - s.prevX) / dt) * 1000 : 0;
+      const wantsNext = dx < -SWIPE_THRESHOLD_PX || velocity < -SWIPE_VELOCITY;
+      const wantsPrev = dx > SWIPE_THRESHOLD_PX || velocity > SWIPE_VELOCITY;
+      const goingNext = wantsNext && canGoNextRef.current;
+      const goingPrev = wantsPrev && canGoPrevRef.current;
+      if (!goingNext && !goingPrev) {
+        // Under threshold, OR crossed it toward a direction with nowhere
+        // to go yet — either way, spring back to resting position
+        // instead of just staying wherever the finger let go.
+        animate(x, 0, SNAP_BACK_SPRING);
         return;
       }
-      s.claimed = true;
-    }
-    // Claimed — this gesture is ours for the rest of its life. Stop the
-    // browser from also trying to scroll/bounce the same touch.
-    e.preventDefault();
-    x.set(dx);
-    s.prevX = s.lastX;
-    s.prevT = s.lastT;
-    s.lastX = e.clientX;
-    s.lastT = performance.now();
-  };
+      commit(goingNext ? 1 : -1);
+    };
 
-  const handlePointerUp = () => {
-    const s = dragStateRef.current;
-    if (!s.dragging) return;
-    s.dragging = false;
-    if (!s.claimed) return; // never became a horizontal swipe — nothing to resolve
-    // Deliberately NOT reading the pointerup event's own clientX here —
-    // confirmed live that a touch-to-pointer-synthesized "up" can report
-    // it as 0 regardless of where the finger actually lifted, which
-    // silently made every swipe resolve as the same direction no matter
-    // which way it went. s.lastX (the final real pointermove sample) is
-    // the reliable final position; s.prevX/prevT alongside it gives a
-    // genuine last-moment velocity, same idea as useOverscrollNav's own
-    // "speed measured over the last touchmove only."
-    const dx = s.lastX - s.startX;
-    const dt = s.lastT - s.prevT;
-    const velocity = dt > 0 ? ((s.lastX - s.prevX) / dt) * 1000 : 0;
-    const wantsNext = dx < -SWIPE_THRESHOLD_PX || velocity < -SWIPE_VELOCITY;
-    const wantsPrev = dx > SWIPE_THRESHOLD_PX || velocity > SWIPE_VELOCITY;
-    const goingNext = wantsNext && canGoNext;
-    const goingPrev = wantsPrev && canGoPrev;
-    if (!goingNext && !goingPrev) {
-      // Under threshold, OR crossed it toward a direction with nowhere
-      // to go yet — either way, spring back to resting position instead
-      // of just staying wherever the pointer let go (or flying off to
-      // nothing).
-      animate(x, 0, SNAP_BACK_SPRING);
-      return;
-    }
-    commit(goingNext ? 1 : -1);
-  };
+    // touchstart passive (never preventDefault there, nothing to lose by
+    // letting the browser treat it normally up front); touchmove
+    // deliberately NOT passive — this is what gives preventDefault()
+    // above real teeth the instant a horizontal drag is claimed, exactly
+    // the mechanism this whole rewrite is about. touchcancel (a call
+    // comes in, the OS shows a system dialog, etc.) resolves the same way
+    // touchend does — same callback, but note it carries no useful
+    // changedTouches/velocity story either way, so this still correctly
+    // falls through to the snap-back path rather than ever committing.
+    surface.addEventListener("touchstart", onTouchStart, { passive: true });
+    surface.addEventListener("touchmove", onTouchMove, { passive: false });
+    surface.addEventListener("touchend", onTouchEnd);
+    surface.addEventListener("touchcancel", onTouchEnd);
+    return () => {
+      surface.removeEventListener("touchstart", onTouchStart);
+      surface.removeEventListener("touchmove", onTouchMove);
+      surface.removeEventListener("touchend", onTouchEnd);
+      surface.removeEventListener("touchcancel", onTouchEnd);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFront]);
 
   return (
     <motion.div
       ref={cardRef}
       className="absolute inset-0"
-      style={{ x, rotate, touchAction: "pan-y" }}
-      onPointerDown={isFront ? handlePointerDown : undefined}
-      onPointerMove={isFront ? handlePointerMove : undefined}
-      onPointerUp={isFront ? handlePointerUp : undefined}
-      onPointerCancel={isFront ? handlePointerUp : undefined}
+      // No touch-action/pointer-capture here on purpose — the gesture
+      // effect above attaches real TouchEvent listeners directly instead
+      // (see its own doc comment for why), which doesn't depend on this
+      // at all. Deliberately not adding it "just in case" either: the old
+      // vertical-swipe code this mechanism is modeled on didn't use it,
+      // and it's genuinely proven to work on Android without it — piling
+      // on untested CSS alongside a proven-working mechanism just adds
+      // unverified variables, not safety.
+      style={{ x, rotate }}
     >
-      <div className="mx-auto flex h-full w-full max-w-[600px] flex-col overflow-hidden rounded-t-[28px] border border-line bg-surface shadow-[0_16px_34px_-16px_rgba(10,20,40,0.3)] dark:bg-surface-2">
+      {/* Deliberately no border/shadow/rounding here — this is just a
+          scroll container for the post + comments, not a card of its own.
+          FeedGistCard below already has its own full card treatment
+          (border, rounded corners, shadow); wrapping it in a second one
+          here read as a border-within-a-border nesting effect, which
+          design flagged — only the post's own inner rectangle should
+          read as a card. */}
+      <div className="mx-auto flex h-full w-full max-w-[600px] flex-col overflow-hidden bg-surface dark:bg-surface-2">
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-4 no-scrollbar sm:px-4">
           <FeedGistCard gist={gist} onToggleComments={onToggleComments} />
 
