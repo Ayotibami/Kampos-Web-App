@@ -4,9 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { Modal } from "@/components/ui/Modal";
-import { X, Plus, DeleteIconFill } from "@/components/ui/icons";
+import { X, Plus, DeleteIconFill, FlameIconFill, Heart, CommentIconFill } from "@/components/ui/icons";
+import { HotCommentSheet } from "./HotCommentSheet";
 import { ConfirmModal } from "@/components/ui/FeedbackModal";
 import { GIST_CARD_PALETTE, gistColorFor } from "@/lib/brand";
+import { compactNumber } from "@/lib/format";
 
 export type ViewerPost = {
   id: string;
@@ -28,6 +30,13 @@ export type ViewerPost = {
    * TEXT post; null for photo/video (their background is the media
    * itself) or for a post composed before this existed. */
   colorKey?: string | null;
+  reactionsCount: number;
+  viewsCount: number;
+  commentsCount: number;
+  /** Null (or outside RANK_PILL_MAX) — no rank pill renders for this post
+   * at all, same as it genuinely not being one of today's top posts. */
+  rank: number | null;
+  myReaction: boolean;
 };
 
 export type ViewerPerson = {
@@ -68,6 +77,10 @@ const SWIPE_THRESHOLD_PX = 60;
 // Below this, a pointerdown is still just the start of a tap, not a hold —
 // long enough that a normal tap-to-advance never accidentally pauses.
 const HOLD_THRESHOLD_MS = 180;
+// A rank pill only ever shows for a post that's genuinely in today's top
+// 10 live Hot posts — past this, `rank` is still a real number (the
+// backend ranks every live post), it just never earns a pill.
+const RANK_PILL_MAX = 10;
 
 // Person-to-person swipe transition — matches GistStackCard's own mobile
 // card exactly (useOverscrollNav.ts's EXIT_DISTANCE_PX/COMMIT_EXIT_S, and
@@ -149,6 +162,7 @@ export function EDeyHotViewer({
   onClose,
   onAddAnother,
   onDeletePost,
+  onReact,
 }: {
   open: boolean;
   people: ViewerPerson[];
@@ -171,6 +185,12 @@ export function EDeyHotViewer({
    * stack" signal — renders a delete button at the bottom of the viewer
    * for the CURRENTLY SHOWN post specifically, not the whole stack. */
   onDeletePost?: (postId: string) => void;
+  /** Unlike onAddAnother/onDeletePost, passed for BOTH your own stack and
+   * everyone else's — the backend allows reacting to your own post, same
+   * as a gist's own reactions already do. Tapping the heart calls this
+   * with the CURRENTLY SHOWN post's id to toggle the viewer's own
+   * reaction. */
+  onReact?: (postId: string) => void;
 }) {
   const [personIndex, setPersonIndex] = useState(initialIndex);
   // Which way the fall/rise card transition should play — +1 when the NEXT
@@ -188,6 +208,7 @@ export function EDeyHotViewer({
   const [introShowing, setIntroShowing] = useState(true);
   const [paused, setPaused] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [commentSheetOpen, setCommentSheetOpen] = useState(false);
   // Only meaningful while the current post is a video — its own real
   // length once the browser reports it, read via onLoadedMetadata below.
   // null until then, so the bar just waits at 0 rather than assuming
@@ -587,32 +608,98 @@ export function EDeyHotViewer({
           )}
 
           {/* Bottom stack — a photo/video's own caption (the same frosted
-              panel treatment the composer previews) above the delete
-              button, when either is present, so the two never overlap
-              regardless of which combination applies. */}
-          {((isPhoto || isVideo) && currentPost?.text) || onDeletePost ? (
+              panel treatment the composer previews), centered above the
+              action row: reactions/views on the left, comment (then
+              delete, when present) on the right — same bottom-left/
+              bottom-right split the mockup settled on, with the caption
+              sitting centered between them instead of off to one side.
+              The reaction/comment buttons always render here (every post
+              has both, own or someone else's) — delete only for your own
+              stack. */}
+          {currentPost && (
             <div
               onPointerDown={(e) => e.stopPropagation()}
               onPointerUp={(e) => e.stopPropagation()}
               className="absolute inset-x-3.5 bottom-[calc(1.25rem+env(safe-area-inset-bottom,0px))] z-10 flex flex-col items-center gap-2"
             >
-              {(isPhoto || isVideo) && currentPost?.text && (
-                <div className="pointer-events-none w-full rounded-2xl border border-white/20 bg-white/10 px-3.5 py-2.5 backdrop-blur-md">
-                  <p className="font-nunito text-[13px] font-semibold text-white">{currentPost.text}</p>
+              {(isPhoto || isVideo) && currentPost.text && (
+                // No border (a thin white/20 line reads crisp on a dark
+                // photo and muddy/invisible on a bright one — inconsistent
+                // by nature, not a one-off styling bug). Depth comes from
+                // a stronger blur + a darker fill + a soft drop shadow
+                // instead, which stays legible against any photo.
+                <div
+                  className="pointer-events-none w-full rounded-2xl px-3.5 py-2.5 shadow-lg shadow-black/30 backdrop-blur-xl backdrop-saturate-150"
+                  style={{ backgroundColor: "rgba(10,10,14,0.38)" }}
+                >
+                  <p
+                    className="font-nunito text-[13px] font-semibold text-white"
+                    style={{ textShadow: "0 1px 3px rgba(0,0,0,0.25)" }}
+                  >
+                    {currentPost.text}
+                  </p>
                 </div>
               )}
-              {onDeletePost && currentPost && (
-                <button
-                  type="button"
-                  onClick={() => setDeleteConfirmOpen(true)}
-                  className="flex shrink-0 items-center gap-1.5 self-end rounded-full bg-black/40 px-4 py-2 font-nunito text-[12.5px] font-extrabold text-white backdrop-blur-md active:scale-95"
-                >
-                  <DeleteIconFill size={15} weight="fill" />
-                  Delete
-                </button>
-              )}
+              <div className="flex w-full shrink-0 items-center justify-between gap-2">
+                {/* Heart + count, same pill treatment as the comment
+                    button on the right (bg-black/40, same padding/text
+                    size) — passed for own and others' posts alike now, so
+                    this is a button in both cases; the plain-span fallback
+                    only matters if some future caller omits onReact. */}
+                {onReact ? (
+                  <button
+                    type="button"
+                    onClick={() => onReact(currentPost.id)}
+                    aria-label={currentPost.myReaction ? "Remove your reaction" : "React to this post"}
+                    aria-pressed={currentPost.myReaction}
+                    className="flex shrink-0 items-center gap-1.5 rounded-full bg-black/40 px-4 py-2 font-nunito text-[12.5px] font-extrabold text-white backdrop-blur-md transition active:scale-95"
+                  >
+                    <Heart
+                      size={15}
+                      fill={currentPost.myReaction ? "currentColor" : "none"}
+                      className={currentPost.myReaction ? "text-[var(--hot-c)]" : undefined}
+                    />
+                    {compactNumber(currentPost.reactionsCount)}
+                  </button>
+                ) : (
+                  <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-black/40 px-4 py-2 font-nunito text-[12.5px] font-extrabold text-white backdrop-blur-md">
+                    <Heart size={15} />
+                    {compactNumber(currentPost.reactionsCount)}
+                  </span>
+                )}
+
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Same "hold pauses everything" state the long-press
+                      // gesture already drives — without this, the post
+                      // would keep auto-advancing (and a video keep
+                      // playing) underneath the sheet while someone's
+                      // reading/typing.
+                      setPaused(true);
+                      setCommentSheetOpen(true);
+                    }}
+                    aria-label={currentPost.commentsCount > 0 ? `View ${currentPost.commentsCount} comments` : "Comment"}
+                    className="flex shrink-0 items-center gap-1.5 rounded-full bg-black/40 px-4 py-2 font-nunito text-[12.5px] font-extrabold text-white backdrop-blur-md active:scale-95"
+                  >
+                    <CommentIconFill size={15} weight="fill" />
+                    {compactNumber(currentPost.commentsCount)}
+                  </button>
+                  {onDeletePost && (
+                    <button
+                      type="button"
+                      onClick={() => setDeleteConfirmOpen(true)}
+                      className="flex shrink-0 items-center gap-1.5 rounded-full bg-black/40 px-4 py-2 font-nunito text-[12.5px] font-extrabold text-white backdrop-blur-md active:scale-95"
+                    >
+                      <DeleteIconFill size={15} weight="fill" />
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-          ) : null}
+          )}
         </div>
           </motion.div>
         </AnimatePresence>
@@ -718,6 +805,31 @@ export function EDeyHotViewer({
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {/* Rank pill — fire gradient, same as the intro's own 🔥 badge
+            below, only when this post is genuinely in today's top
+            RANK_PILL_MAX. Its own row with real breathing room under the
+            header (top-[6.1rem]ish, not hugging the avatar row right
+            above it) — the reactions/views capsule used to share this row
+            but now lives in the bottom stack instead, left of the
+            caption, mirroring the comment button's own spot on the right.
+            Own stopPropagation guard, same reasoning the header row above
+            already gives. */}
+        {currentPost && currentPost.rank != null && currentPost.rank <= RANK_PILL_MAX && (
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            className="absolute left-3 top-[calc(6.1rem+env(safe-area-inset-top,0px))] z-10"
+          >
+            <span
+              className="flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1.5 font-nunito text-[11px] font-extrabold text-white shadow-sm shadow-black/20"
+              style={{ backgroundImage: "linear-gradient(90deg, var(--hot-a), var(--hot-b))" }}
+            >
+              <FlameIconFill size={13} weight="fill" />
+              Top {currentPost.rank} today
+            </span>
+          </div>
+        )}
 
         {/* Name Reveal Intro — plays once per person landed on, then
             clears itself (or a tap skips it early, same as the pause
@@ -825,6 +937,15 @@ export function EDeyHotViewer({
         icon={<DeleteIconFill size={26} weight="fill" />}
       />
     )}
+    <HotCommentSheet
+      open={commentSheetOpen}
+      onClose={() => {
+        setCommentSheetOpen(false);
+        setPaused(false);
+      }}
+      hotPostId={currentPost?.id ?? null}
+      commentCount={currentPost?.commentsCount ?? 0}
+    />
     </>
   );
 }

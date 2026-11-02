@@ -26,6 +26,11 @@ function toViewerPosts(posts: HotPost[]) {
       mediaKind: p.type === "text" ? null : p.type,
       colorKey: p.colorKey,
       thumbnailUrl: p.thumbnailUrl,
+      reactionsCount: p.reactionsCount,
+      viewsCount: p.viewsCount,
+      commentsCount: p.commentsCount,
+      rank: p.rank,
+      myReaction: p.myReaction,
     }));
 }
 
@@ -109,6 +114,7 @@ function HotPageInner() {
   const markSeen = useHotStore((s) => s.markSeen);
   const flushSeen = useHotStore((s) => s.flushSeen);
   const deletePost = useHotStore((s) => s.deletePost);
+  const reactToPost = useHotStore((s) => s.reactToPost);
 
   useEffect(() => {
     void fetchAll();
@@ -221,6 +227,7 @@ function HotPageInner() {
         }}
         onAddAnother={isOwn ? openComposer : undefined}
         onDeletePost={isOwn ? (id) => void deletePost(id) : undefined}
+        onReact={(id) => void reactToPost(id)}
       />
       <EDeyHotComposer open={composerOpen} onClose={() => setComposerOpen(false)} />
       <HotExplainerModal

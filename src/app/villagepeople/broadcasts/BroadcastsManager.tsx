@@ -4,10 +4,18 @@ import { useState } from "react";
 import { TextInput } from "@/components/ui/TextInput";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal, ErrorModal, SuccessModal } from "@/components/ui/FeedbackModal";
-import { AlertTriangle } from "@/components/ui/icons";
+import { AlertTriangle, Check, Send, Bell } from "@/components/ui/icons";
 import { apiErrorMessage } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
-import { useBroadcastStore, type BroadcastSummary } from "@/stores/broadcastStore";
+import { useBroadcastStore, type BroadcastSummary, type BroadcastAudience, type RecipientCount } from "@/stores/broadcastStore";
+
+const AUDIENCE_OPTIONS: { value: BroadcastAudience; label: string }[] = [
+  { value: "STUDENT", label: "Students" },
+  { value: "KREATOR", label: "Kreators" },
+  { value: "KOMPANY", label: "Kompanies" },
+  { value: "SCHOOL", label: "Schools" },
+  { value: "IDIOT", label: "Idiots" },
+];
 
 /**
  * Client half of /villagepeople/broadcasts — the server page.tsx does the
@@ -28,7 +36,17 @@ export function BroadcastsManager({ initialBroadcasts }: { initialBroadcasts: Br
   const [broadcasts, setBroadcasts] = useState<BroadcastSummary[]>(initialBroadcasts);
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
-  const [recipientCount, setRecipientCount] = useState<number | null>(null);
+  // Multi-select — Students on by default, the king can add/remove any
+  // combination of the other four from there.
+  const [audiences, setAudiences] = useState<BroadcastAudience[]>(["STUDENT"]);
+  const toggleAudience = (value: BroadcastAudience) =>
+    setAudiences((prev) => (prev.includes(value) ? prev.filter((a) => a !== value) : [...prev, value]));
+  // Email on by default (preserves the page's original one-channel
+  // behavior); Notification is the new opt-in. At least one of the two
+  // must stay on — see canSend below.
+  const [viaEmail, setViaEmail] = useState(true);
+  const [viaNotification, setViaNotification] = useState(false);
+  const [recipientCount, setRecipientCount] = useState<RecipientCount | null>(null);
   const [checkingCount, setCheckingCount] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
@@ -52,12 +70,19 @@ export function BroadcastsManager({ initialBroadcasts }: { initialBroadcasts: Br
     setShowSuccess(true);
   };
 
-  const canSend = subject.trim().length > 0 && message.trim().length > 0;
+  const atLeastOneChannel = viaEmail || viaNotification;
+  // Subject only matters for the email leg — a notification is a single
+  // line on the notification screen, nothing to put a subject on.
+  const canSend =
+    message.trim().length > 0 &&
+    atLeastOneChannel &&
+    audiences.length > 0 &&
+    (!viaEmail || subject.trim().length > 0);
 
   const handleReview = async () => {
     setCheckingCount(true);
     try {
-      const count = await fetchRecipientCount();
+      const count = await fetchRecipientCount(audiences);
       setRecipientCount(count);
       setConfirming(true);
     } catch (err) {
@@ -70,7 +95,13 @@ export function BroadcastsManager({ initialBroadcasts }: { initialBroadcasts: Br
   const handleSend = async () => {
     setSending(true);
     try {
-      const result = await createBroadcast(subject.trim(), message.trim());
+      const result = await createBroadcast({
+        subject: subject.trim(),
+        message: message.trim(),
+        audiences,
+        viaEmail,
+        viaNotification,
+      });
       setConfirming(false);
       setSubject("");
       setMessage("");
@@ -88,6 +119,35 @@ export function BroadcastsManager({ initialBroadcasts }: { initialBroadcasts: Br
       setSending(false);
     }
   };
+
+  // Joins the picked labels into a real list ("students, Kreators and
+  // Kompanies") rather than just naming the first one — a multi-audience
+  // send should read back exactly who it's going to.
+  const audienceLabel = (() => {
+    const labels = AUDIENCE_OPTIONS.filter((a) => audiences.includes(a.value)).map((a) => a.label.toLowerCase());
+    if (labels.length === 0) return "recipients";
+    if (labels.length === 1) return labels[0];
+    return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+  })();
+
+  // Describes exactly what's about to happen across however many channels
+  // are selected, with real counts for both — one clause per active
+  // channel, joined into a real sentence.
+  const confirmMessage = (() => {
+    if (recipientCount === null) return "Checking who this would reach…";
+    const clauses: string[] = [];
+    if (viaEmail) {
+      clauses.push(
+        `email ${recipientCount.emailCount} active account${recipientCount.emailCount === 1 ? "" : "s"}`,
+      );
+    }
+    if (viaNotification) {
+      clauses.push(
+        `put this on the notification screen of ${recipientCount.notificationCount} active ${audienceLabel} and push it to their device`,
+      );
+    }
+    return `This will ${clauses.join(" and ")}. This can't be undone once sending starts.`;
+  })();
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -109,11 +169,7 @@ export function BroadcastsManager({ initialBroadcasts }: { initialBroadcasts: Br
         onClose={() => (sending ? undefined : setConfirming(false))}
         onConfirm={handleSend}
         title="Send this to everyone?"
-        message={
-          recipientCount === null
-            ? "Checking who this would reach…"
-            : `This will email ${recipientCount} active account${recipientCount === 1 ? "" : "s"}. This can't be undone once sending starts.`
-        }
+        message={confirmMessage}
         confirmLabel="Send"
         icon={<AlertTriangle size={26} strokeWidth={2} />}
         loading={sending}
@@ -123,13 +179,95 @@ export function BroadcastsManager({ initialBroadcasts }: { initialBroadcasts: Br
         <div>
           <h1 className="font-nunito text-2xl font-extrabold text-ink">Broadcasts</h1>
           <p className="mt-1 font-nunito text-sm text-muted">
-            Email every active account on Kampos. Only king accounts can see this page.
+            Reach everyone on Kampos by email, notification, or both. Only king accounts can see this page.
           </p>
         </div>
 
-        <section className="flex flex-col gap-3 rounded-2xl border border-line/70 p-5">
+        <section className="flex flex-col gap-4 rounded-2xl border border-line/70 p-5">
           <h2 className="font-nunito text-sm font-bold text-ink">Compose</h2>
-          <TextInput value={subject} onChange={setSubject} placeholder="Subject" label="Subject" />
+
+          <div>
+            <span className="mb-1.5 block font-nunito text-sm text-muted">Send to</span>
+            <div className="flex flex-wrap gap-2">
+              {AUDIENCE_OPTIONS.map((opt) => {
+                const selected = audiences.includes(opt.value);
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => toggleAudience(opt.value)}
+                    aria-pressed={selected}
+                    className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 font-nunito text-xs font-bold transition ${
+                      selected ? "border-brand bg-brand text-white" : "border-line text-ink hover:border-brand/50"
+                    }`}
+                  >
+                    <span
+                      className={`flex h-4 w-4 items-center justify-center rounded-full border ${
+                        selected ? "border-white bg-white/20" : "border-faint"
+                      }`}
+                    >
+                      {selected && <Check className="h-3 w-3" strokeWidth={3} />}
+                    </span>
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {audiences.length === 0 && (
+              <p className="mt-1 font-nunito text-xs font-semibold text-danger">Pick at least one profile type.</p>
+            )}
+          </div>
+
+          <div>
+            <span className="mb-1.5 block font-nunito text-sm text-muted">Send via</span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setViaEmail((v) => !v)}
+                aria-pressed={viaEmail}
+                className={`flex items-center gap-2 rounded-full border px-3.5 py-1.5 font-nunito text-xs font-bold transition ${
+                  viaEmail ? "border-brand bg-brand text-white" : "border-line text-ink hover:border-brand/50"
+                }`}
+              >
+                <span
+                  className={`flex h-4 w-4 items-center justify-center rounded-full border ${
+                    viaEmail ? "border-white bg-white/20" : "border-faint"
+                  }`}
+                >
+                  {viaEmail && <Check className="h-3 w-3" strokeWidth={3} />}
+                </span>
+                <Send className="h-3.5 w-3.5" />
+                Email
+              </button>
+              <button
+                type="button"
+                onClick={() => setViaNotification((v) => !v)}
+                aria-pressed={viaNotification}
+                className={`flex items-center gap-2 rounded-full border px-3.5 py-1.5 font-nunito text-xs font-bold transition ${
+                  viaNotification ? "border-brand bg-brand text-white" : "border-line text-ink hover:border-brand/50"
+                }`}
+              >
+                <span
+                  className={`flex h-4 w-4 items-center justify-center rounded-full border ${
+                    viaNotification ? "border-white bg-white/20" : "border-faint"
+                  }`}
+                >
+                  {viaNotification && <Check className="h-3 w-3" strokeWidth={3} />}
+                </span>
+                <Bell className="h-3.5 w-3.5" />
+                Notification
+              </button>
+            </div>
+            <p className="mt-1.5 font-nunito text-xs text-faint">
+              Notification shows on their notification screen and sends as a push to their device — one switch
+              covers both. Pick either, or both.
+            </p>
+            {!atLeastOneChannel && (
+              <p className="mt-1 font-nunito text-xs font-semibold text-danger">Pick at least one channel.</p>
+            )}
+          </div>
+
+          {viaEmail && <TextInput value={subject} onChange={setSubject} placeholder="Subject" label="Subject" />}
           <label className="block w-full">
             <span className="mb-1.5 block font-nunito text-sm text-muted">Message</span>
             <textarea
@@ -175,15 +313,55 @@ export function BroadcastsManager({ initialBroadcasts }: { initialBroadcasts: Br
               {broadcasts.map((b) => (
                 <li key={b.broadcast_id} className="flex flex-col gap-2 rounded-2xl border border-line/70 p-4">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="min-w-0 shrink truncate font-nunito text-sm font-semibold text-ink">{b.subject}</p>
+                    {/* A notification-only broadcast never has a subject
+                        (nothing to put it on) — fall back to the message
+                        itself so the row header is never blank. */}
+                    <p className="min-w-0 shrink truncate font-nunito text-sm font-semibold text-ink">
+                      {b.subject || b.message}
+                    </p>
                     <span className="shrink-0 font-nunito text-xs text-faint">{timeAgo(b.created_at)}</span>
                   </div>
                   <p className="whitespace-pre-wrap break-words font-nunito text-sm text-muted">{b.message}</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {b.via_email && (
+                      <span className="rounded-full bg-brand/10 px-2 py-0.5 font-nunito text-[10px] font-bold text-brand">
+                        Email
+                      </span>
+                    )}
+                    {b.via_notification && (
+                      <span className="rounded-full bg-brand/10 px-2 py-0.5 font-nunito text-[10px] font-bold text-brand">
+                        Notification
+                      </span>
+                    )}
+                    {b.audiences.map((a) => (
+                      <span key={a} className="rounded-full bg-surface-2 px-2 py-0.5 font-nunito text-[10px] font-bold text-muted">
+                        {a}
+                      </span>
+                    ))}
+                  </div>
                   <div className="mt-1 flex flex-wrap items-center gap-3 font-nunito text-xs">
                     <span className="text-muted">{b.total_recipients} total</span>
-                    <span className="text-success">{b.sent_count} sent</span>
-                    {b.failed_count > 0 && <span className="text-danger">{b.failed_count} failed</span>}
-                    {b.pending_count > 0 && <span className="text-warning">{b.pending_count} pending</span>}
+                    {/* Each channel only ever shows ITS OWN stats — an
+                        email-only broadcast's push counts are meaningless
+                        zeros (no push leg ran at all), and vice versa, so
+                        showing both unconditionally would read as "this
+                        failed" when really that channel was just never
+                        turned on. */}
+                    {b.via_email && (
+                      <>
+                        <span className="text-success">{b.sent_count} emailed</span>
+                        {b.failed_count > 0 && <span className="text-danger">{b.failed_count} failed</span>}
+                        {b.pending_count > 0 && <span className="text-warning">{b.pending_count} pending</span>}
+                      </>
+                    )}
+                    {b.via_notification && (
+                      <>
+                        <span className="text-success">{b.push_sent_count} pushed</span>
+                        {b.push_pending_count > 0 && (
+                          <span className="text-warning">{b.push_pending_count} pending</span>
+                        )}
+                      </>
+                    )}
                   </div>
                 </li>
               ))}

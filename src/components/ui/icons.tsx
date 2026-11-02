@@ -56,6 +56,7 @@ export {
   ChatCircle as CommentIconFill,
   Smiley as ReactionIconFill,
   Eye as ViewIconFill,
+  Fire as FlameIconFill,
   GearSix as SettingsIconFill,
   Sun as SunIconFill,
   Moon as MoonIconFill,

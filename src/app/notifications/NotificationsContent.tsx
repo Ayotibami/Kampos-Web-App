@@ -36,7 +36,21 @@ const CATEGORY_LABELS: Record<NotificationCategory, string> = {
   DIGEST: "Catch Up",
   INACTIVITY_NUDGE: "\"Come back\" reminders",
   ACTIVATION_NUDGE: "\"Post something\" reminders",
+  ANNOUNCEMENT: "Announcements",
 };
+
+// Every category a user can actually toggle in Notification settings —
+// deliberately NOT all of NotificationCategory: ANNOUNCEMENT (a king
+// broadcast) is excluded on purpose, so it never shows up as a mutable
+// row at all. See PreferencesPanel below.
+const MUTABLE_CATEGORIES: NotificationCategory[] = [
+  "COMMENT",
+  "REPOST",
+  "HOT_EXPIRING",
+  "DIGEST",
+  "INACTIVITY_NUDGE",
+  "ACTIVATION_NUDGE",
+];
 
 // "Every Bubble": every notification is Kappy's own speech bubble (his
 // face sits in the corner of each one, constant). What shows INSIDE is
@@ -58,6 +72,10 @@ const CATEGORY_META: Record<
   DIGEST: { label: "Catch Up", labelClass: "text-brand-accent", tintVar: "var(--color-brand-accent)", icon: Sparkles, iconBgClass: "bg-brand-accent" },
   INACTIVITY_NUDGE: { label: "Nudge", labelClass: "text-faint", tintVar: "var(--color-faint)", icon: Moon, iconBgClass: "bg-faint" },
   ACTIVATION_NUDGE: { label: "Nudge", labelClass: "text-faint", tintVar: "var(--color-faint)", icon: BroadcastsIconFill, iconBgClass: "bg-faint" },
+  // Full-strength brand, not the faint gray the nudges use — this is an
+  // official message from Kampos itself, not a background system ping,
+  // and should read with that weight.
+  ANNOUNCEMENT: { label: "Announcement", labelClass: "text-brand", tintVar: "var(--color-brand)", icon: BroadcastsIconFill, iconBgClass: "bg-brand" },
 };
 
 // HOT_EXPIRING reuses "as e dey hot"'s own flame gradient tokens (globals.css)
@@ -425,6 +443,9 @@ const CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
   DIGEST: "A roundup of what you missed, every so often",
   INACTIVITY_NUDGE: "A nudge if you've been away for a while",
   ACTIVATION_NUDGE: "A nudge to post if your feed's gone quiet",
+  // Not shown in settings at all (see MUTABLE_CATEGORIES) — kept here only
+  // because CATEGORY_DESCRIPTIONS is typed to cover every category.
+  ANNOUNCEMENT: "Official messages from Kampos — can't be turned off",
 };
 
 /** Same switch look as SoundToggle, local to this panel so each row can
@@ -549,7 +570,7 @@ function PreferencesPanel({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
         ) : (
           <div className="mt-2 flex flex-col divide-y divide-line">
-            {(Object.keys(CATEGORY_LABELS) as NotificationCategory[]).map((cat) => (
+            {MUTABLE_CATEGORIES.map((cat) => (
               <PreferenceRow
                 key={cat}
                 cat={cat}

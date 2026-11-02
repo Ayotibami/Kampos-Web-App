@@ -3,6 +3,7 @@ import axios from "axios";
 import { api, apiGet, apiErrorMessage, type ApiEnvelope } from "@/lib/api";
 import { uploadToCloudinaryDirect, type CloudinarySignature, type CloudinaryUploadResult } from "@/lib/cloudinary";
 import { wsClient } from "@/lib/ws";
+import { useAuthStore } from "@/stores/authStore";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -39,6 +40,15 @@ export interface HotPost {
   expiresAt: number;
   durationMs: number | null;
   seen: boolean;
+  reactionsCount: number;
+  viewsCount: number;
+  commentsCount: number;
+  /** Null when the post isn't ranked among today's live Hot posts at all
+   * — never shown as a rank pill, same as "not top 10." */
+  rank: number | null;
+  /** Whether the CURRENT viewer has reacted — always false for your own
+   * posts (the backend rejects self-reacting outright). */
+  myReaction: boolean;
 }
 
 export interface HotPerson {
@@ -72,6 +82,11 @@ interface RawHotPost {
   level?: number | null;
   seen?: boolean;
   tier?: number;
+  reactions_count?: number;
+  views_count?: number;
+  comments_count?: number;
+  rank?: number | null;
+  my_reaction?: boolean;
 }
 
 const MEDIA_KIND_MAP: Record<RawHotPost["media_kind"], HotMediaType> = {
@@ -114,6 +129,11 @@ function fromRaw(row: RawHotPost): HotPost {
     expiresAt: createdAt + DAY_MS,
     durationMs: row.duration_ms ?? null,
     seen: row.seen ?? false,
+    reactionsCount: row.reactions_count ?? 0,
+    viewsCount: row.views_count ?? 0,
+    commentsCount: row.comments_count ?? 0,
+    rank: row.rank ?? null,
+    myReaction: row.my_reaction ?? false,
   };
 }
 
@@ -139,6 +159,47 @@ function preloadHotMedia(posts: HotPost[]): void {
   }
 }
 
+export interface HotComment {
+  comment_id: string;
+  hot_post_id: string;
+  avitag: string;
+  text: string;
+  commented_at: string;
+  first_name: string | null;
+  last_name: string | null;
+  campus_tag: string | null;
+  major_tag: string | null;
+  image_url: string | null;
+  reactions_count: number;
+  /** 'LOVE' or null — a single tap-to-like, same shared generic
+   * `reactions` table (entity_type: 'COMMENT') gist/Spot comments already
+   * react against. See KamposBackend's hot-post-comment.repo.ts. */
+  my_reaction: string | null;
+}
+
+/** Same "build a realistic placeholder from what we already know about the
+ * viewer" trick spotStore's own buildOptimisticSpotComment uses — see its
+ * doc comment for the full reasoning, copied here unchanged since nothing
+ * about it is actually Spot-specific. */
+function buildOptimisticHotComment(hotPostId: string, text: string, tempId: string): HotComment {
+  const { avitag, profiles } = useAuthStore.getState();
+  const myProfile = profiles.find((p) => p.avitag === avitag);
+  return {
+    comment_id: `offline-${tempId}`,
+    hot_post_id: hotPostId,
+    avitag: avitag ?? "",
+    text,
+    commented_at: new Date().toISOString(),
+    first_name: (myProfile?.first_name as string | undefined) ?? null,
+    last_name: (myProfile?.last_name as string | undefined) ?? null,
+    campus_tag: (myProfile?.campus_tag as string | undefined) ?? null,
+    major_tag: (myProfile?.major_tag as string | undefined) ?? null,
+    image_url: (myProfile?.image_url as string | undefined) ?? null,
+    reactions_count: 0,
+    my_reaction: null,
+  };
+}
+
 function groupFeed(people: RawHotFeedPerson[]): HotPerson[] {
   // The backend's own listFeed already groups by author AND sorts (tier
   // ASC, then soonest-expiring author first) — this just re-shapes each
@@ -161,6 +222,8 @@ interface HotState {
   loaded: boolean;
   loading: boolean;
   error: string | null;
+  commentsByHotPost: Record<string, HotComment[]>;
+  commentsErrorByHotPost: Record<string, string | undefined>;
 
   fetchAll: () => Promise<void>;
   createText: (text: string, colorKey: string) => Promise<HotPost>;
@@ -177,6 +240,27 @@ interface HotState {
    * id for the next batched flush rather than a network round trip per
    * post. */
   markSeen: (hotPostId: string) => void;
+  /** Optimistic toggle — flips myReaction/reactionsCount immediately (so
+   * the tap feels instant), rolls back if the request fails. Only ever
+   * called for someone else's post (the UI never renders the control for
+   * your own — see EDeyHotViewer's onReact doc comment), but this itself
+   * has no opinion on that; the backend's own ownership guard is the real
+   * enforcement either way. */
+  reactToPost: (hotPostId: string) => Promise<void>;
+
+  /** Fetches (or refetches) every comment on one Hot post — HotCommentSheet
+   * calls this on open, same as SpotCommentSheet's own fetchComments. */
+  fetchComments: (hotPostId: string) => Promise<void>;
+  addComment: (hotPostId: string, text: string) => Promise<void>;
+  /** Comment-level tap-to-like, against the shared polymorphic `reactions`
+   * endpoint (entity_type: 'COMMENT') — same one gist/Spot comments already
+   * use. reactComment is the toggle-on half; unreactComment the toggle-off. */
+  reactComment: (hotPostId: string, commentId: string) => Promise<void>;
+  unreactComment: (hotPostId: string, commentId: string) => Promise<void>;
+  /** Owner of the comment, or an admin moderating someone else's — the
+   * backend's own ownership/role check is the real enforcement either way,
+   * same as removeSpotComment. */
+  removeComment: (hotPostId: string, commentId: string) => Promise<void>;
   /** Sends every queued id in ONE call — see hot.repo.ts's markSeenBatch on
    * the backend for why this is batched rather than per-post. Call this
    * when the viewer closes or moves to a different person's stack, not on
@@ -193,6 +277,8 @@ export const useHotStore = create<HotState>((set, get) => ({
   loaded: false,
   loading: false,
   error: null,
+  commentsByHotPost: {},
+  commentsErrorByHotPost: {},
 
   fetchAll: async () => {
     set({ loading: true, error: null });
@@ -313,6 +399,215 @@ export const useHotStore = create<HotState>((set, get) => ({
       })),
     }));
     if (!seenQueue.includes(hotPostId)) seenQueue.push(hotPostId);
+  },
+
+  reactToPost: async (hotPostId) => {
+    // Works on your own posts too (the backend allows self-reacting, same
+    // as a gist), so this has to check BOTH myPosts and feed — unlike
+    // markSeen/addComment's own split, a reactable post could be in
+    // either one depending on whose stack is currently open.
+    const applyLocal = (reacted: boolean) => ({
+      myPosts: get().myPosts.map((p) =>
+        p.id === hotPostId
+          ? { ...p, myReaction: reacted, reactionsCount: p.reactionsCount + (reacted ? 1 : -1) }
+          : p,
+      ),
+      feed: get().feed.map((person) => ({
+        ...person,
+        posts: person.posts.map((p) =>
+          p.id === hotPostId
+            ? { ...p, myReaction: reacted, reactionsCount: p.reactionsCount + (reacted ? 1 : -1) }
+            : p,
+        ),
+      })),
+    });
+
+    const current = get()
+      .myPosts.concat(get().feed.flatMap((p) => p.posts))
+      .find((p) => p.id === hotPostId);
+    if (!current) return;
+    const nextReacted = !current.myReaction;
+    set(applyLocal(nextReacted));
+
+    try {
+      const res = await api.post<ApiEnvelope<{ reacted: boolean }>>(
+        `/hot-posts/${encodeURIComponent(hotPostId)}/react`,
+      );
+      const serverReacted = res.data?.data?.reacted;
+      // The server is the one source of truth for the final state — a
+      // second rapid tap landing while the first request is still in
+      // flight could otherwise leave the optimistic guess out of sync
+      // with what actually got recorded.
+      if (typeof serverReacted === "boolean" && serverReacted !== nextReacted) {
+        set(applyLocal(serverReacted));
+      }
+    } catch {
+      // Roll back to whatever it was before this tap.
+      set(applyLocal(current.myReaction));
+    }
+  },
+
+  fetchComments: async (hotPostId) => {
+    try {
+      const res = await api.get<ApiEnvelope<HotComment[]>>(`/hot-post-comments/hot-post/${encodeURIComponent(hotPostId)}`);
+      const data = res.data?.data ?? [];
+      set((s) => ({
+        // Written even for an empty array — that's what makes `hotPostId in
+        // commentsByHotPost` a reliable "genuinely fetched, zero comments"
+        // signal, distinct from "hasn't loaded yet" (same reasoning
+        // spotStore's own fetchComments gives).
+        commentsByHotPost: { ...s.commentsByHotPost, [hotPostId]: data },
+        commentsErrorByHotPost: { ...s.commentsErrorByHotPost, [hotPostId]: undefined },
+      }));
+    } catch (err) {
+      set((s) => ({
+        commentsErrorByHotPost: {
+          ...s.commentsErrorByHotPost,
+          [hotPostId]: apiErrorMessage(err, "Couldn't load comments"),
+        },
+      }));
+    }
+  },
+
+  addComment: async (hotPostId, text) => {
+    const tempId = crypto.randomUUID();
+    const optimistic = buildOptimisticHotComment(hotPostId, text, tempId);
+    set((s) => ({
+      myPosts: s.myPosts.map((p) => (p.id === hotPostId ? { ...p, commentsCount: p.commentsCount + 1 } : p)),
+      feed: s.feed.map((person) => ({
+        ...person,
+        posts: person.posts.map((p) => (p.id === hotPostId ? { ...p, commentsCount: p.commentsCount + 1 } : p)),
+      })),
+      commentsByHotPost: { ...s.commentsByHotPost, [hotPostId]: [optimistic, ...(s.commentsByHotPost[hotPostId] ?? [])] },
+    }));
+    try {
+      const res = await api.post<ApiEnvelope<HotComment>>("/hot-post-comments", { hot_post_id: hotPostId, text });
+      const created = res.data?.data;
+      set((s) => ({
+        commentsByHotPost: {
+          ...s.commentsByHotPost,
+          [hotPostId]: (s.commentsByHotPost[hotPostId] ?? []).map((c) =>
+            c.comment_id === optimistic.comment_id ? (created ?? c) : c,
+          ),
+        },
+      }));
+    } catch (err) {
+      // Roll back both the count and the placeholder — same "undo exactly
+      // this call's own change" reasoning reactToPost's own catch follows.
+      set((s) => ({
+        myPosts: s.myPosts.map((p) =>
+          p.id === hotPostId ? { ...p, commentsCount: Math.max(0, p.commentsCount - 1) } : p,
+        ),
+        feed: s.feed.map((person) => ({
+          ...person,
+          posts: person.posts.map((p) =>
+            p.id === hotPostId ? { ...p, commentsCount: Math.max(0, p.commentsCount - 1) } : p,
+          ),
+        })),
+        commentsByHotPost: {
+          ...s.commentsByHotPost,
+          [hotPostId]: (s.commentsByHotPost[hotPostId] ?? []).filter((c) => c.comment_id !== optimistic.comment_id),
+        },
+      }));
+      throw new Error(apiErrorMessage(err, "Couldn't post your comment"));
+    }
+  },
+
+  reactComment: async (hotPostId, commentId) => {
+    set((s) => ({
+      commentsByHotPost: {
+        ...s.commentsByHotPost,
+        [hotPostId]: (s.commentsByHotPost[hotPostId] ?? []).map((c) =>
+          c.comment_id === commentId
+            ? { ...c, my_reaction: "LOVE", reactions_count: c.reactions_count + (c.my_reaction ? 0 : 1) }
+            : c,
+        ),
+      },
+    }));
+    try {
+      await api.post("/reactions", { entity_type: "COMMENT", entity_id: commentId, type: "LOVE" });
+    } catch {
+      set((s) => ({
+        commentsByHotPost: {
+          ...s.commentsByHotPost,
+          [hotPostId]: (s.commentsByHotPost[hotPostId] ?? []).map((c) =>
+            c.comment_id === commentId
+              ? { ...c, my_reaction: null, reactions_count: Math.max(0, c.reactions_count - 1) }
+              : c,
+          ),
+        },
+      }));
+    }
+  },
+
+  unreactComment: async (hotPostId, commentId) => {
+    set((s) => ({
+      commentsByHotPost: {
+        ...s.commentsByHotPost,
+        [hotPostId]: (s.commentsByHotPost[hotPostId] ?? []).map((c) =>
+          c.comment_id === commentId
+            ? { ...c, my_reaction: null, reactions_count: Math.max(0, c.reactions_count - (c.my_reaction ? 1 : 0)) }
+            : c,
+        ),
+      },
+    }));
+    try {
+      await api.delete(`/reactions/entity/COMMENT/${encodeURIComponent(commentId)}`);
+    } catch {
+      set((s) => ({
+        commentsByHotPost: {
+          ...s.commentsByHotPost,
+          [hotPostId]: (s.commentsByHotPost[hotPostId] ?? []).map((c) =>
+            c.comment_id === commentId
+              ? { ...c, my_reaction: "LOVE", reactions_count: c.reactions_count + 1 }
+              : c,
+          ),
+        },
+      }));
+    }
+  },
+
+  removeComment: async (hotPostId, commentId) => {
+    let removed: { item: HotComment; index: number } | undefined;
+    set((s) => {
+      const list = s.commentsByHotPost[hotPostId] ?? [];
+      const idx = list.findIndex((c) => c.comment_id === commentId);
+      if (idx !== -1) removed = { item: list[idx], index: idx };
+      return {
+        commentsByHotPost: { ...s.commentsByHotPost, [hotPostId]: list.filter((c) => c.comment_id !== commentId) },
+        myPosts: s.myPosts.map((p) =>
+          p.id === hotPostId ? { ...p, commentsCount: Math.max(0, p.commentsCount - 1) } : p,
+        ),
+        feed: s.feed.map((person) => ({
+          ...person,
+          posts: person.posts.map((p) =>
+            p.id === hotPostId ? { ...p, commentsCount: Math.max(0, p.commentsCount - 1) } : p,
+          ),
+        })),
+      };
+    });
+    try {
+      await api.delete(`/hot-post-comments/${encodeURIComponent(commentId)}`);
+    } catch (err) {
+      if (removed) {
+        const restore = removed;
+        set((s) => {
+          const list = s.commentsByHotPost[hotPostId] ?? [];
+          return {
+            commentsByHotPost: {
+              ...s.commentsByHotPost,
+              [hotPostId]: [...list.slice(0, restore.index), restore.item, ...list.slice(restore.index)],
+            },
+            myPosts: s.myPosts.map((p) => (p.id === hotPostId ? { ...p, commentsCount: p.commentsCount + 1 } : p)),
+            feed: s.feed.map((person) => ({
+              ...person,
+              posts: person.posts.map((p) => (p.id === hotPostId ? { ...p, commentsCount: p.commentsCount + 1 } : p)),
+            })),
+          };
+        });
+      }
+      throw new Error(apiErrorMessage(err, "Couldn't delete that comment"));
+    }
   },
 
   flushSeen: async () => {

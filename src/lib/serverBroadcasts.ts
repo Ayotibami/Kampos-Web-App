@@ -12,9 +12,22 @@ export interface BroadcastSummary {
   message: string;
   sent_by_account_id: string;
   total_recipients: number;
+  audiences: string[];
+  via_email: boolean;
+  via_notification: boolean;
+  /** Email leg counts — only meaningful when via_email is true; stay at 0
+   * for a notification-only broadcast, which is correct, not broken (see
+   * the history list's own doc comment in BroadcastsManager.tsx). */
   sent_count: number;
   failed_count: number;
   pending_count: number;
+  /** Notification/push leg counts — only meaningful when via_notification
+   * is true. push_sent_count means "a push was attempted" (the same
+   * limitation every push send in this app has — see webpush.service.ts's
+   * own doc comment: accepted-for-delivery is the most confirmation a
+   * push service ever gives back), not "provably displayed on a device". */
+  push_sent_count: number;
+  push_pending_count: number;
   created_at: string;
 }
 

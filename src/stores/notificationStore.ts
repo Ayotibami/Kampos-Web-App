@@ -2,7 +2,11 @@ import { create } from "zustand";
 import { api, apiGet, apiErrorMessage } from "@/lib/api";
 import { wsClient } from "@/lib/ws";
 
-export type NotificationCategory = "COMMENT" | "REPOST" | "HOT_EXPIRING" | "DIGEST" | "INACTIVITY_NUDGE" | "ACTIVATION_NUDGE";
+// ANNOUNCEMENT is a king broadcast — never user-mutable (excluded from the
+// notification-settings mute list, see NotificationsContent.tsx's own
+// MUTABLE_CATEGORIES) and never capped like the rest (enforced backend-
+// side, not reflected in this type).
+export type NotificationCategory = "COMMENT" | "REPOST" | "HOT_EXPIRING" | "DIGEST" | "INACTIVITY_NUDGE" | "ACTIVATION_NUDGE" | "ANNOUNCEMENT";
 export type ImageKind = "KAPPY" | "PROFILE_PICTURE" | "MEDIA";
 // 'COMPOSE' has no content behind it at all — it means "open the Create
 // Gist sheet", not "navigate to a thing" (only ACTIVATION_NUDGE sets it).
