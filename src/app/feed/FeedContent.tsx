@@ -9,6 +9,11 @@ import { AppShell } from "@/components/layout/AppShell";
 import { FeedGistCard } from "@/components/gist/FeedGistCard";
 import { FeedGistCardSkeleton } from "@/components/gist/FeedGistCardSkeleton";
 import { CommentPanel } from "@/components/comment/CommentPanel";
+import { NotificationPermissionPrompt } from "@/components/notifications/NotificationPermissionPrompt";
+import { getPushSupport, isSubscribed } from "@/lib/notificationPush";
+import { detectIOSSafari, isStandalone } from "@/lib/pwaInstall";
+import { hasSeenPermissionPromptToday, markPermissionPromptSeenToday } from "@/lib/onboarding";
+import { useAnyModalOpen } from "@/stores/modalStore";
 
 // Both are controlled dialogs (an `open` boolean, never actually gone from
 // the tree) rather than conditionally mounted, so this doesn't defer *when*
@@ -688,6 +693,50 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
     return () => useLayoutStore.getState().setMobileNavVisible(true);
   }, []);
   const [showCommentSheet, setShowCommentSheet] = useState(false);
+
+  // Deliberately persistent "turn on notifications" explainer — unlike a
+  // one-time onboarding tip, this comes back every day the feed opens for
+  // as long as the account genuinely hasn't enabled push yet (checked live
+  // via isSubscribed, not just remembered), and stops for good the moment
+  // they do. "Not now" only silences it until tomorrow, not forever — see
+  // NotificationPermissionPrompt's own doc for why this asks before the
+  // native browser dialog instead of firing that cold.
+  //
+  // Sequenced behind InstallPrompt (layout.tsx, its own 4s delay) rather
+  // than firing independently — two unrelated modals popping on top of each
+  // other on the same visit would read as broken, not helpful. Only reveals
+  // once it's eligible, a minimum delay has passed (past InstallPrompt's own
+  // window), AND nothing else is currently open (useAnyModalOpen — covers
+  // InstallPrompt still being up because the user hasn't acted on it yet);
+  // re-checks automatically once that modal closes.
+  const PERMISSION_PROMPT_MIN_DELAY_MS = 5500;
+  const [permissionPromptEligible, setPermissionPromptEligible] = useState(false);
+  const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
+  const anyModalOpen = useAnyModalOpen();
+  useEffect(() => {
+    // ?testPushPrompt=1 bypasses only the daily-seen gate, for manually
+    // triggering it while testing — real eligibility (support, not already
+    // subscribed) still applies, so it never lies about whether this
+    // browser/account can actually receive push.
+    const forceTest = new URLSearchParams(window.location.search).get("testPushPrompt") === "1";
+    if (!forceTest && hasSeenPermissionPromptToday()) return;
+    if (detectIOSSafari() && !isStandalone()) return;
+    if (getPushSupport() !== "ready") return;
+    (async () => {
+      if (await isSubscribed()) return; // already on — nothing to ask
+      setPermissionPromptEligible(true);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!permissionPromptEligible || showPermissionPrompt || anyModalOpen) return;
+    const timer = window.setTimeout(() => setShowPermissionPrompt(true), PERMISSION_PROMPT_MIN_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [permissionPromptEligible, showPermissionPrompt, anyModalOpen]);
+  const dismissPermissionPrompt = useCallback(() => {
+    markPermissionPromptSeenToday();
+    setShowPermissionPrompt(false);
+  }, []);
   // useCallback (not a plain function) — passed straight through to every
   // FeedGistCard as `onToggleComments` with no per-card wrapping, so its
   // identity has to stay stable across renders that don't actually change
@@ -1279,6 +1328,7 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
         gist={activeGist}
         autoFocusInput={false}
       />
+      <NotificationPermissionPrompt open={showPermissionPrompt} onDone={dismissPermissionPrompt} />
     </AppShell>
   );
 }
