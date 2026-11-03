@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { Modal } from "@/components/ui/Modal";
-import { X, Plus, DeleteIconFill, FlameIconFill, Heart, CommentIconFill } from "@/components/ui/icons";
+import { X, Plus, DeleteIconFill, FlameIconFill, Heart, CommentIconFill, MuteIconFill, VolumeIconFill } from "@/components/ui/icons";
 import { HotCommentSheet } from "./HotCommentSheet";
 import { ConfirmModal } from "@/components/ui/FeedbackModal";
 import { GIST_CARD_PALETTE, gistColorFor } from "@/lib/brand";
 import { compactNumber } from "@/lib/format";
+import { useVideoSoundStore } from "@/stores/videoSoundStore";
 
 export type ViewerPost = {
   id: string;
@@ -222,6 +223,15 @@ export function EDeyHotViewer({
   // onLoadedData once the browser actually has it.
   const [mediaLoaded, setMediaLoaded] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Same shared "is sound on" flag the regular feed's GistMediaGrid videos
+  // already use (videoSoundStore.ts) — once someone unmutes ANYWHERE in
+  // the app, Hot's videos start unmuted too, no separate first tap needed
+  // here. Browsers still force the very first autoplaying video of a
+  // session to start muted regardless (see that store's own doc comment);
+  // nothing here changes that, the toggle button below is still how
+  // anyone gets from muted to unmuted the first time.
+  const soundMuted = useVideoSoundStore((s) => s.muted);
+  const setSoundMuted = useVideoSoundStore((s) => s.setMuted);
 
   // Fresh position every time the viewer opens (never resumes wherever a
   // previous open left off) and every time landing on a new person (always
@@ -543,11 +553,13 @@ export function EDeyHotViewer({
             // No blurred backdrop for video (decoding the same clip twice
             // just for atmosphere is real battery/CPU cost) — plain black
             // letterboxing instead, same call as the composer's own media
-            // canvas. Muted (no mute toggle, no play/pause control at all —
-            // the hold-anywhere gesture above is the only interaction),
-            // autoplay driven by the effect above rather than the
-            // `autoPlay` attribute, so the exact same instant it becomes
-            // current is the instant it's told to play.
+            // canvas. Sound follows the shared videoSoundStore (see the
+            // header's own mute toggle below) rather than being hardcoded
+            // muted — no play/pause control still (the hold-anywhere
+            // gesture above is the only interaction for that). Autoplay
+            // driven by the effect above rather than the `autoPlay`
+            // attribute, so the exact same instant it becomes current is
+            // the instant it's told to play.
             // Advancing is left entirely to the bar's own onAnimationEnd
             // (below) rather than also wiring this element's `onEnded` —
             // its duration is set directly from this video's real length,
@@ -561,7 +573,7 @@ export function EDeyHotViewer({
               // a blank/black rectangle while the clip itself streams in —
               // the same instant win a photo's own blurred backdrop gives.
               poster={currentPost.thumbnailUrl ?? undefined}
-              muted
+              muted={soundMuted}
               playsInline
               disablePictureInPicture
               disableRemotePlayback
@@ -786,6 +798,20 @@ export function EDeyHotViewer({
           <span className="ml-auto shrink-0 font-nunito text-[10.5px] font-semibold text-white/55">
             {currentPost ? timeAgoLabel(currentPost.createdAt, now) : ""}
           </span>
+          {isVideo && (
+            <button
+              type="button"
+              onClick={() => setSoundMuted(!soundMuted)}
+              aria-label={soundMuted ? "Unmute" : "Mute"}
+              className="ml-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/25 text-white"
+            >
+              {soundMuted ? (
+                <MuteIconFill className="h-4 w-4" weight="fill" />
+              ) : (
+                <VolumeIconFill className="h-4 w-4" weight="fill" />
+              )}
+            </button>
+          )}
           {onAddAnother && (
             <button
               type="button"
