@@ -736,6 +736,14 @@ export function FeedContent({ initialGists }: { initialGists: Gist[] }) {
   const dismissPermissionPrompt = useCallback(() => {
     markPermissionPromptSeenToday();
     setShowPermissionPrompt(false);
+    // Without this, permissionPromptEligible stays true after a dismiss —
+    // the effect below re-runs the instant showPermissionPrompt flips back
+    // to false (it's one of that effect's own dependencies) and, seeing
+    // eligible still true, arms a brand new timer that shows the whole
+    // thing again a few seconds later. Clearing it here is what actually
+    // stops the loop for the rest of this page visit; markPermissionPromptSeenToday
+    // above only governs the NEXT page load, not this one.
+    setPermissionPromptEligible(false);
   }, []);
   // useCallback (not a plain function) — passed straight through to every
   // FeedGistCard as `onToggleComments` with no per-card wrapping, so its
