@@ -37,6 +37,7 @@ const CATEGORY_LABELS: Record<NotificationCategory, string> = {
   INACTIVITY_NUDGE: "\"Come back\" reminders",
   ACTIVATION_NUDGE: "\"Post something\" reminders",
   ANNOUNCEMENT: "Announcements",
+  CAMPUSMATE_GIST: "Gist",
 };
 
 // Every category a user can actually toggle in Notification settings —
@@ -48,6 +49,7 @@ const MUTABLE_CATEGORIES: NotificationCategory[] = [
   "REPOST",
   "HOT_EXPIRING",
   "DIGEST",
+  "CAMPUSMATE_GIST",
   "INACTIVITY_NUDGE",
   "ACTIVATION_NUDGE",
 ];
@@ -76,6 +78,7 @@ const CATEGORY_META: Record<
   // official message from Kampos itself, not a background system ping,
   // and should read with that weight.
   ANNOUNCEMENT: { label: "Announcement", labelClass: "text-brand", tintVar: "var(--color-brand)", icon: BroadcastsIconFill, iconBgClass: "bg-brand" },
+  CAMPUSMATE_GIST: { label: "Gist", labelClass: "text-brand", tintVar: "var(--color-brand)", icon: AllGistsIconFill, iconBgClass: "bg-brand" },
 };
 
 // HOT_EXPIRING reuses "as e dey hot"'s own flame gradient tokens (globals.css)
@@ -90,8 +93,14 @@ const HOT_GRADIENT = { background: "linear-gradient(180deg, var(--hot-a), var(--
 // look for whichever slot(s) the backend didn't resolve a real picture
 // for (image_kind/actor_image_url came back empty).
 const DIGEST_ITEM_META: Record<string, { label: (actor: string | null) => string; icon: typeof MessageCircle; solid: string; tint: string }> = {
+  // Key stays the OLD name on purpose — this renders historical digest
+  // bundles whose stored payload JSON literally has "COURSEMATE_GIST"
+  // baked in from before the category was renamed to CAMPUSMATE_GIST and
+  // moved off the digest batch entirely (see notification.service.ts).
+  // Nothing new ever lands here anymore; a fresh campusmate gist shows as
+  // its own instant notification via CATEGORY_META above instead.
   COURSEMATE_GIST: {
-    label: (a) => (a ? `${a} posted a gist` : "A coursemate posted a gist"),
+    label: (a) => (a ? `${a} posted a gist` : "A campusmate posted a gist"),
     icon: AllGistsIconFill,
     solid: "var(--color-brand)",
     tint: "color-mix(in srgb, var(--color-brand) 14%, transparent)",
@@ -223,7 +232,7 @@ function DigestSubitem({ item, onNavigate }: { item: DigestItem; onNavigate: (ta
   if (!meta) return null;
   const Icon = meta.icon;
   // Purely data-driven, independent checks — only trust what the backend
-  // actually resolved, never assume one implies the other. A coursemate
+  // actually resolved, never assume one implies the other. A campusmate
   // item can carry both; a milestone item (no second party) only ever
   // has hasMedia true.
   const hasActor = !!item.actor_avitag && !!item.actor_image_url && !actorFailed;
@@ -446,6 +455,7 @@ const CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
   // Not shown in settings at all (see MUTABLE_CATEGORIES) — kept here only
   // because CATEGORY_DESCRIPTIONS is typed to cover every category.
   ANNOUNCEMENT: "Official messages from Kampos — can't be turned off",
+  CAMPUSMATE_GIST: "The moment someone from your school posts a gist",
 };
 
 /** Same switch look as SoundToggle, local to this panel so each row can
