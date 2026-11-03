@@ -18,7 +18,7 @@
  * net against clipping, not a sizing strategy of its own.
  */
 export const HERO_TEXT_MIN_REM = 1; // ~16px — smallest a hero statement should ever render, any device
-export const HERO_TEXT_NOMINAL_REM = 1.75; // ~28px — bold enough to read as a deliberate statement, restrained enough that a handful of words still wraps cleanly
+export const HERO_TEXT_NOMINAL_REM = 1.125; // ~18px — bold enough to read as a deliberate statement, restrained enough that a handful of words still wraps cleanly
 export const HERO_TEXT_STEP_REM = 0.0625; // 1px steps at the default root size — fine enough not to visibly jump
 
 /** For a block element whose own height already tracks its content (e.g. a
