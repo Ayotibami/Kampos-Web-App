@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import {
   ArrowLeft,
@@ -29,6 +30,16 @@ import { PushOptInBanner } from "@/components/notifications/PushOptInBanner";
 import KappyWaving from "@/assets/illustrations/KappyWaving.webp";
 import KappyAvatar from "@/assets/illustrations/kappyhead.png";
 
+// Same ssr:false/lazy-chunk reasoning FeedContent.tsx's own copy of this
+// import already uses — pure interactive chrome, nothing a crawler needs
+// from this page's server-rendered HTML, and no reason to pull Hot's own
+// composer bundle into this page's initial load when most visits here
+// never touch a birthday notification at all.
+const EDeyHotComposer = dynamic(
+  () => import("@/components/gist/EDeyHotComposer").then((m) => m.EDeyHotComposer),
+  { ssr: false },
+);
+
 const CATEGORY_LABELS: Record<NotificationCategory, string> = {
   COMMENT: "Comments",
   REPOST: "Reposts",
@@ -38,18 +49,27 @@ const CATEGORY_LABELS: Record<NotificationCategory, string> = {
   ACTIVATION_NUDGE: "\"Post something\" reminders",
   ANNOUNCEMENT: "Announcements",
   CAMPUSMATE_GIST: "Gist",
+  BIRTHDAY: "Baiday Wishes",
+  BIRTHDAY_ANNOUNCEMENT: "Other students' birthdays",
 };
 
 // Every category a user can actually toggle in Notification settings —
 // deliberately NOT all of NotificationCategory: ANNOUNCEMENT (a king
 // broadcast) is excluded on purpose, so it never shows up as a mutable
 // row at all. See PreferencesPanel below.
+// BIRTHDAY (your own happy-birthday wish) is deliberately left out, same as
+// ANNOUNCEMENT — setting a birthday in the first place already IS the
+// opt-in (see ProfileSettingsForm's Baiday Wishes copy), and un-setting it
+// is the opt-out; a separate mute toggle for it would just be confusing.
+// BIRTHDAY_ANNOUNCEMENT (seeing OTHER students' birthdays) is an ordinary
+// ambient-content preference, same as CAMPUSMATE_GIST, so it stays mutable.
 const MUTABLE_CATEGORIES: NotificationCategory[] = [
   "COMMENT",
   "REPOST",
   "HOT_EXPIRING",
   "DIGEST",
   "CAMPUSMATE_GIST",
+  "BIRTHDAY_ANNOUNCEMENT",
   "INACTIVITY_NUDGE",
   "ACTIVATION_NUDGE",
 ];
@@ -79,6 +99,10 @@ const CATEGORY_META: Record<
   // and should read with that weight.
   ANNOUNCEMENT: { label: "Announcement", labelClass: "text-brand", tintVar: "var(--color-brand)", icon: BroadcastsIconFill, iconBgClass: "bg-brand" },
   CAMPUSMATE_GIST: { label: "Gist", labelClass: "text-brand", tintVar: "var(--color-brand)", icon: AllGistsIconFill, iconBgClass: "bg-brand" },
+  // Warm gold instead of brand blue — the one pair of categories that gets
+  // to read as a genuine celebration rather than routine app activity.
+  BIRTHDAY: { label: "Baiday", labelClass: "text-warning", tintVar: "var(--color-warning)", icon: Heart, iconBgClass: "bg-warning" },
+  BIRTHDAY_ANNOUNCEMENT: { label: "Baiday", labelClass: "text-warning", tintVar: "var(--color-warning)", icon: BroadcastsIconFill, iconBgClass: "bg-warning" },
 };
 
 // HOT_EXPIRING reuses "as e dey hot"'s own flame gradient tokens (globals.css)
@@ -207,9 +231,31 @@ function hrefForTarget(targetType: TargetType | null, targetId: string | null): 
 function resolveNotificationTarget(
   targetType: TargetType | null,
   targetId: string | null,
-  actorAvitag: string | null
+  actorAvitag: string | null,
+  category?: NotificationCategory,
 ): { kind: "route"; href: string } | null {
   if (targetType === "COMPOSE") return { kind: "route", href: "/compose" };
+  // Mirrors the backend's buildPushUrl exactly (notification.service.ts) —
+  // both birthday categories now link into Hot's composer rather than a
+  // plain profile visit, neither pre-filling real post text (a placeholder
+  // only — nothing should put words in anyone's mouth about what they
+  // actually post). Kept in sync by hand, same as everything else on this
+  // function's own doc comment.
+  if (category === "BIRTHDAY_ANNOUNCEMENT" && actorAvitag) {
+    // wishFor tags whatever gets posted with who it's for (kept in sync
+    // with the backend's buildPushUrl by hand, same as everything else on
+    // this function's own doc comment) — see hot_posts.birthday_wish_for.
+    return {
+      kind: "route",
+      href: `/hot?compose=1&placeholder=${encodeURIComponent(`Wish ${actorAvitag} an happy birthday !`)}&wishFor=${encodeURIComponent(actorAvitag)}`,
+    };
+  }
+  if (category === "BIRTHDAY") {
+    return {
+      kind: "route",
+      href: `/hot?compose=1&placeholder=${encodeURIComponent("🎂 Oya, na you dey hot today , post yourself")}`,
+    };
+  }
   if (targetType === "HOT_POST" && actorAvitag) return { kind: "route", href: `/hot?avitag=${encodeURIComponent(actorAvitag)}` };
   const href = hrefForTarget(targetType, targetId);
   return href ? { kind: "route", href } : null;
@@ -300,7 +346,18 @@ function DigestExpandPanel({ items, onNavigate }: { items: DigestItem[]; onNavig
 // what he's saying → what it looked like (media, only when real — see
 // hasActor/hasMedia, never a category default). Unread cards get a soft
 // ring in the category's own color; read ones stay plain.
-function NotificationRow({ notification }: { notification: Notification }) {
+function NotificationRow({
+  notification,
+  onOpenHotComposer,
+}: {
+  notification: Notification;
+  /** Birthday categories open the Hot composer as a real overlay on THIS
+   * page instead of navigating to /hot at all — see the doc comment on
+   * handleRowClick's own BIRTHDAY branch below for why that distinction
+   * matters (closing a modal should never leave you somewhere else than
+   * where you tapped it from). */
+  onOpenHotComposer: (prefillText?: string, placeholder?: string, wishFor?: string) => void;
+}) {
   const router = useRouter();
   const markRead = useNotificationStore((s) => s.markRead);
   const [expanded, setExpanded] = useState(false);
@@ -337,12 +394,31 @@ function NotificationRow({ notification }: { notification: Notification }) {
     router.push(target.href);
   };
 
-  const topTarget = resolveNotificationTarget(notification.target_type, notification.target_id, notification.actor_avitag);
+  const topTarget = resolveNotificationTarget(notification.target_type, notification.target_id, notification.actor_avitag, notification.category);
 
   const handleRowClick = () => {
     if (isDigest) {
       markRead(notification.notification_id);
       setExpanded((v) => !v);
+    } else if (notification.category === "BIRTHDAY" || notification.category === "BIRTHDAY_ANNOUNCEMENT") {
+      // Opens the composer AS A MODAL right here on Notifications, never
+      // navigating to /hot at all — unlike every other target (a real
+      // route, since there's always somewhere sensible to land once
+      // whatever you tapped into is dismissed), a tap here is "go do a
+      // quick thing," not "go look at a thing." Routing there and back
+      // means closing the composer leaves you on the Hot page instead of
+      // back where you actually tapped from — this skips that entirely.
+      // Mirrors buildPushUrl/resolveNotificationTarget's own copy exactly
+      // (kept in sync by hand, same convention those two already follow)
+      // — the push notification's own tap still has to navigate (no
+      // "current page" to overlay when the app wasn't even open), this is
+      // only for taps that happen with the app already sitting right here.
+      markRead(notification.notification_id);
+      if (notification.category === "BIRTHDAY_ANNOUNCEMENT" && notification.actor_avitag) {
+        onOpenHotComposer(undefined, `Wish ${notification.actor_avitag} an happy birthday !`, notification.actor_avitag);
+      } else {
+        onOpenHotComposer(undefined, "🎂 Oya, na you dey hot today , post yourself");
+      }
     } else {
       performTarget(topTarget);
     }
@@ -456,6 +532,10 @@ const CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
   // because CATEGORY_DESCRIPTIONS is typed to cover every category.
   ANNOUNCEMENT: "Official messages from Kampos — can't be turned off",
   CAMPUSMATE_GIST: "The moment someone from your school posts a gist",
+  // Also not shown in settings — set via Baiday Wishes on Profile, not a
+  // mute toggle (see MUTABLE_CATEGORIES' own doc comment).
+  BIRTHDAY: "Kappy's own happy-birthday wish, on your day",
+  BIRTHDAY_ANNOUNCEMENT: "When it's another student's birthday",
 };
 
 /** Same switch look as SoundToggle, local to this panel so each row can
@@ -613,6 +693,27 @@ export function NotificationsContent() {
   const markAllRead = useNotificationStore((s) => s.markAllRead);
   const [showPrefs, setShowPrefs] = useState(false);
 
+  // Birthday notifications open Hot's composer right here as a modal
+  // overlay (see NotificationRow's own handleRowClick doc comment) rather
+  // than navigating to /hot — this page stays mounted underneath the whole
+  // time, so closing the composer always puts you right back where you
+  // tapped it from.
+  const [hotComposerOpen, setHotComposerOpen] = useState(false);
+  const [hotComposerPrefill, setHotComposerPrefill] = useState<string | undefined>(undefined);
+  const [hotComposerPlaceholder, setHotComposerPlaceholder] = useState<string | undefined>(undefined);
+  // The celebrant's avitag — set only for the BIRTHDAY_ANNOUNCEMENT ("wish
+  // someone") flow, never the celebrant's own composer. Carried straight
+  // through to the actual post-creation call (see EDeyHotComposer's own
+  // birthdayWishFor prop) so the backend can tag the resulting post and
+  // notify them — see notification.service.ts's notifyBirthdayPostedYou.
+  const [hotComposerWishFor, setHotComposerWishFor] = useState<string | undefined>(undefined);
+  const openHotComposer = useCallback((prefillText?: string, placeholder?: string, wishFor?: string) => {
+    setHotComposerPrefill(prefillText);
+    setHotComposerPlaceholder(placeholder);
+    setHotComposerWishFor(wishFor);
+    setHotComposerOpen(true);
+  }, []);
+
   useEffect(() => {
     void fetchAll();
   }, [fetchAll]);
@@ -735,7 +836,7 @@ export function NotificationsContent() {
                 <p className="px-1 font-nunito text-[11px] font-extrabold uppercase tracking-wide text-faint">{group.label}</p>
                 <div className="flex flex-col gap-3">
                   {group.items.map((n) => (
-                    <NotificationRow key={n.notification_id} notification={n} />
+                    <NotificationRow key={n.notification_id} notification={n} onOpenHotComposer={openHotComposer} />
                   ))}
                 </div>
               </div>
@@ -767,6 +868,18 @@ export function NotificationsContent() {
           </div>
         )}
       </div>
+
+      <EDeyHotComposer
+        open={hotComposerOpen}
+        onClose={() => setHotComposerOpen(false)}
+        initialText={hotComposerPrefill}
+        placeholderOverride={hotComposerPlaceholder}
+        birthdayWishFor={hotComposerWishFor}
+        // Always true here, no separate flag needed — this instance only
+        // ever opens via a birthday notification tap (see openHotComposer
+        // above), never a normal compose path.
+        showConfettiOnOpen
+      />
     </div>
   );
 }

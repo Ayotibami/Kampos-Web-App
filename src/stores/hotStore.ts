@@ -226,13 +226,18 @@ interface HotState {
   commentsErrorByHotPost: Record<string, string | undefined>;
 
   fetchAll: () => Promise<void>;
-  createText: (text: string, colorKey: string) => Promise<HotPost>;
+  /** birthdayWishFor: the celebrant's avitag — set only when posted via
+   * the "wish [avitag] a happy birthday" composer flow, so the backend can
+   * tag this post and notify them (see KamposBackend's
+   * notifyBirthdayPostedYou). Omitted for an ordinary post. */
+  createText: (text: string, colorKey: string, birthdayWishFor?: string) => Promise<HotPost>;
   createMedia: (
     file: Blob,
     mediaKind: "photo" | "video",
     filename: string,
     text: string | null,
     onProgress?: (percent: number) => void,
+    birthdayWishFor?: string,
   ) => Promise<HotPost>;
   deletePost: (hotPostId: string) => Promise<void>;
   /** Fire-and-forget from the UI's point of view — updates local state
@@ -299,12 +304,13 @@ export const useHotStore = create<HotState>((set, get) => ({
     }
   },
 
-  createText: async (text, colorKey) => {
+  createText: async (text, colorKey, birthdayWishFor) => {
     try {
       const res = await api.post<ApiEnvelope<RawHotPost>>("/hot-posts", {
         media_kind: "TEXT",
         text,
         color_key: colorKey,
+        ...(birthdayWishFor ? { birthday_wish_for: birthdayWishFor } : {}),
       });
       if (!res.data?.data) throw new Error("No post returned");
       const post = fromRaw(res.data.data);
@@ -315,7 +321,7 @@ export const useHotStore = create<HotState>((set, get) => ({
     }
   },
 
-  createMedia: async (file, mediaKind, filename, text, onProgress) => {
+  createMedia: async (file, mediaKind, filename, text, onProgress, birthdayWishFor) => {
     let sig: CloudinarySignature & { hot_post_id: string };
     try {
       const res = await api.post<ApiEnvelope<CloudinarySignature & { hot_post_id: string }>>(
@@ -350,6 +356,7 @@ export const useHotStore = create<HotState>((set, get) => ({
         duration: result.duration,
         width: result.width,
         height: result.height,
+        ...(birthdayWishFor ? { birthday_wish_for: birthdayWishFor } : {}),
       });
       if (!res.data?.data) throw new Error("No post returned");
       const post = fromRaw(res.data.data);

@@ -133,7 +133,68 @@ function HotPageInner() {
     else setExplainerOpen(true);
   };
 
-  const isOwn = !!requestedAvitag && requestedAvitag === myAvitag;
+  // Deep-link from a birthday notification (see notification.service.ts's
+  // buildPushUrl — a campus announcement or the celebrant's own wish now
+  // link here with ?compose=1&prefillText=... instead of a profile) — opens
+  // the composer pre-filled instead of landing on a blank Hot page. Reads
+  // the params once on mount (an empty dep array, not `searchParams` —
+  // re-running this every time searchParams changes would re-open the
+  // composer on, say, the explainer's own close) and strips them from the
+  // URL right after, so reloading or going back never silently re-triggers
+  // the same prefill a second time.
+  const [composerPrefill, setComposerPrefill] = useState<string | undefined>(undefined);
+  // Separate from composerPrefill — the celebrant's OWN birthday link
+  // carries this instead (no prefillText, since nothing should put words
+  // in their mouth about their own day), swapping just the placeholder
+  // copy so the blank canvas still speaks to the moment.
+  const [composerPlaceholder, setComposerPlaceholder] = useState<string | undefined>(undefined);
+  // Only ever true for this deep-link path — every other way of opening
+  // the composer on this page (the rail's own "+" taps further below)
+  // leaves this false, so an ordinary Hot post never gets an unexplained
+  // confetti burst.
+  const [composerCelebratory, setComposerCelebratory] = useState(false);
+  // The celebrant's avitag, for the "wish someone" flow only — carried
+  // straight through to the actual post-creation call (see
+  // EDeyHotComposer's birthdayWishFor prop) so the backend can tag the
+  // resulting post and notify them. See notification.service.ts's
+  // notifyBirthdayPostedYou.
+  const [composerWishFor, setComposerWishFor] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (searchParams.get("compose") !== "1") return;
+    const prefillText = searchParams.get("prefillText");
+    const placeholderText = searchParams.get("placeholder");
+    const wishFor = searchParams.get("wishFor");
+    setComposerPrefill(prefillText ?? undefined);
+    setComposerPlaceholder(placeholderText ?? undefined);
+    setComposerWishFor(wishFor ?? undefined);
+    setComposerCelebratory(true);
+    // Straight to the composer, bypassing openComposer()'s explainer gate
+    // on purpose — someone arriving here from a specific "wish them happy
+    // birthday" push already has clear intent; the generic "what is Hot"
+    // pitch is pointless friction in that moment, and worse, it pops up
+    // ON TOP of this page's own "post expired" background state, which
+    // reads as if nothing happened at all if it's missed or dismissed by
+    // tapping the backdrop instead of the real button.
+    setComposerOpen(true);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("compose");
+    params.delete("prefillText");
+    params.delete("placeholder");
+    params.delete("wishFor");
+    const query = params.toString();
+    router.replace(query ? `/hot?${query}` : "/hot", { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // No avitag at all (only ever happens landing here via the birthday
+  // compose deep link, see the effect above — every other entry point
+  // always supplies one) reads as "my own context", not "someone else's".
+  // Without this, HotGoneState below falls into its visitor-flavored
+  // branch ("This one's gone — it already burned out") the instant the
+  // composer closes, which makes no sense when nobody specific was ever
+  // being viewed — the friendlier "you've got nothing hot up, post
+  // something" state (with a real working CTA) is what actually fits.
+  const isOwn = !requestedAvitag || requestedAvitag === myAvitag;
 
   // Same "soonest-expiring first, drop anyone with nothing live left"
   // shape EDeyHotRail's own `rings`/`viewerPeople` memo builds — duplicated
@@ -159,19 +220,33 @@ function HotPageInner() {
   );
 
   const liveMyPosts = useMemo(() => myPosts.filter((p) => p.expiresAt > now), [myPosts, now]);
+  // Empty (not a one-entry "You" stack) the instant you've got nothing live
+  // — same "drop anyone with nothing live left" rule otherPeople's own
+  // filter applies, so you never show up as an empty ring in the combined
+  // list below.
   const ownPeople: ViewerPerson[] = useMemo(
-    () => [
-      {
-        avitag: myAvitag ?? "",
-        firstName: "You",
-        avatarGradient: avatarGradientFor(myImageUrl),
-        posts: toViewerPosts(liveMyPosts),
-      },
-    ],
+    () =>
+      liveMyPosts.length > 0
+        ? [
+            {
+              avitag: myAvitag ?? "",
+              firstName: "You",
+              avatarGradient: avatarGradientFor(myImageUrl),
+              posts: toViewerPosts(liveMyPosts),
+            },
+          ]
+        : [],
     [myAvitag, myImageUrl, liveMyPosts],
   );
 
-  const people = isOwn ? ownPeople : otherPeople;
+  // Your own stack always leads the tray (same as every real Stories app
+  // puts "Your Story" first), with everyone else's live stacks following —
+  // one combined, swipeable list regardless of which ring was tapped to get
+  // here, so running off either end of your own posts continues straight
+  // into the feed instead of dead-ending. EDeyHotViewer gates the add/
+  // delete controls per-person itself (see its own myAvitag prop) since
+  // which stack is "yours" can now change mid-session.
+  const people = useMemo(() => [...ownPeople, ...otherPeople], [ownPeople, otherPeople]);
   // Pure derivation, not stored state — recomputed fresh every render
   // directly from the URL + whatever hotStore currently holds. Deliberately
   // NOT a useEffect-plus-ref one-shot-consume pattern (the shape the old
@@ -184,8 +259,8 @@ function HotPageInner() {
   // EDeyHotViewer's own openKey/personKey blocks (see its doc comments)
   // already handle resetting position from a changed initialIndex the same
   // derived-during-render way — nothing new needed on this end either.
-  const initialIndex = isOwn ? 0 : people.findIndex((p) => p.avitag === requestedAvitag);
-  const hasContent = isOwn ? liveMyPosts.length > 0 : initialIndex !== -1;
+  const initialIndex = people.findIndex((p) => p.avitag === (requestedAvitag ?? myAvitag));
+  const hasContent = initialIndex !== -1;
 
   const handleBack = () => router.back();
 
@@ -195,7 +270,7 @@ function HotPageInner() {
     return (
       <>
         <HotGoneState isOwn={isOwn} onBack={handleBack} onCompose={openComposer} />
-        <EDeyHotComposer open={composerOpen} onClose={() => setComposerOpen(false)} />
+        <EDeyHotComposer open={composerOpen} onClose={() => { setComposerOpen(false); setComposerCelebratory(false); setComposerWishFor(undefined); }} initialText={composerPrefill} placeholderOverride={composerPlaceholder} showConfettiOnOpen={composerCelebratory} birthdayWishFor={composerWishFor} />
         <HotExplainerModal
           open={explainerOpen}
           onClose={() => {
@@ -225,11 +300,12 @@ function HotPageInner() {
           void flushSeen();
           handleBack();
         }}
-        onAddAnother={isOwn ? openComposer : undefined}
-        onDeletePost={isOwn ? (id) => void deletePost(id) : undefined}
+        myAvitag={myAvitag ?? undefined}
+        onAddAnother={openComposer}
+        onDeletePost={(id) => void deletePost(id)}
         onReact={(id) => void reactToPost(id)}
       />
-      <EDeyHotComposer open={composerOpen} onClose={() => setComposerOpen(false)} />
+      <EDeyHotComposer open={composerOpen} onClose={() => { setComposerOpen(false); setComposerCelebratory(false); setComposerWishFor(undefined); }} initialText={composerPrefill} placeholderOverride={composerPlaceholder} showConfettiOnOpen={composerCelebratory} birthdayWishFor={composerWishFor} />
       <HotExplainerModal
         open={explainerOpen}
         onClose={() => {

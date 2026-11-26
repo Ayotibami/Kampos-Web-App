@@ -16,6 +16,7 @@ import KappyNotifIconDark from "@/assets/illustrations/KappyNotifIconDark.png";
 import { motion, useAnimationControls } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
 import { Avatar } from "@/components/ui/Avatar";
+import { BirthdayCelebration, BirthdayCrown, BirthdayCake } from "@/components/profile/BirthdayCelebration";
 import { MediaImage } from "@/components/ui/MediaFrame";
 import { Modal } from "@/components/ui/Modal";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
@@ -857,9 +858,24 @@ export function ProfileView({
   const majorTag =
     typeof profile.major_tag === "string" ? profile.major_tag : null;
   const hobbies = Array.isArray(profile.hobbies) ? (profile.hobbies as string[]) : [];
+  // Month/day only, no year — same convention as everywhere else a
+  // birthday shows up in this app (see BirthdayPicker.tsx's own doc
+  // comment). Shows for ANYONE viewing this profile today, not gated to
+  // the owner — a public festive state, not a private one.
+  const birthMonth = profile.birth_month as number | null | undefined;
+  const birthDay = profile.birth_day as number | null | undefined;
+  const today = new Date();
+  const isBirthdayToday =
+    birthMonth != null && birthDay != null && birthMonth === today.getMonth() + 1 && birthDay === today.getDate();
 
   return (
     <AppShell variant="panel">
+      {/* Rendered here, not inside the scrollable column below — this uses
+          position:fixed to cover the whole viewport, which silently breaks
+          the moment any ancestor gets a CSS transform (several further down
+          this tree do, for their own spring-in animations). AppShell itself
+          has none, so this is the highest safe point. */}
+      {isBirthdayToday && <BirthdayCelebration />}
       {/* AppShell's "panel" variant deliberately locks itself to exactly the
           viewport height on desktop (md:h-dvh md:overflow-hidden) and never
           scrolls on its own — same pattern SettingsPageShell already relies
@@ -1063,17 +1079,22 @@ export function ProfileView({
                 opens it full-size, same as tapping a profile photo does
                 everywhere else — only actually clickable when there's a
                 real photo to enlarge, not the plain grey fallback circle. */}
-                <button
-                  type="button"
-                  onClick={() => imageUrl && setAvatarLightboxOpen(true)}
-                  aria-label={imageUrl ? "View profile photo" : undefined}
-                  disabled={!imageUrl}
-                  className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand p-1.5 transition active:scale-95 disabled:active:scale-100 md:h-44 md:w-44 md:p-1"
-                >
-                  <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-brand/10">
-                    <Avatar src={imageUrl} />
-                  </div>
-                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => imageUrl && setAvatarLightboxOpen(true)}
+                    aria-label={imageUrl ? "View profile photo" : undefined}
+                    disabled={!imageUrl}
+                    className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand p-1.5 transition active:scale-95 disabled:active:scale-100 md:h-44 md:w-44 md:p-1"
+                  >
+                    <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-brand/10">
+                      <Avatar src={imageUrl} />
+                    </div>
+                  </button>
+                  {isBirthdayToday && (
+                    <BirthdayCrown className="absolute -top-2 left-1/2 -translate-x-1/2 -rotate-[12deg] text-base md:-top-10 md:-rotate-[18deg] md:text-4xl" />
+                  )}
+                </div>
 
                 <div>
                   {/* Name and handle side by side, not stacked — the handle
@@ -1198,7 +1219,9 @@ export function ProfileView({
               </div>
             </div>
 
-            {(bio || hobbies.length > 0) && (
+            {isBirthdayToday && <BirthdayCake />}
+
+            {(bio || hobbies.length > 0 || isBirthdayToday) && (
               <div className="mx-auto mt-4 w-full max-w-[420px] px-6 md:mt-6 md:max-w-[560px] md:px-12">
                 {/* One white card for both — a single "Oya, I'm {avitag}"
                     heading covers bio + hobbies as one section about the person,
@@ -1211,7 +1234,17 @@ export function ProfileView({
                     since this card is a lot bigger, and a board-sized tilt
                     on something this large reads as crooked, not playful. */}
                 <div className="-rotate-1">
-                  <div className="flex w-full min-w-0 flex-col rounded-2xl bg-surface-2 p-2.5 text-brand shadow-[0_6px_12px_-4px_rgba(43,40,32,0.35)] md:rounded-[32px] md:p-6">
+                  <div
+                    className={
+                      isBirthdayToday
+                        ? // Brand blue + gold text — the "royal" pairing the
+                          // crown/confetti already lean into, read clearly
+                          // the same way bg-brand/text-white buttons already
+                          // do elsewhere, just swapped warm instead of white.
+                          "flex w-full min-w-0 flex-col rounded-2xl bg-brand p-2.5 text-warning shadow-[0_6px_12px_-4px_rgba(43,40,32,0.35)] md:rounded-[32px] md:p-6"
+                        : "flex w-full min-w-0 flex-col rounded-2xl bg-surface-2 p-2.5 text-brand shadow-[0_6px_12px_-4px_rgba(43,40,32,0.35)] md:rounded-[32px] md:p-6"
+                    }
+                  >
                   {/* A real heading, not the tiny all-caps eyebrow-label
                       treatment the old one-word tags (Bio, Campus, Major)
                       use — first person, same as the wave next to it and
@@ -1238,31 +1271,49 @@ export function ProfileView({
                       >
                         👋
                       </motion.span>
-                      <span className="font-nunito text-base font-extrabold text-ink md:text-xl">
+                      <span
+                        className={`font-nunito text-base font-extrabold md:text-xl ${isBirthdayToday ? "text-white" : "text-ink"}`}
+                      >
                         Oya, I&apos;m {avitag}
                       </span>
                     </div>
                   )}
-                  {bio && (
-                    // Deliberately NOT matching InfoBoard's value text scale
-                    // — that bold/extrabold treatment reads fine for a
-                    // short fact ("Mathematics", "200") but a whole
-                    // sentence (or several, up to LIMITS.bio) at that
-                    // weight/size reads as shouty and eats a lot of
-                    // vertical space. Lighter weight — still italic, since
-                    // that's what actually marks this as personal voice
-                    // rather than another fact-card. text-faint (not the
-                    // card's own inherited text-brand) matches the gist
-                    // card's date-text color — both are the same kind of
-                    // quiet, secondary metadata, not the card's main voice.
-                    <p className="mt-1.5 block break-words text-center font-nunito text-sm font-medium italic leading-snug text-faint md:mt-2.5 md:text-base">
-                      {bio}
+                  {isBirthdayToday ? (
+                    // Display-only — never touches the real stored bio.
+                    // Their actual bio comes right back the moment the day
+                    // passes, no data ever overwritten. Two different
+                    // voices, same split as the wave greeting above: a
+                    // visitor sees the celebrant's own voice asking to be
+                    // wished well; the celebrant, looking at their OWN
+                    // profile, sees Kampos speaking directly to them
+                    // instead — "wish me" makes no sense said to yourself.
+                    <p className="mt-1.5 block break-words text-center font-nunito text-base font-extrabold leading-snug md:mt-2.5 md:text-xl">
+                      {isOwnProfile
+                        ? `🎉 Happy birthday ${avitag}! From all of us at Kampos, we love you so much — thank you for being a part of us.`
+                        : "🎉 Today is my birthday — wish me a happy birthday!"}
                     </p>
+                  ) : (
+                    bio && (
+                      // Deliberately NOT matching InfoBoard's value text scale
+                      // — that bold/extrabold treatment reads fine for a
+                      // short fact ("Mathematics", "200") but a whole
+                      // sentence (or several, up to LIMITS.bio) at that
+                      // weight/size reads as shouty and eats a lot of
+                      // vertical space. Lighter weight — still italic, since
+                      // that's what actually marks this as personal voice
+                      // rather than another fact-card. text-faint (not the
+                      // card's own inherited text-brand) matches the gist
+                      // card's date-text color — both are the same kind of
+                      // quiet, secondary metadata, not the card's main voice.
+                      <p className="mt-1.5 block break-words text-center font-nunito text-sm font-medium italic leading-snug text-faint md:mt-2.5 md:text-base">
+                        {bio}
+                      </p>
+                    )
                   )}
                   {hobbies.length > 0 && (
                     <>
-                      {bio && (
-                        <hr className="my-3 border-t border-brand/10 md:my-4" />
+                      {(bio || isBirthdayToday) && (
+                        <hr className={`my-3 border-t md:my-4 ${isBirthdayToday ? "border-white/20" : "border-brand/10"}`} />
                       )}
                       {/* Bold and solid, unlike bio's quiet italic — hobbies
                           are meant to be the loud, scannable part of this

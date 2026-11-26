@@ -18,8 +18,11 @@ import { useAuthStore } from "@/stores/authStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useUnsavedChangesStore } from "@/stores/unsavedChangesStore";
 import { markProfileUpdated } from "@/lib/profileFreshness";
+import { cacheDelete } from "@/lib/dataCache";
 import { env } from "@/lib/env";
 import { HOBBIES, HOBBY_EMOJI } from "@/lib/hobbies";
+import { BirthdayPicker, BIRTHDAY_MONTHS, BIRTHDAY_DAYS_IN_MONTH, daysUntilBirthday, computeBirthdayAccess } from "@/components/settings/BirthdayPicker";
+import { ConfettiBurst } from "@/components/ui/ConfettiBurst";
 
 const LEVELS = ["100", "200", "300", "400", "500", "600"];
 const MAX_HOBBIES = 6;
@@ -29,6 +32,18 @@ function bioCountColor(len: number): string {
   if (len < 125) return "var(--color-success)";
   if (len < 220) return "var(--color-warning)";
   return "var(--color-danger)";
+}
+
+/** "We'll celebrate you in 131 days — March 14" (or the today/tomorrow
+ * special cases) — shared between the modal's live preview and the
+ * confirmed banner on the main page so the phrasing never drifts between
+ * the two. */
+function celebrateLine(month: number, day: number): string {
+  const date = `${BIRTHDAY_MONTHS[month]} ${day + 1}`;
+  const days = daysUntilBirthday(month, day);
+  if (days === 0) return `Today's the day — ${date}!`;
+  if (days === 1) return `We'll celebrate you tomorrow — ${date}`;
+  return `We'll celebrate you in ${days} days — ${date}`;
 }
 
 /** "University of Lagos (UNILAG)" — falls back to the bare tag if the
@@ -64,6 +79,18 @@ export function ProfileSettingsForm() {
   const [bio, setBio] = useState("");
   const [hobbies, setHobbies] = useState<string[]>([]);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  // Its own dedicated endpoint (PATCH /profiles/students/:avitag/birthday),
+  // not part of baseline/isDirty/performSave below — it has its own
+  // save-time lock/cap logic the generic "Save details" flow knows nothing
+  // about, same reasoning it gets its own small self-contained save/skip
+  // pair in the UI instead of joining the main save button.
+  const [birthMonth, setBirthMonth] = useState<number | null>(null);
+  const [birthDay, setBirthDay] = useState<number | null>(null);
+  const [birthdayConfirmed, setBirthdayConfirmed] = useState(false);
+  const [birthdayEditsRemaining, setBirthdayEditsRemaining] = useState(3);
+  const [birthdayLockedUntil, setBirthdayLockedUntil] = useState<Date | null>(null);
+  const [savingBirthday, setSavingBirthday] = useState(false);
+  const [showBirthdayModal, setShowBirthdayModal] = useState(false);
   const [createdAt, setCreatedAt] = useState<string | null>(null);
   // Full display labels ("University of Lagos (UNILAG)"), not raw tags —
   // the profile fetch's GET /profiles/students/:avitag now joins campus/major
@@ -130,6 +157,22 @@ export function ProfileSettingsForm() {
       setCreatedAt((profile.created_at as string | undefined) ?? null);
       setSchoolLabel(tagLabel(profile.campus_name as string | null, profile.campus_tag as string | null));
       setMajorLabel(tagLabel(profile.major_name as string | null, profile.major_tag as string | null));
+
+      // DB stores month/day 1-indexed (real calendar numbers); the picker
+      // and every display line here use 0-indexed, same convention as
+      // array indices — converted right at the boundary, once.
+      const rawMonth = profile.birth_month as number | null | undefined;
+      const rawDay = profile.birth_day as number | null | undefined;
+      const hasBirthday = rawMonth != null && rawDay != null;
+      setBirthMonth(hasBirthday ? rawMonth! - 1 : null);
+      setBirthDay(hasBirthday ? rawDay! - 1 : null);
+      setBirthdayConfirmed(hasBirthday);
+      const access = computeBirthdayAccess(
+        (profile.birthday_edit_count as number | undefined) ?? 0,
+        (profile.birthday_last_celebrated_at as string | null | undefined) ?? null,
+      );
+      setBirthdayEditsRemaining(access.editsRemaining);
+      setBirthdayLockedUntil(access.lockedUntil);
     } catch (err) {
       setLoadError(apiErrorMessage(err, "Failed to load your profile"));
     } finally {
@@ -258,6 +301,42 @@ export function ProfileSettingsForm() {
     const ok = await performSave();
     setSaving(false);
     if (ok) setShowSuccess(true);
+  };
+
+  // Its own save path, separate from performSave/handleSave above — see
+  // this component's own doc comment on the birthMonth/birthDay state for
+  // why. month/day go out 1-indexed (real calendar numbers) to match what
+  // the backend's schema and student_profiles columns actually store;
+  // everywhere else in this component stays 0-indexed.
+  const handleSaveBirthday = async () => {
+    if (birthMonth === null || birthDay === null || !avitag) return;
+    setSavingBirthday(true);
+    try {
+      const res = await api.patch<{
+        success: boolean;
+        data?: { birth_month: number; birth_day: number; birthday_edit_count: number; edits_remaining: number };
+      }>(`/profiles/students/${avitag}/birthday`, { month: birthMonth + 1, day: birthDay + 1 });
+      // Without this, the next load of this page (or anywhere else that
+      // reads this same cached profile, e.g. the profile view) serves the
+      // 5-minute client cache from BEFORE this save — same cache
+      // invalidation updateStudentProfile's own PUT path already does,
+      // just also needed here since this hits the API directly instead of
+      // going through that store action.
+      cacheDelete(`GET:/profiles/students/${avitag}`).catch(() => {});
+      markProfileUpdated();
+      setBirthdayEditsRemaining(res.data?.data?.edits_remaining ?? 0);
+      // A save that just succeeded can't also be mid-lock — the lock only
+      // ever applies BEFORE a save is allowed to happen at all (the backend
+      // would have rejected this call instead of returning success).
+      setBirthdayLockedUntil(null);
+      setBirthdayConfirmed(true);
+      setShowBirthdayModal(false);
+    } catch (err) {
+      setMessage(apiErrorMessage(err, "Couldn't save your birthday"));
+      setShowError(true);
+    } finally {
+      setSavingBirthday(false);
+    }
   };
 
   // Resumes whatever navigation was waiting (SettingsHeader's back arrow /
@@ -504,8 +583,14 @@ export function ProfileSettingsForm() {
               <h2 className="font-nunito text-sm font-bold text-ink">Basic Info</h2>
               <p className="mt-1 font-nunito text-sm text-muted">This is how other students recognize you.</p>
             </div>
-            <TextInput value={firstName} onChange={setFirstName} placeholder="First Name" maxLength={30} />
-            <TextInput value={lastName} onChange={setLastName} placeholder="Last Name" maxLength={30} />
+            <div className="flex flex-col gap-1.5">
+              <span className="font-nunito text-sm text-muted">First Name</span>
+              <TextInput value={firstName} onChange={setFirstName} placeholder="First Name" maxLength={30} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="font-nunito text-sm text-muted">Last Name</span>
+              <TextInput value={lastName} onChange={setLastName} placeholder="Last Name" maxLength={30} />
+            </div>
           </section>
 
           <section className="flex flex-col gap-5">
@@ -556,50 +641,175 @@ export function ProfileSettingsForm() {
             </div>
           </section>
 
-        <div className="flex flex-col gap-1">
-          <span className="mb-1 font-nunito text-sm text-muted">Bio</span>
-          <div className="rounded-3xl border border-line p-4">
-            <textarea
-              value={bio}
-              onChange={(e) => setBio(e.target.value)}
-              maxLength={LIMITS.bio}
-              rows={4}
-              placeholder="Oya, yarn small about yourself na 😌"
-              className="w-full resize-none bg-transparent font-nunito text-sm text-ink outline-none placeholder:text-faint"
-            />
-          </div>
-          <p className="mt-1 text-right font-nunito text-sm font-bold" style={{ color: bioCountColor(bio.length) }}>
-            {bio.length}/{LIMITS.bio}
-          </p>
-        </div>
+          <section className="flex flex-col gap-6">
+            <h2 className="font-nunito text-sm font-bold text-ink">Tell us more</h2>
 
-        <section className="flex flex-col gap-2">
-          <div>
-            <h2 className="font-nunito text-sm font-bold text-ink">Hobbies</h2>
-            <p className="mt-1 font-nunito text-sm text-muted">
-              Pick up to {MAX_HOBBIES} — shows other students what you&apos;re actually about.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {HOBBIES.map((h) => (
-              <Chip key={h} selected={hobbies.includes(h)} onClick={() => toggleHobby(h)}>
-                <span className="inline-flex items-center gap-1.5">
-                  {/* Fixed white backing, not the emoji's own (inconsistent)
-                      colors — some emoji (Chess's ♟️, for one) render as
-                      plain dark line art rather than a full-color picture,
-                      which nearly vanishes once selected turns this pill's
-                      background solid brand-blue. A white circle behind
-                      every emoji makes all of them legible regardless of
-                      how any individual glyph happens to render. */}
-                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white text-[10px] leading-none">
-                    {HOBBY_EMOJI[h]}
+            <div className="flex flex-col gap-1">
+              <span className="mb-1 font-nunito text-sm text-muted">Bio</span>
+              <div className="rounded-3xl border border-line p-4">
+                <textarea
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  maxLength={LIMITS.bio}
+                  rows={4}
+                  placeholder="Oya, yarn small about yourself na 😌"
+                  className="w-full resize-none bg-transparent font-nunito text-sm text-ink outline-none placeholder:text-faint"
+                />
+              </div>
+              <p className="mt-1 text-right font-nunito text-sm font-bold" style={{ color: bioCountColor(bio.length) }}>
+                {bio.length}/{LIMITS.bio}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <span className="font-nunito text-sm font-bold text-muted">Hobbies</span>
+              <p className="-mt-1 font-nunito text-xs text-muted">
+                Pick up to {MAX_HOBBIES} — shows other students what you&apos;re actually about.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {HOBBIES.map((h) => (
+                  <Chip key={h} selected={hobbies.includes(h)} onClick={() => toggleHobby(h)}>
+                    <span className="inline-flex items-center gap-1.5">
+                      {/* Fixed white backing, not the emoji's own (inconsistent)
+                          colors — some emoji (Chess's ♟️, for one) render as
+                          plain dark line art rather than a full-color picture,
+                          which nearly vanishes once selected turns this pill's
+                          background solid brand-blue. A white circle behind
+                          every emoji makes all of them legible regardless of
+                          how any individual glyph happens to render. */}
+                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white text-[10px] leading-none">
+                        {HOBBY_EMOJI[h]}
+                      </span>
+                      {h}
+                    </span>
+                  </Chip>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <span className="font-nunito text-sm font-bold text-muted">Baiday Wishes</span>
+              <p className="-mt-2 max-w-[40ch] font-nunito text-xs text-muted">
+                If you want Kappy to wish you on your birthday and let everyone know it&apos;s your day —
+                and maybe, just maybe, drop you a gift too — oya, tell us your birthday and we&apos;ll put
+                Kappy to work. It&apos;s totally optional, and you can remove it anytime. Setting your
+                birthday means you&apos;re okay with us telling other students about it and making it
+                public.
+              </p>
+
+              {birthMonth !== null && birthDay !== null && birthdayConfirmed ? (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-2.5 rounded-2xl border border-line bg-surface-2 px-4 py-3.5">
+                  <span key={`${birthMonth}-${birthDay}-confirmed`} className="relative text-lg">
+                    🎉
+                    <ConfettiBurst />
                   </span>
-                  {h}
-                </span>
-              </Chip>
-            ))}
-          </div>
-        </section>
+                  <span className="min-w-0 flex-1 font-nunito text-sm font-bold text-ink">
+                    {celebrateLine(birthMonth, birthDay)}
+                  </span>
+                  {birthdayEditsRemaining > 0 && !birthdayLockedUntil && (
+                    <button
+                      type="button"
+                      onClick={() => setShowBirthdayModal(true)}
+                      className="shrink-0 font-nunito text-[13px] font-bold text-brand hover:underline"
+                    >
+                      Change
+                    </button>
+                  )}
+                </div>
+                {/* Only ever shown once there's genuinely nothing left to
+                    change — not shown at all while edits remain, so this
+                    never reads as a threat hanging over a normal save. */}
+                {birthdayLockedUntil ? (
+                  <p className="px-1 font-nunito text-xs text-faint">
+                    You can change this again after {monthYear(birthdayLockedUntil.toISOString())}.
+                  </p>
+                ) : birthdayEditsRemaining <= 0 ? (
+                  <p className="px-1 font-nunito text-xs text-faint">
+                    You&apos;ve used all 3 changes for now — they reopen a year after your birthday.
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <Button fullWidth={false} className="!px-6" onClick={() => setShowBirthdayModal(true)}>
+                Tell us your birthday
+              </Button>
+            )}
+            </div>
+          </section>
+
+          <Modal open={showBirthdayModal} onClose={() => setShowBirthdayModal(false)} variant="sheet" desktopCenter>
+            <div className="rounded-t-[26px] bg-surface-2 px-6 pb-6 pt-5 md:rounded-[26px]">
+              <div className="mx-auto mb-3.5 h-1 w-9 rounded-full bg-line md:hidden" />
+              <h3 className="mb-1 font-nunito text-base font-extrabold text-ink">Baiday Wishes</h3>
+              <p className="mb-4 font-nunito text-[13px] text-muted">
+                Scroll to set your month and day — no year needed.
+              </p>
+
+              <div className="flex flex-col gap-3.5 rounded-3xl border border-line bg-surface px-3 pb-3 pt-4">
+                <BirthdayPicker
+                  month={birthMonth}
+                  day={birthDay}
+                  onMonthChange={(m) => {
+                    setBirthMonth(m);
+                    // Functional update — always reads the true-latest day
+                    // state when this actually applies, never a value
+                    // captured back when this callback was created. See
+                    // BirthdayPicker's own doc comment for why that
+                    // distinction is what stops the two wheels' independent
+                    // settle timers from racing each other.
+                    setBirthDay((prevDay) =>
+                      prevDay !== null ? Math.min(prevDay, BIRTHDAY_DAYS_IN_MONTH[m] - 1) : prevDay,
+                    );
+                  }}
+                  onDayChange={setBirthDay}
+                />
+                <div className="flex min-h-[20px] items-center gap-2 px-1 font-nunito text-[13px] font-bold">
+                  {birthMonth !== null && birthDay !== null ? (
+                    <>
+                      <span key={`${birthMonth}-${birthDay}-picker`} className="relative">
+                        🎉
+                        <ConfettiBurst size={4} />
+                      </span>
+                      <span className="text-ink">{celebrateLine(birthMonth, birthDay)}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>👆</span>
+                      <span className="text-muted">Scroll to set your month and day</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-center gap-3.5">
+                <Button
+                  className="!px-6"
+                  fullWidth={false}
+                  loading={savingBirthday}
+                  disabled={birthMonth === null || birthDay === null || savingBirthday}
+                  onClick={() => void handleSaveBirthday()}
+                >
+                  Wish me o
+                </Button>
+                <button
+                  type="button"
+                  disabled={savingBirthday}
+                  onClick={() => setShowBirthdayModal(false)}
+                  className="font-nunito text-[13.5px] font-bold text-faint hover:text-muted disabled:opacity-50"
+                >
+                  Later things
+                </button>
+              </div>
+
+              {/* Lets people see the real cap coming before they hit it,
+                  rather than only finding out from a rejected save. */}
+              <p className="mt-3 text-center font-nunito text-xs text-faint">
+                {birthdayEditsRemaining} {birthdayEditsRemaining === 1 ? "edit" : "edits"} left before your
+                next celebration
+              </p>
+            </div>
+          </Modal>
 
         <Button onClick={handleSave} loading={saving} disabled={uploadingImage}>
           Save details

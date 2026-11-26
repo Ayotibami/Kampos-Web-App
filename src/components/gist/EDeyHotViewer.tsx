@@ -78,6 +78,11 @@ const SWIPE_THRESHOLD_PX = 60;
 // Below this, a pointerdown is still just the start of a tap, not a hold —
 // long enough that a normal tap-to-advance never accidentally pauses.
 const HOLD_THRESHOLD_MS = 180;
+// Real finger wobble during a stationary hold stays well under this — past
+// it, the gesture is travelling, not holding, so the hold timer gets
+// cancelled (see handlePointerMove) rather than firing underneath a swipe
+// or a slightly unhurried tap.
+const HOLD_CANCEL_MOVE_PX = 12;
 // A rank pill only ever shows for a post that's genuinely in today's top
 // 10 live Hot posts — past this, `rank` is still a real number (the
 // backend ranks every live post), it just never earns a pill.
@@ -161,6 +166,7 @@ export function EDeyHotViewer({
   seenPostIds,
   onPostViewed,
   onClose,
+  myAvitag,
   onAddAnother,
   onDeletePost,
   onReact,
@@ -177,14 +183,19 @@ export function EDeyHotViewer({
    * it seen. */
   onPostViewed?: (postId: string) => void;
   onClose: () => void;
-  /** Only ever passed when viewing your OWN stack — renders a "+" next to
-   * close so adding another post doesn't need backing out to the rail
-   * first. Absent for everyone else's stack, where adding a post makes no
-   * sense. */
+  /** Your own avitag — `people` can now mix your own stack in with
+   * everyone else's (swiping past the end of your stack continues into
+   * the live feed, same as every real Stories app), so onAddAnother/
+   * onDeletePost below can no longer be gated by "was this prop passed at
+   * all," only by "is the stack CURRENTLY ON SCREEN actually mine." */
+  myAvitag?: string;
+  /** Renders a "+" next to close, but only while the person currently on
+   * screen is you (see myAvitag) — adding a post to someone else's stack
+   * makes no sense. */
   onAddAnother?: () => void;
-  /** Only ever passed alongside onAddAnother, same "this is your own
-   * stack" signal — renders a delete button at the bottom of the viewer
-   * for the CURRENTLY SHOWN post specifically, not the whole stack. */
+  /** Renders a delete button at the bottom of the viewer for the
+   * CURRENTLY SHOWN post, same "only while it's actually your stack"
+   * gating as onAddAnother. */
   onDeletePost?: (postId: string) => void;
   /** Unlike onAddAnother/onDeletePost, passed for BOTH your own stack and
    * everyone else's — the backend allows reacting to your own post, same
@@ -317,6 +328,11 @@ export function EDeyHotViewer({
   const person = people[personIndex];
   const posts = person?.posts ?? [];
   const currentPost = posts[postIndex];
+  // Whether whoever's ON SCREEN right now is you — NOT whether onAddAnother/
+  // onDeletePost were passed at all, since a mixed own+feed `people` list
+  // means the stack currently showing can flip between yours and someone
+  // else's mid-session.
+  const isMine = !!myAvitag && person?.avitag === myAvitag;
 
   const goNextPost = () => {
     if (postIndex < posts.length - 1) setPostIndex((i) => i + 1);
@@ -376,6 +392,22 @@ export function EDeyHotViewer({
       heldRef.current = true;
       setPaused(true);
     }, HOLD_THRESHOLD_MS);
+  };
+
+  // A swipe/tap that's still travelling hasn't settled into a stationary
+  // hold yet — without this, a gesture that simply takes longer than
+  // HOLD_THRESHOLD_MS to release (any unhurried tap or swipe) gets the hold
+  // timer firing underneath it first, and handlePointerUp's heldRef check
+  // then swallows the whole gesture as a pause-and-resume, never reaching
+  // the swipe/tap-zone navigation below at all. Cancelling the pending
+  // timer the moment real movement shows up keeps "hold" meaning what it's
+  // supposed to: the finger stayed put.
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const start = startRef.current;
+    if (!start || !holdTimerRef.current) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (Math.hypot(dx, dy) > HOLD_CANCEL_MOVE_PX) clearHoldTimer();
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -445,6 +477,7 @@ export function EDeyHotViewer({
       <div
         ref={containerRef}
         onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
         // Belt-and-suspenders against the browser's own native long-press
@@ -698,7 +731,7 @@ export function EDeyHotViewer({
                     <CommentIconFill size={15} weight="fill" />
                     {compactNumber(currentPost.commentsCount)}
                   </button>
-                  {onDeletePost && (
+                  {onDeletePost && isMine && (
                     <button
                       type="button"
                       onClick={() => setDeleteConfirmOpen(true)}
@@ -812,7 +845,7 @@ export function EDeyHotViewer({
               )}
             </button>
           )}
-          {onAddAnother && (
+          {onAddAnother && isMine && (
             <button
               type="button"
               onClick={onAddAnother}
@@ -952,7 +985,7 @@ export function EDeyHotViewer({
         )}
       </div>
     </Modal>
-    {onDeletePost && (
+    {onDeletePost && isMine && (
       <ConfirmModal
         open={deleteConfirmOpen}
         onClose={() => setDeleteConfirmOpen(false)}

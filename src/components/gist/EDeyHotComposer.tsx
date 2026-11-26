@@ -10,6 +10,7 @@ import { GIST_CARD_PALETTE } from "@/lib/brand";
 import { ALLOWED_MEDIA_TYPES, isAllowedMediaType, maxBytesFor, readVideoDurationSeconds } from "@/lib/mediaValidation";
 import { fitHeroTextarea } from "@/lib/heroText";
 import { useHotStore } from "@/stores/hotStore";
+import { ConfettiBurst } from "@/components/ui/ConfettiBurst";
 
 // Bigger than a regular gist's 700 on purpose — a Hot post can be the
 // whole urgent story (what's happening, why it matters right now), not
@@ -68,9 +69,36 @@ type Phase = "text" | "media";
 export function EDeyHotComposer({
   open,
   onClose,
+  initialText,
+  placeholderOverride,
+  showConfettiOnOpen,
+  birthdayWishFor,
 }: {
   open: boolean;
   onClose: () => void;
+  /** Pre-fills the text canvas the moment this opens — used by the
+   * birthday notification deep link (see HotPageContent.tsx), so tapping
+   * "wish them" lands straight in a composer that already says "Happy
+   * Baiday [name]" instead of a blank canvas. Only applied on open, never
+   * overwrites what someone's already typed mid-session. */
+  initialText?: string;
+  /** Replaces the random TEXT_PLACEHOLDERS pick for this open — used by
+   * the celebrant's OWN birthday deep link ("Na you dey hot today, post
+   * yourself"), which gets no initialText (nothing should put words in
+   * their mouth about their own day) but still deserves a placeholder
+   * that actually speaks to the moment instead of a generic prompt. */
+  placeholderOverride?: string;
+  /** One-shot confetti burst the instant this opens — set only by the
+   * birthday deep links (both the celebrant's own and the "wish someone"
+   * flow), never by the normal "+ photo"/rail compose path, so an
+   * ordinary Hot post never gets an unexplained celebration. */
+  showConfettiOnOpen?: boolean;
+  /** The celebrant's avitag — set only via the "wish [avitag] a happy
+   * birthday" flow, sent along with whatever gets posted so the backend
+   * can tag the resulting Hot post and notify them (see
+   * notification.service.ts's notifyBirthdayPostedYou). Never set for a
+   * normal post. */
+  birthdayWishFor?: string;
 }) {
   const myAvitag = useAuthStore((s) => s.avitag);
   const myImageUrl = useAuthStore(
@@ -134,6 +162,17 @@ export function EDeyHotComposer({
     return () => clearTimeout(t);
   }, [open]);
 
+  // Separate from the reset-on-close effect above (which clears text to
+  // "" after a delay) — this fires on the OPPOSITE transition, the instant
+  // `open` flips true, and only ever applies the prefill then. Never
+  // reruns while already open, so it can't stomp over something someone's
+  // actively typing.
+  useEffect(() => {
+    if (open && initialText) setText(initialText);
+    if (open && placeholderOverride) setPlaceholder(placeholderOverride);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   const openPicker = () => fileRef.current?.click();
 
   const handleFile = async (file: File | undefined) => {
@@ -185,9 +224,16 @@ export function EDeyHotComposer({
       if (media) {
         await useHotStore
           .getState()
-          .createMedia(media.file, media.kind === "image" ? "photo" : "video", media.file.name, trimmedText || null);
+          .createMedia(
+            media.file,
+            media.kind === "image" ? "photo" : "video",
+            media.file.name,
+            trimmedText || null,
+            undefined,
+            birthdayWishFor,
+          );
       } else {
-        await useHotStore.getState().createText(trimmedText, GIST_CARD_PALETTE[colorIndex]);
+        await useHotStore.getState().createText(trimmedText, GIST_CARD_PALETTE[colorIndex], birthdayWishFor);
       }
       onClose();
     } catch (err) {
@@ -209,6 +255,25 @@ export function EDeyHotComposer({
             e.target.value = "";
           }}
         />
+
+        {/* One-shot, not looping — mounts fresh (and so plays fresh) every
+            time `open` flips true, same reasoning BirthdayCelebration's own
+            confetti rain uses on the profile page. Three bursts spread
+            across the top rather than one dead-center, so it reads as the
+            whole screen celebrating instead of a single firework. */}
+        {open && showConfettiOnOpen && (
+          <div className="pointer-events-none absolute inset-0 z-50" aria-hidden="true">
+            <div className="absolute left-[20%] top-[18%]">
+              <ConfettiBurst size={7} />
+            </div>
+            <div className="absolute left-1/2 top-[12%] -translate-x-1/2">
+              <ConfettiBurst size={7} />
+            </div>
+            <div className="absolute left-[80%] top-[18%]">
+              <ConfettiBurst size={7} />
+            </div>
+          </div>
+        )}
 
         {phase === "text" && (
           <TextCanvas
