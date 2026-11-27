@@ -51,6 +51,7 @@ const CATEGORY_LABELS: Record<NotificationCategory, string> = {
   CAMPUSMATE_GIST: "Gist",
   BIRTHDAY: "Baiday Wishes",
   BIRTHDAY_ANNOUNCEMENT: "Other students' birthdays",
+  BIRTHDAY_POST: "Birthday posts",
 };
 
 // Every category a user can actually toggle in Notification settings —
@@ -63,6 +64,9 @@ const CATEGORY_LABELS: Record<NotificationCategory, string> = {
 // is the opt-out; a separate mute toggle for it would just be confusing.
 // BIRTHDAY_ANNOUNCEMENT (seeing OTHER students' birthdays) is an ordinary
 // ambient-content preference, same as CAMPUSMATE_GIST, so it stays mutable.
+// BIRTHDAY_POST (the circle seeing the celebrant's OWN birthday post) is
+// the same shape again — about someone else, not the recipient — so it's
+// mutable too.
 const MUTABLE_CATEGORIES: NotificationCategory[] = [
   "COMMENT",
   "REPOST",
@@ -70,6 +74,7 @@ const MUTABLE_CATEGORIES: NotificationCategory[] = [
   "DIGEST",
   "CAMPUSMATE_GIST",
   "BIRTHDAY_ANNOUNCEMENT",
+  "BIRTHDAY_POST",
   "INACTIVITY_NUDGE",
   "ACTIVATION_NUDGE",
 ];
@@ -103,6 +108,11 @@ const CATEGORY_META: Record<
   // to read as a genuine celebration rather than routine app activity.
   BIRTHDAY: { label: "Baiday", labelClass: "text-warning", tintVar: "var(--color-warning)", icon: Heart, iconBgClass: "bg-warning" },
   BIRTHDAY_ANNOUNCEMENT: { label: "Baiday", labelClass: "text-warning", tintVar: "var(--color-warning)", icon: BroadcastsIconFill, iconBgClass: "bg-warning" },
+  // Flame instead of the broadcast/heart the other two baiday categories
+  // use — this one's specifically "they posted on Hot," so it gets Hot's
+  // own icon language, still in the warm gold the whole baiday family
+  // shares.
+  BIRTHDAY_POST: { label: "Baiday", labelClass: "text-warning", tintVar: "var(--color-warning)", icon: Flame, iconBgClass: "bg-warning" },
 };
 
 // HOT_EXPIRING reuses "as e dey hot"'s own flame gradient tokens (globals.css)
@@ -241,7 +251,15 @@ function resolveNotificationTarget(
   // only — nothing should put words in anyone's mouth about what they
   // actually post). Kept in sync by hand, same as everything else on this
   // function's own doc comment.
-  if (category === "BIRTHDAY_ANNOUNCEMENT" && actorAvitag) {
+  // Both birthday categories still have ONE real HOT_POST target each
+  // though: notifyBirthdayPostedYou (notification.service.ts) reuses the
+  // plain BIRTHDAY category for "so-and-so posted you" (direct/personal,
+  // about the celebrant, same reasoning as their own wish notification),
+  // so BIRTHDAY alone isn't "go open the composer" — only BIRTHDAY with no
+  // real target (the self-wish/announcement, both target_type PROFILE) is.
+  // Falling through to the ordinary HOT_POST branch below for the posted-
+  // you case opens the actual post, not another empty composer.
+  if (category === "BIRTHDAY_ANNOUNCEMENT" && actorAvitag && targetType !== "HOT_POST") {
     // wishFor tags whatever gets posted with who it's for (kept in sync
     // with the backend's buildPushUrl by hand, same as everything else on
     // this function's own doc comment) — see hot_posts.birthday_wish_for.
@@ -250,7 +268,7 @@ function resolveNotificationTarget(
       href: `/hot?compose=1&placeholder=${encodeURIComponent(`Wish ${actorAvitag} an happy birthday !`)}&wishFor=${encodeURIComponent(actorAvitag)}`,
     };
   }
-  if (category === "BIRTHDAY") {
+  if (category === "BIRTHDAY" && targetType !== "HOT_POST") {
     return {
       kind: "route",
       href: `/hot?compose=1&placeholder=${encodeURIComponent("🎂 Oya, na you dey hot today , post yourself")}`,
@@ -400,7 +418,10 @@ function NotificationRow({
     if (isDigest) {
       markRead(notification.notification_id);
       setExpanded((v) => !v);
-    } else if (notification.category === "BIRTHDAY" || notification.category === "BIRTHDAY_ANNOUNCEMENT") {
+    } else if (
+      (notification.category === "BIRTHDAY" || notification.category === "BIRTHDAY_ANNOUNCEMENT") &&
+      notification.target_type !== "HOT_POST"
+    ) {
       // Opens the composer AS A MODAL right here on Notifications, never
       // navigating to /hot at all — unlike every other target (a real
       // route, since there's always somewhere sensible to land once
@@ -413,6 +434,11 @@ function NotificationRow({
       // — the push notification's own tap still has to navigate (no
       // "current page" to overlay when the app wasn't even open), this is
       // only for taps that happen with the app already sitting right here.
+      // Excluded here: notifyBirthdayPostedYou also fires under the plain
+      // BIRTHDAY category but carries a real HOT_POST target — that one's
+      // "go look at a thing," not "go do a quick thing," so it falls
+      // through to the normal performTarget(topTarget) branch below
+      // instead, same as every other HOT_POST notification.
       markRead(notification.notification_id);
       if (notification.category === "BIRTHDAY_ANNOUNCEMENT" && notification.actor_avitag) {
         onOpenHotComposer(undefined, `Wish ${notification.actor_avitag} an happy birthday !`, notification.actor_avitag);
@@ -536,6 +562,7 @@ const CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
   // mute toggle (see MUTABLE_CATEGORIES' own doc comment).
   BIRTHDAY: "Kappy's own happy-birthday wish, on your day",
   BIRTHDAY_ANNOUNCEMENT: "When it's another student's birthday",
+  BIRTHDAY_POST: "When a student you're close to posts on their birthday",
 };
 
 /** Same switch look as SoundToggle, local to this panel so each row can
